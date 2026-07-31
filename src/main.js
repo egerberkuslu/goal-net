@@ -7,13 +7,16 @@ import { BallView } from './view/ballView.js';
 import { PlayerView } from './view/playerView.js';
 import { AimView } from './view/aimView.js';
 import { CrowdView } from './view/crowdView.js';
+import { Fx } from './view/fx.js';
 import { Game } from './game/game.js';
 import { MpSession, GuestMatch } from './mp/session.js';
 import { Sfx } from './view/sfx.js';
 import { PauseMenu } from './game/pauseMenu.js';
+import { ReplayRecorder } from './game/replay.js';
 
 const { renderer, scene, camera } = createScene(document.getElementById('app'));
 const crowd = new CrowdView(scene);
+const fx = new Fx(scene);
 
 const dom = {
   scoreRed: document.getElementById('scoreRed'),
@@ -51,26 +54,33 @@ function buildMatch(config, roster = null, opts = {}) {
     for (const entry of roster) {
       const p = app.world.addPlayer(entry.team, entry.role ?? 'field');
       p.mpId = entry.id;
+      p.mpName = entry.name ?? '';
     }
     app.game.registerPlayers();
   } else {
     app.game = new Game(app.world, camera, dom, roster);
   }
   const react = (e) => {
-    if (e.type === 'goal') { crowd.onGoal(e.scorer); sfx.play('goal'); }
-    else if (e.type === 'post' || e.type === 'crossbar') { crowd.onNearMiss(); sfx.play('post'); sfx.play('ooh'); }
-    else if (e.type === 'kick') sfx.play('kick');
-    else if (e.type === 'ragdoll') sfx.play('thud');
+    sfx.notify(e, app.world.ball.pos);
+    if (e.type === 'goal') {
+      crowd.onGoal(e.scorer); sfx.play('goal');
+      fx.onGoal(e.scorer, Math.sign(app.world.ball.pos.z) || (e.scorer === 0 ? 1 : -1));
+      app.game.rig?.shake(0.5);
+    } else if (e.type === 'post' || e.type === 'crossbar') {
+      crowd.onNearMiss(); sfx.play('post'); sfx.play('ooh'); app.game.rig?.shake(0.25);
+    } else if (e.type === 'kick') sfx.play('kick');
+    else if (e.type === 'ragdoll') { sfx.play('thud'); app.game.rig?.shake(0.15); }
     else if (e.type === 'throwin' || e.type === 'goalkick' || e.type === 'corner') sfx.play('whistle');
   };
   app.game.onWorldEvent = (e, playing) => { if (playing) react(e); };
   if (opts.mp === 'guest') app.game.onSnapEvent = react;
   app.netView = new NetView(app.world.nets, scene);
   app.ballView = new BallView(app.world.ball, scene);
-  app.playerViews = app.world.players.map((p) => new PlayerView(p, scene));
+  app.playerViews = app.world.players.map((p) => new PlayerView(p, scene, config.teamColors));
   app.aimViews = app.world.players
     .filter((p) => p.role === 'field')
     .map((p) => new AimView(p, app.world, scene));
+  recorder.reset(app.world);
   window.__game = { ...app, session };
   return app;
 }
@@ -84,6 +94,10 @@ const session = new MpSession({
     dom.menu.classList.remove('hidden');
   },
 }, dom);
+
+const recorder = new ReplayRecorder();
+let replay = null;
+let replayDone = false;
 
 buildMatch(makeConfig());
 
@@ -118,6 +132,7 @@ const pause = new PauseMenu({
   getRig: () => app.game.rig,
   sfx,
   isMp: () => session.inMatch,
+  onWeather: (mode) => fx.setWeather(mode),
   onExit: () => {
     if (session.active) session.leave();
     buildMatch(makeConfig());
@@ -125,6 +140,7 @@ const pause = new PauseMenu({
     dom.menu.classList.remove('hidden');
   },
 });
+fx.setWeather(pause.weather);
 addEventListener('keydown', (e) => {
   if (e.code !== 'Escape') return;
   const inMenus = !dom.menu.classList.contains('hidden');
@@ -154,15 +170,34 @@ function frame(nowMs) {
   }
 
   if (!frozen) {
-    app.game.update(dt, now);
-    session.frameHook(dt);
+    // goal replay: record live play, then between the celebration and the
+    // kickoff drive the recorded frames back through the (puppet) world
+    if (app.game.state === 'play' && !session.inMatch) recorder.record(app.world);
+    if (app.game.state === 'goal' && !replay && !replayDone &&
+        now > app.game.goalResetAt - 0.2) {
+      replay = recorder.startReplay(app.world, camera);
+      replayDone = true;
+    }
+    if (replay) {
+      if (!replay.update(dt)) {
+        replay.stop(app.world);
+        replay = null;
+        app.game.goalResetAt = now;
+      }
+    } else {
+      app.game.update(dt, now);
+      session.frameHook(dt);
+    }
+    if (app.game.state !== 'goal') replayDone = false;
   }
+  sfx.setAmbiance(frozen || !dom.menu.classList.contains('hidden') ? 0 : 1);
   app.netView.update();
   app.ballView.update(dt * app.game.timeScale);
   for (const pv of app.playerViews) pv.update(dt);
   crowd.update(dt, now);
+  fx.update(dt);
   const aiming = app.game.state === 'play' || app.game.state === 'kickoff';
-  for (const av of app.aimViews) av.update(aiming && app.game.isHuman(av.player));
+  for (const av of app.aimViews) av.update(aiming && app.game.isHuman(av.player) && !replay);
   renderer.render(scene, camera);
 }
 requestAnimationFrame(frame);
@@ -176,6 +211,7 @@ const ticker = new Worker(URL.createObjectURL(new Blob(
 ticker.onmessage = () => {
   if (!document.hidden) return;
   if (pause.active && !session.inMatch) return;
+  if (replay) return; // never advance game flow while a replay drives the world
   const now = performance.now() / 1000;
   const dt = Math.min(now - last, 0.1);
   last = now;
