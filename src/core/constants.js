@@ -38,8 +38,9 @@ export const REST_PLAYER = 0.65;
 // arena (Haxball-style bounded pitch, goals on the z axis)
 export const PITCH_HALF_L = 18;  // goal lines at z = ±18
 export const PITCH_HALF_W = 11;  // touchlines at x = ±11
-export const WALL_X = 11.5;      // invisible side wall
+export const WALL_X = 11.5;      // side wall at the ad boards
 export const WALL_Z_BACK = 20.6; // safety wall behind the nets
+export const BOARD_TOP = 0.76;   // boards only block the ball below this height
 
 // players
 export const PLAYER_R = 0.35;

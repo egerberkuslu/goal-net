@@ -62,6 +62,31 @@ function fly(world, seconds, onFrame) {
   check('wall: bounced back', Math.abs(w.ball.pos.x) < WALL_X - 0.5);
 }
 
+// 3b) a lofted ball clears the low boards and leaves the pitch (throw-in land)
+{
+  const w = new World();
+  w.ball.vel = { x: 13, y: 7, z: 2 };
+  w.ball.grounded = false;
+  let maxX = 0;
+  fly(w, 1.6, () => { maxX = Math.max(maxX, Math.abs(w.ball.pos.x)); });
+  check('high ball: sails over the boards', maxX > WALL_X + 0.3, `maxX=${maxX.toFixed(2)}`);
+}
+
+// 3c) a chip over the crossbar leaves play behind the goal without scoring
+{
+  const w = new World();
+  w.ball.place(0, 8);
+  w.ball.vel = { x: 0, y: 9.5, z: 12 };
+  w.ball.grounded = false;
+  let goal = null, maxZ = 0;
+  fly(w, 2.2, (ev) => {
+    for (const e of ev) if (e.type === 'goal') goal = e;
+    maxZ = Math.max(maxZ, w.ball.pos.z);
+  });
+  check('over the bar: no goal', goal === null);
+  check('over the bar: left the pitch', maxZ > PITCH_HALF_L + 0.15, `maxZ=${maxZ.toFixed(2)}`);
+}
+
 // 4) end wall outside the mouth is solid (no phantom goal)
 {
   const w = new World();

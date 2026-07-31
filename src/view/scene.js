@@ -66,53 +66,6 @@ function makePitchTexture() {
   return tex;
 }
 
-// Futsal-cage style transparent walls: everything except the goal mouths is
-// closed off, and the ball visibly rebounds off them.
-function addCage(scene) {
-  const H = 4;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = 256;
-  const g = cv.getContext('2d');
-  g.clearRect(0, 0, 256, 256);
-  g.strokeStyle = 'rgba(255,255,255,0.55)';
-  g.lineWidth = 2;
-  for (let i = 0; i <= 256; i += 32) {
-    g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke();
-    g.beginPath(); g.moveTo(0, i); g.lineTo(256, i); g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(cv);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  const mat = (w, h) => {
-    const t = tex.clone();
-    t.needsUpdate = true;
-    t.repeat.set(w / 1.2, h / 1.2);
-    return new THREE.MeshBasicMaterial({
-      map: t, transparent: true, opacity: 0.35,
-      side: THREE.DoubleSide, depthWrite: false,
-    });
-  };
-  const panel = (w, h, x, y, z, rotY = 0) => {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat(w, h));
-    m.position.set(x, y, z);
-    m.rotation.y = rotY;
-    scene.add(m);
-  };
-  // side walls along the touchlines
-  panel(2 * PITCH_HALF_L, H, WALL_X, H / 2, 0, Math.PI / 2);
-  panel(2 * PITCH_HALF_L, H, -WALL_X, H / 2, 0, Math.PI / 2);
-  for (const s of [-1, 1]) {
-    const z = s * PITCH_HALF_L;
-    const sideW = WALL_X - DEFAULT_HALF_W;
-    // end walls left/right of the goal, plus the strip above the crossbar.
-    // The cage is static architecture, so it keeps the DEFAULT goal size: with
-    // goalScale > 1 the frame pokes slightly through this strip, which is an
-    // accepted v1 cosmetic compromise.
-    panel(sideW, H, -(DEFAULT_HALF_W + sideW / 2), H / 2, z);
-    panel(sideW, H, DEFAULT_HALF_W + sideW / 2, H / 2, z);
-    panel(GOAL_W, H - GOAL_H, 0, GOAL_H + (H - GOAL_H) / 2, z);
-  }
-}
-
 // Goal frames + stanchions for both ends, sized from the match config. Kept
 // out of createScene so a lobby can rebuild them when the goal size changes.
 export function buildGoalFrames(scene, config) {
@@ -253,7 +206,7 @@ export function createScene(container) {
   // goal frames are built separately by buildGoalFrames(scene, config)
 
   addStadium(scene);
-  addCage(scene);
+  // no cage: the low ad boards are the boundary, high balls go out of play
 
   const onResize = () => {
     camera.aspect = innerWidth / innerHeight;

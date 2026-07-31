@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test:sim": "node scripts/sim-test.mjs",
     "test:mp": "node scripts/mp-test.mjs",
-    "test:crowd": "node scripts/crowd-test.mjs"
+    "test:crowd": "node scripts/crowd-test.mjs",
+    "rooms": "node server/room-list.mjs"
   },
   "dependencies": {
     "peerjs": "^1.5.0",

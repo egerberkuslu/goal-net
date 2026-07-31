@@ -6,7 +6,7 @@ import {
   DT, SUBSTEPS, ITERS,
   PITCH_HALF_L, WALL_X, WALL_Z_BACK,
   PLAYER_R, PLAYER_H,
-  KICK_RANGE, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX, RAGDOLL_SPEED,
+  KICK_RANGE, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX, RAGDOLL_SPEED, BOARD_TOP,
 } from './constants.js';
 import { makeConfig } from './config.js';
 
@@ -144,16 +144,22 @@ export class World {
       bp.y = BALL_R;
       ball.contacts.push({ nx: 0, ny: 1, nz: 0, type: 'ground' });
     }
-    // side walls
-    if (bp.x > WALL_X - BALL_R) {
-      bp.x = WALL_X - BALL_R;
-      ball.contacts.push({ nx: -1, ny: 0, nz: 0, type: 'wall' });
-    } else if (bp.x < -(WALL_X - BALL_R)) {
-      bp.x = -(WALL_X - BALL_R);
-      ball.contacts.push({ nx: 1, ny: 0, nz: 0, type: 'wall' });
+    // ad boards are the walls, and they are LOW: only a ball below the board
+    // top rebounds — anything higher sails out (throw-in / goal kick, handled
+    // by the game layer)
+    const belowBoards = bp.y < BOARD_TOP;
+    if (belowBoards) {
+      if (bp.x > WALL_X - BALL_R) {
+        bp.x = WALL_X - BALL_R;
+        ball.contacts.push({ nx: -1, ny: 0, nz: 0, type: 'wall' });
+      } else if (bp.x < -(WALL_X - BALL_R)) {
+        bp.x = -(WALL_X - BALL_R);
+        ball.contacts.push({ nx: 1, ny: 0, nz: 0, type: 'wall' });
+      }
     }
-    // end walls: solid outside the goal mouth, open inside it (goal!)
-    if (Math.abs(bp.x) > this.halfW - 0.05 || bp.y > this.config.goalH + 0.1) {
+    // goal-line boards: solid outside the goal mouth, open inside it (goal!),
+    // and open above board height (over the top -> goal kick)
+    if (belowBoards && Math.abs(bp.x) > this.halfW - 0.05) {
       if (bp.z > PITCH_HALF_L - BALL_R && bp.z < PITCH_HALF_L + 0.5) {
         bp.z = PITCH_HALF_L - BALL_R;
         ball.contacts.push({ nx: 0, ny: 0, nz: -1, type: 'wall' });

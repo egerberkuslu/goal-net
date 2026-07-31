@@ -1,4 +1,6 @@
-import { KICK_CHARGE_TIME, PITCH_HALF_L } from '../core/constants.js';
+import {
+  KICK_CHARGE_TIME, PITCH_HALF_L, WALL_X, BALL_R,
+} from '../core/constants.js';
 import {
   KeyboardController, P1_KEYS, P1_ALT_KEYS, P1_X_KICK, P2_KEYS,
 } from './input.js';
@@ -181,16 +183,26 @@ export class Game {
       if (this.timeLeft <= 0) { this.endMatch(); return; }
     }
     if (playing) {
-
-      // failsafe: the arena is fully enclosed, but if the ball ever glitches
-      // out of bounds, quietly drop it back at the centre
+      // outs: the boards are low, so a high ball can leave the pitch.
+      // Over a touchline -> throw-in from where it went out; over the goal
+      // line / the goal -> goal kick.
       const bp = this.world.ball.pos;
-      if ((Math.abs(bp.z) > PITCH_HALF_L + 2.2 || Math.abs(bp.x) > 12) &&
-          !this.world.scoringLocked) {
+      if (Math.abs(bp.x) > WALL_X + BALL_R) {
+        const side = Math.sign(bp.x);
+        const z = Math.max(-PITCH_HALF_L + 2, Math.min(PITCH_HALF_L - 2, bp.z));
+        this.world.placeBall(side * (WALL_X - 1.2), z);
+        this.showMessage('Taç!', 'kacti', 1000);
+        this.onWorldEvent?.({ type: 'throwin' }, true);
+        this.outTimer = 0;
+      } else if (Math.abs(bp.z) > PITCH_HALF_L + 0.15 && !this.world.scoringLocked) {
+        // grace period: the ball may be resting on the net roof or rolling
+        // off it — restart once it is clearly out of play
         this.outTimer += dt;
-        if (this.outTimer > 1.5) {
+        if (this.outTimer > 0.7) {
           this.outTimer = 0;
-          this.world.placeBall(0, 0);
+          this.world.placeBall(0, Math.sign(bp.z) * (PITCH_HALF_L - 3.2));
+          this.showMessage('Kale vuruşu!', 'kacti', 1000);
+          this.onWorldEvent?.({ type: 'goalkick' }, true);
         }
       } else {
         this.outTimer = 0;

@@ -95,6 +95,8 @@ class GuestMatch {
         this.onSnapEvent?.(e);
       } else if (e.type === 'post') { this.showMessage('Direk!', 'direk', 900); this.onSnapEvent?.(e); }
       else if (e.type === 'crossbar') { this.showMessage('Üst direk!', 'direk', 900); this.onSnapEvent?.(e); }
+      else if (e.type === 'throwin') this.showMessage('Taç!', 'kacti', 1000);
+      else if (e.type === 'goalkick') this.showMessage('Kale vuruşu!', 'kacti', 1000);
     }
     if (prevState !== 'kickoff' && snap.state === 'kickoff') this.showMessage('Hazır…', 'hazir', 1000);
     if (prevState !== 'end' && snap.state === 'end') this.showEnd();
@@ -321,11 +323,12 @@ export class MpSession {
     for (const k of game.keepers) controllers.set(k, new KeeperController(world, k));
 
     const prevHook = game.onWorldEvent;
+    const shared = new Set(['post', 'crossbar', 'throwin', 'goalkick']);
     game.onWorldEvent = (e, playing) => {
       prevHook?.(e, playing);
-      if (playing && (e.type === 'goal' || e.type === 'post' || e.type === 'crossbar')) {
-        this.pendingEvents.push(e.type === 'goal' ? { type: 'goal', scorer: e.scorer } : { type: e.type });
-      }
+      if (!playing) return;
+      if (e.type === 'goal') this.pendingEvents.push({ type: 'goal', scorer: e.scorer });
+      else if (shared.has(e.type)) this.pendingEvents.push({ type: e.type });
     };
     game.onMatchEnd = () => {
       this.net.broadcast({ t: MSG.END, score: [...game.score] });
