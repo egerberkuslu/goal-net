@@ -1,6 +1,19 @@
 import { CAM_MODES } from '../view/cameraRig.js';
 import { P1_KEYS, P2_KEYS, saveKeyOverrides } from './input.js';
 
+const WEATHER_KEY = 'goalnet-weather';
+export const WEATHER_MODES = [
+  { id: 'acik', label: 'Açık' },
+  { id: 'yagmur', label: 'Yağmur' },
+];
+
+/** Stored weather choice, for applying it at boot before the menu opens. */
+export function loadWeather() {
+  let s = null;
+  try { s = localStorage.getItem(WEATHER_KEY); } catch { /* fine */ }
+  return WEATHER_MODES.some((m) => m.id === s) ? s : 'acik';
+}
+
 const KEY_ROWS = [
   ['Yukarı', 'up'], ['Aşağı', 'down'], ['Sol', 'left'], ['Sağ', 'right'],
   ['Şut', 'kick'], ['Kayma', 'slide'],
@@ -16,16 +29,17 @@ function keyLabel(code) {
 // ESC overlay: resume, camera mode, volume, key rebinding, exit to menu.
 // In multiplayer the simulation cannot stop, so the overlay only floats.
 export class PauseMenu {
-  // hooks: { getRig(), sfx, isMp(), onExit() }
+  // hooks: { getRig(), sfx, isMp(), onExit(), onWeather(mode) }
   constructor(hooks) {
     this.hooks = hooks;
     this.active = false;
     this.capture = null; // {map, key, btn} while waiting for a key press
+    this.weather = loadWeather();
     const $ = (id) => document.getElementById(id);
     this.el = {
       root: $('pause'), hint: $('pauseHint'), cam: $('pauseCam'),
       vol: $('pauseVol'), volVal: $('pauseVolVal'), keys: $('pauseKeys'),
-      resume: $('pauseResume'), exit: $('pauseExit'),
+      resume: $('pauseResume'), exit: $('pauseExit'), settings: $('pauseSettings'),
     };
     this.el.resume.addEventListener('click', () => this.hide());
     this.el.exit.addEventListener('click', () => { this.hide(); hooks.onExit(); });
@@ -34,6 +48,7 @@ export class PauseMenu {
       this.el.volVal.textContent = `${this.el.vol.value}%`;
     });
     this.#buildCam();
+    this.#buildWeather();
     this.#buildKeys();
     addEventListener('keydown', (e) => this.#onKey(e), true);
   }
@@ -49,6 +64,7 @@ export class PauseMenu {
     this.el.vol.value = Math.round(this.hooks.sfx.volume * 100);
     this.el.volVal.textContent = `${this.el.vol.value}%`;
     this.#refreshCam();
+    this.#refreshWeather();
     this.#refreshKeys();
   }
 
@@ -75,6 +91,46 @@ export class PauseMenu {
   #refreshCam() {
     const mode = this.hooks.getRig()?.mode;
     for (const b of this.el.cam.children) b.classList.toggle('on', b.dataset.mode === mode);
+  }
+
+  // The weather row is created here rather than in index.html so the markup
+  // stays owned by one place. It appends to the same settings grid as the
+  // camera and volume rows, so it inherits their layout for free.
+  #buildWeather() {
+    const grid = this.el.settings;
+    if (!grid) return;
+    const label = document.createElement('span');
+    label.className = 'mp-setlabel';
+    label.textContent = 'Hava';
+    const seg = document.createElement('span');
+    seg.className = 'mp-seg';
+    this.weatherButtons = [];
+    for (const m of WEATHER_MODES) {
+      const b = document.createElement('button');
+      b.textContent = m.label;
+      b.dataset.weather = m.id;
+      b.addEventListener('click', () => this.setWeather(m.id));
+      seg.appendChild(b);
+      this.weatherButtons.push(b);
+    }
+    grid.append(label, seg);
+    this.el.weather = seg;
+  }
+
+  /** Applies + persists the weather choice and notifies the hook. */
+  setWeather(mode) {
+    const id = WEATHER_MODES.some((m) => m.id === mode) ? mode : 'acik';
+    this.weather = id;
+    try { localStorage.setItem(WEATHER_KEY, id); } catch { /* private mode */ }
+    this.#refreshWeather();
+    this.hooks.onWeather?.(id);
+    return id;
+  }
+
+  #refreshWeather() {
+    for (const b of this.weatherButtons ?? []) {
+      b.classList.toggle('on', b.dataset.weather === this.weather);
+    }
   }
 
   #buildKeys() {
