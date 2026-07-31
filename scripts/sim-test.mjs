@@ -178,6 +178,88 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
   check('kick: out of range refused', w.tryKick(p, 0.5) === false && far === true);
 }
 
+// 6b) dribble: the ball rides at the feet through a run, and an about-turn
+//     drops it instead of hauling it backwards
+{
+  const w = new World();
+  const p = w.addPlayer(0);
+  p.reset(0, -10);
+  w.ball.place(0, -9.3);
+  const drive = (ix, iz, seconds, onFrame) => {
+    const frames = Math.round(seconds / DT);
+    for (let f = 0; f < frames; f++) {
+      p.input.x = ix; p.input.z = iz;
+      w.step(DT);
+      if (onFrame) onFrame((f + 1) * DT);
+    }
+  };
+  const gap = () => Math.hypot(w.ball.pos.x - p.pos.x, w.ball.pos.z - p.pos.z);
+
+  let sum = 0, n = 0, max = 0;
+  drive(0, 1, 1.5, (t) => {
+    if (t <= 0.3) return; // the first touches settle the ball at the feet
+    const d = gap();
+    sum += d; n++; max = Math.max(max, d);
+  });
+  const avg = sum / n;
+  check('dribble: ball stays at the feet', avg < 1.0, `avg=${avg.toFixed(2)} m`);
+  check('dribble: never gets away', max < 1.4, `max=${max.toFixed(2)} m`);
+
+  const ballZAtFlip = w.ball.pos.z;
+  let turnTime = null, minBallZ = ballZAtFlip;
+  drive(0, -1, 1.2, (t) => {
+    if (turnTime === null && p.vel.z < -4) turnTime = t;
+    minBallZ = Math.min(minBallZ, w.ball.pos.z);
+  });
+  check('dribble: about-turn accelerates freely',
+    turnTime !== null && turnTime < 0.9,
+    turnTime === null ? 'never reached -4 m/s' : `vz<-4 after ${turnTime.toFixed(2)} s`);
+  check('dribble: ball not dragged backwards', ballZAtFlip - minBallZ < 0.5,
+    `pulled back ${(ballZAtFlip - minBallZ).toFixed(2)} m`);
+}
+
+// 6c) the same run and about-turn, but the carrier is a shoulder off the
+//     ball's line — the everyday case, where the old assist hauled the ball
+//     five metres back up the pitch
+{
+  const w = new World();
+  const p = w.addPlayer(0);
+  p.reset(0.35, -10);
+  w.ball.place(0, -9.3);
+  const drive = (ix, iz, seconds, onFrame) => {
+    for (let f = 0; f < Math.round(seconds / DT); f++) {
+      p.input.x = ix; p.input.z = iz;
+      w.step(DT);
+      if (onFrame) onFrame((f + 1) * DT);
+    }
+  };
+  drive(0, 1, 1.5);
+  const carried = Math.hypot(w.ball.pos.x - p.pos.x, w.ball.pos.z - p.pos.z);
+  check('dribble: off-centre ball still carried', carried < 1.0, `d=${carried.toFixed(2)} m`);
+  const ballZAtFlip = w.ball.pos.z;
+  let minBallZ = ballZAtFlip;
+  drive(0, -1, 1.2, () => { minBallZ = Math.min(minBallZ, w.ball.pos.z); });
+  check('dribble: off-centre about-turn leaves the ball',
+    ballZAtFlip - minBallZ < 0.5, `pulled back ${(ballZAtFlip - minBallZ).toFixed(2)} m`);
+}
+
+// 6d) a right-angle change of direction keeps the ball, it is a turn and not
+//     an about-turn
+{
+  const w = new World();
+  const p = w.addPlayer(0);
+  p.reset(0, -13);
+  w.ball.place(0, -12.3);
+  let max = 0;
+  for (let f = 0; f < Math.round(1.2 / DT); f++) { p.input.x = 0; p.input.z = 1; w.step(DT); }
+  for (let f = 0; f < Math.round(1.2 / DT); f++) {
+    p.input.x = 1; p.input.z = 0;
+    w.step(DT);
+    max = Math.max(max, Math.hypot(w.ball.pos.x - p.pos.x, w.ball.pos.z - p.pos.z));
+  }
+  check('dribble: right-angle turn keeps the ball', max < 1.4, `max=${max.toFixed(2)} m`);
+}
+
 // 7) both nets idle-settle, everything stays finite
 {
   const w = new World();
