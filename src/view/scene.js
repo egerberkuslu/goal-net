@@ -147,12 +147,16 @@ export function buildGoalFrames(scene, config) {
 function addStadium(scene) {
   const standMat = new THREE.MeshLambertMaterial({ color: 0x232c44 });
   const seatMat = new THREE.MeshLambertMaterial({ color: 0x2e3a5c });
-  // tiered stands along the touchlines and behind the goals
+  // tiered stands: far touchline + both goal ends. The near (+x) side is
+  // deliberately open — broadcast style — so the camera always sees the
+  // bottom of the pitch; only the ad boards line that edge.
   for (const side of [-1, 1]) {
     for (let t = 0; t < 3; t++) {
-      const s = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6 + t * 0.4, 52), t % 2 ? seatMat : standMat);
-      s.position.set(side * (14.5 + t * 2.3), (1.6 + t * 0.4) / 2 + t * 1.1, 0);
-      scene.add(s);
+      if (side < 0) {
+        const s = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6 + t * 0.4, 52), t % 2 ? seatMat : standMat);
+        s.position.set(side * (14.5 + t * 2.3), (1.6 + t * 0.4) / 2 + t * 1.1, 0);
+        scene.add(s);
+      }
       const e = new THREE.Mesh(new THREE.BoxGeometry(34, 1.6 + t * 0.4, 2.2), t % 2 ? seatMat : standMat);
       e.position.set(0, (1.6 + t * 0.4) / 2 + t * 1.1, side * (23.5 + t * 2.3));
       scene.add(e);
@@ -178,11 +182,18 @@ function addStadium(scene) {
   const endBoard = new THREE.BoxGeometry(3.8, 0.75, 0.1);
   let ci = 0;
   for (const side of [-1, 1]) {
-    // touchline boards at the side walls
+    // touchline boards at the side walls; the near (+x, camera-side) run is
+    // translucent so it never hides the ball along the bottom touchline
     for (let z = -18; z < 18; z += 6) {
-      const b = new THREE.Mesh(across, new THREE.MeshLambertMaterial({ color: colors[ci++ % 4] }));
+      const mat = new THREE.MeshLambertMaterial({ color: colors[ci++ % 4] });
+      if (side > 0) {
+        mat.transparent = true;
+        mat.opacity = 0.3;
+        mat.depthWrite = false;
+      }
+      const b = new THREE.Mesh(across, mat);
       b.position.set(side * (WALL_X + 0.06), 0.38, z + 3);
-      b.castShadow = true;
+      b.castShadow = side < 0;
       scene.add(b);
     }
     // goal-line boards from each post out to the side walls

@@ -64,4 +64,12 @@ export class AimView {
     this.dot.position.set(sim.pos.x, Math.max(sim.pos.y, 0.05), sim.pos.z);
     this.dot.visible = true;
   }
+
+  dispose() {
+    for (const o of [this.line, this.dot]) {
+      o.parent?.remove(o);
+      o.geometry.dispose();
+      o.material.dispose();
+    }
+  }
 }

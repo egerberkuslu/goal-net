@@ -44,4 +44,10 @@ export class NetView {
     this.buffer.array.set(this.array);
     this.buffer.needsUpdate = true;
   }
+
+  dispose() {
+    this.mesh.parent?.remove(this.mesh);
+    this.mesh.geometry.dispose();
+    this.material.dispose();
+  }
 }

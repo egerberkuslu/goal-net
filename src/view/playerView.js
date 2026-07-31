@@ -117,4 +117,12 @@ export class PlayerView {
       this.ring.material.opacity = 0.35 + c * 0.6;
     }
   }
+
+  dispose() {
+    this.group.parent?.remove(this.group);
+    this.group.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+  }
 }

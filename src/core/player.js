@@ -16,6 +16,7 @@ export class Player {
     this.down = 0;        // ragdoll: seconds until back on their feet
     this.downTotal = RAGDOLL_TIME;
     this.tumbleSpin = 0;
+    this.knockCooldown = 0; // hidden immunity so players can't be stun-locked
   }
 
   reset(x, z) {
@@ -26,12 +27,14 @@ export class Player {
     this.charge = 0;
     this.kickAnim = 0;
     this.down = 0;
+    this.knockCooldown = 0;
   }
 
   // A fast ball flattens the player: thrown along the ball's travel
   // direction, no control until they scramble back up.
   knockDown(dirX, dirZ, speed) {
-    if (this.down > 0) return;
+    if (this.down > 0 || this.knockCooldown > 0) return;
+    this.knockCooldown = 6;
     this.down = this.downTotal = RAGDOLL_TIME;
     const shove = Math.min(9, speed * 0.42);
     this.vel.x += dirX * shove;
@@ -42,6 +45,7 @@ export class Player {
   }
 
   integrate(h) {
+    this.knockCooldown = Math.max(0, this.knockCooldown - h);
     if (this.down > 0) {
       this.down = Math.max(0, this.down - h);
       const f = Math.exp(-2.2 * h); // slide across the grass

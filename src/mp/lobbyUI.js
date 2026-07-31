@@ -49,6 +49,7 @@ export class LobbyUI {
       onKick: noop,
       onBan: noop,
       onLeave: noop,
+      onAddBot: noop,
       ...callbacks,
     };
 
@@ -76,6 +77,8 @@ export class LobbyUI {
       settingsHint: $('mpSettingsHint'),
       start: $('mpStart'),
       leave: $('mpLeave'),
+      addBotRed: $('mpAddBotRed'),
+      addBotBlue: $('mpAddBotBlue'),
     };
     this.overlays = [this.el.entry, this.el.connecting, this.el.lobby].filter(Boolean);
 
@@ -189,6 +192,8 @@ export class LobbyUI {
     if (el.copy) el.copy.addEventListener('click', () => this.#copyCode());
     if (el.swap) el.swap.addEventListener('click', () => this.cb.onTeamSwitch(this.swapTarget));
     if (el.start) el.start.addEventListener('click', () => this.cb.onStart());
+    if (el.addBotRed) el.addBotRed.addEventListener('click', () => this.cb.onAddBot(0));
+    if (el.addBotBlue) el.addBotBlue.addEventListener('click', () => this.cb.onAddBot(1));
     if (el.leave) el.leave.addEventListener('click', () => this.#leave());
     if (el.settings) el.settings.addEventListener('click', (e) => this.#onSettingClick(e));
   }
@@ -370,6 +375,9 @@ export class LobbyUI {
       this.el.start.hidden = !isHost;
       this.el.start.disabled = !enough;
       this.el.start.title = enough ? '' : 'En az 2 oyuncu gerekli';
+    }
+    for (const btn of [this.el.addBotRed, this.el.addBotBlue]) {
+      if (btn) btn.hidden = !isHost;
     }
   }
 }

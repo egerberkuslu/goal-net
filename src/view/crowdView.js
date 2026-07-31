@@ -238,14 +238,18 @@ function buildSeats(rnd) {
     for (let t = 0; t < TIERS; t++) {
       const y = TIER_TOP(t);
 
-      // side stands: rows run along z, seats step across the tier depth in x
-      const cx = side * SIDE_X(t);
-      const nSide = Math.floor(SIDE_LEN / SEAT_PITCH);
-      for (const row of ROW_OFFSETS) {
-        for (let i = 0; i < nSide; i++) {
-          const z = -SIDE_LEN / 2 + (i + 0.5) * SEAT_PITCH + (rnd() - 0.5) * 0.12;
-          const x = cx + row + (rnd() - 0.5) * 0.1;
-          place(x, y, z, SEC_NEUTRAL);
+      // side stands: rows run along z, seats step across the tier depth in x.
+      // Only the far side (-x) is populated — the near (+x) stand would sit
+      // between the broadcast camera and the pitch and block the view.
+      if (side < 0) {
+        const cx = side * SIDE_X(t);
+        const nSide = Math.floor(SIDE_LEN / SEAT_PITCH);
+        for (const row of ROW_OFFSETS) {
+          for (let i = 0; i < nSide; i++) {
+            const z = -SIDE_LEN / 2 + (i + 0.5) * SEAT_PITCH + (rnd() - 0.5) * 0.12;
+            const x = cx + row + (rnd() - 0.5) * 0.1;
+            place(x, y, z, SEC_NEUTRAL);
+          }
         }
       }
 

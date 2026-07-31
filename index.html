@@ -98,6 +98,10 @@
     .overlay .mp-seg button.on:disabled { background: #2456e6; color: #fff; }
     .mp-hint { color: #7f8ec0; font-size: 12px; margin: 8px 0 0; }
     .mp-actions { margin-top: 16px; }
+    .mp-room { display: flex; align-items: center; gap: 8px; font-size: 14px;
+      background: rgba(255, 255, 255, .06); padding: 6px 10px; border-radius: 9px; }
+    .overlay .mp-room button { margin: 0; padding: 4px 12px; font-size: 12px;
+      font-weight: 700; border-radius: 7px; }
   </style>
 </head>
 <body>
@@ -119,6 +123,7 @@
       <button id="btn1p">1 Oyuncu (Bota karşı)</button>
       <button id="btn2p">2 Oyuncu (Yerel)</button>
       <button id="btnMp">Çok Oyunculu</button>
+      <button id="btnTrain" class="mp-ghost">Antrenman</button>
     </div>
     <div class="controls">
       <div><b>Kırmızı:</b> WASD veya Yön tuşları · Boşluk / X şut<br>(basılı tut = güçlü + yüksek; kesik çizgi nereye gideceğini gösterir)</div>
@@ -139,6 +144,8 @@
       <input id="mpCode" class="mp-input mp-code" type="text" maxlength="6"
              placeholder="ABC123" autocomplete="off" spellcheck="false" />
       <button id="mpJoin" class="mp-ghost">Katıl</button>
+      <div class="mp-or">— açık odalar —</div>
+      <ul id="mpRooms" class="mp-playerlist"></ul>
     </div>
     <div class="mp-error-slot"><div id="mpError"></div></div>
     <button id="mpBack" class="mp-ghost">Geri</button>
@@ -163,10 +170,12 @@
       <div class="mp-team mp-team-red">
         <h3>KIRMIZI</h3>
         <ul class="mp-playerlist" id="mpTeamRed"></ul>
+        <button class="mp-small mp-ghost" id="mpAddBotRed">+ Bot</button>
       </div>
       <div class="mp-team mp-team-blue">
         <h3>MAVİ</h3>
         <ul class="mp-playerlist" id="mpTeamBlue"></ul>
+        <button class="mp-small mp-ghost" id="mpAddBotBlue">+ Bot</button>
       </div>
     </div>
 

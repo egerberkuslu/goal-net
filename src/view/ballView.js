@@ -55,4 +55,11 @@ export class BallView {
       this.mesh.rotateOnWorldAxis(this.spinAxis, w * dt);
     }
   }
+
+  dispose() {
+    this.mesh.parent?.remove(this.mesh);
+    this.mesh.geometry.dispose();
+    this.mesh.material.map?.dispose();
+    this.mesh.material.dispose();
+  }
 }
