@@ -1,6 +1,6 @@
 // Headless validation of the arena world: goals register, nets don't tunnel,
 // walls contain the ball, kicks and player collisions behave, perf budget holds.
-import { World, KeeperController } from '../src/core/world-entry.js';
+import { World, KeeperController, makeConfig } from '../src/core/world-entry.js';
 import { DT, PITCH_HALF_L, WALL_X, NET_BOT_DEPTH, BALL_R } from '../src/core/constants.js';
 
 let failures = 0;
@@ -162,6 +162,35 @@ function fly(world, seconds, onFrame) {
   check('keeper: save made', goal === null, JSON.stringify(goal));
   check('keeper: ball cleared fieldward', w.ball.pos.z > -PITCH_HALF_L + 1,
     `z=${w.ball.pos.z.toFixed(2)}`);
+}
+
+// 9) a smaller goal still scores down the middle, but its narrower mouth
+//    rejects a shot that would beat a full-size goal
+{
+  const cfg = makeConfig({ goalScale: 0.8 });
+  const w = new World(cfg);
+  w.ball.vel = { x: 0, y: 1.5, z: 22 };
+  w.ball.grounded = false;
+  let goal = null, maxZ = 0;
+  fly(w, 2.5, (ev) => {
+    for (const e of ev) if (e.type === 'goal') goal = e;
+    maxZ = Math.max(maxZ, w.ball.pos.z);
+  });
+  check('small goal: centre shot scores', goal?.scorer === 0, JSON.stringify(goal));
+  check('small goal: no tunneling', maxZ < NET_LIMIT, `maxZ=${maxZ.toFixed(2)}`);
+
+  const w2 = new World(makeConfig({ goalScale: 0.8 }));
+  w2.ball.place(3.2, 0);
+  w2.ball.vel = { x: 0, y: 1, z: 22 };
+  w2.ball.grounded = false;
+  let goal2 = null, maxZ2 = 0;
+  fly(w2, 2.0, (ev) => {
+    for (const e of ev) if (e.type === 'goal') goal2 = e;
+    maxZ2 = Math.max(maxZ2, w2.ball.pos.z);
+  });
+  check('small goal: x=3.2 misses the narrowed mouth', goal2 === null, JSON.stringify(goal2));
+  check('small goal: x=3.2 hits the end wall',
+    maxZ2 <= PITCH_HALF_L - BALL_R + 0.02, `maxZ=${maxZ2.toFixed(2)}`);
 }
 
 // 8) performance budget with two nets + players
