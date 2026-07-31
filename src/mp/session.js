@@ -123,7 +123,13 @@ class GuestMatch {
       else if (e.type === 'foul') { this.showMessage('Faul!', 'kacti', 1200); this.onSnapEvent?.(e); }
       else if (e.type === 'penalty') { this.showMessage('Penaltı!', 'direk', 1600); this.onSnapEvent?.(e); }
       else if (e.type === 'freekick') { this.showMessage('Serbest vuruş!', 'kacti', 1200); this.onSnapEvent?.(e); }
-      else if (e.type === 'half') { this.showMessage('Devre Arası', 'hazir', 1800); this.onSnapEvent?.(e); }
+      else if (e.type === 'half') {
+        this.showMessage('Devre Arası', 'hazir', 1800);
+        // change of ends: keep the guest's locally-derived goal-end logic
+        // (crowd colours, confetti side) pointing at the right team
+        this.world.sideSwap = !this.world.sideSwap;
+        this.onSnapEvent?.(e);
+      }
       else if (e.type === 'golden') { this.showMessage('Altın Gol!', 'gol', 2000); this.onSnapEvent?.(e); }
       else if (e.type === 'kick' || e.type === 'ragdoll') this.onSnapEvent?.(e);
     }

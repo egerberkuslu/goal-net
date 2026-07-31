@@ -11,6 +11,7 @@
     "test:mp": "node scripts/mp-test.mjs",
     "test:crowd": "node scripts/crowd-test.mjs",
     "test:input": "node scripts/input-test.mjs",
+    "test:rules": "node scripts/rules-test.mjs",
     "test:fx": "node scripts/fx-test.mjs",
     "test:replay": "node scripts/replay-test.mjs",
     "check:dist": "node deploy/check-dist.mjs",

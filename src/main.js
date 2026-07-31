@@ -102,10 +102,14 @@ let replayDone = false;
 buildMatch(makeConfig());
 
 dom.btn1p.addEventListener('click', () => {
-  if (!session.inMatch) app.game.startMatch('1p');
+  if (session.inMatch) return;
+  buildMatch(makeConfig()); // fresh default roster (training may have run)
+  app.game.startMatch('1p');
 });
 dom.btn2p.addEventListener('click', () => {
-  if (!session.inMatch) app.game.startMatch('2p');
+  if (session.inMatch) return;
+  buildMatch(makeConfig());
+  app.game.startMatch('2p');
 });
 document.getElementById('btnTrain').addEventListener('click', () => {
   if (session.inMatch) return;
