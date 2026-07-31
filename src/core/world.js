@@ -7,9 +7,13 @@ import {
   PITCH_HALF_L, WALL_X, WALL_Z_BACK,
   PLAYER_R, PLAYER_H,
   KICK_RANGE, KICK_ASSIST, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX,
-  RAGDOLL_SPEED, BOARD_TOP,
+  RAGDOLL_SPEED, BOARD_TOP, NET_GRIP,
 } from './constants.js';
 import { makeConfig } from './config.js';
+
+// how far behind the goal line the post-goal one-way ratchet still holds the
+// ball; deeper than this the ball is free to sag and settle in the pocket
+const MOUTH_RATCHET_DEPTH = 0.9;
 
 function frameFor(goalZ, halfW, goalH) {
   return [
@@ -78,7 +82,7 @@ export class World {
       // cords grip the ball: while in the net, energy drains fast so the
       // shot is swallowed instead of trampolining back onto the pitch
       if (this.netContact) {
-        const f = Math.exp(-10 * h);
+        const f = Math.exp(-NET_GRIP * h);
         ball.vel.x *= f; ball.vel.y *= f; ball.vel.z *= f;
         ball.omega.x *= f; ball.omega.y *= f; ball.omega.z *= f;
       }
@@ -211,13 +215,21 @@ export class World {
         ball.contacts.push({ nx: 0, ny: 0, nz: 1, type: 'wall' });
       }
     }
-    // once a goal has been scored the mouth is one-way: the ball stays in
-    // the net through the celebration instead of dribbling back out
+    // once a goal has been scored the mouth is one-way: the ball stays in the
+    // net through the celebration instead of dribbling back onto the pitch.
+    // This is a pure ratchet — outward motion inside the mouth band is
+    // cancelled, never reversed, so it can only remove energy. (Clamping the
+    // ball FORWARD here would act as a velocity pump and ram it through the
+    // net sheet.)
     if (this.scoringLocked) {
-      const s = Math.sign(bp.z) || 1;
-      if (s * bp.z < PITCH_HALF_L + BALL_R && s * bp.z > PITCH_HALF_L - 1.5) {
-        bp.z = s * (PITCH_HALF_L + BALL_R);
-        ball.contacts.push({ nx: 0, ny: 0, nz: s, type: 'player', cvx: 0, cvz: 0 });
+      const s = bp.z >= 0 ? 1 : -1;
+      const depth = s * bp.z - PITCH_HALF_L;          // >0 once inside the net
+      const wasDepth = s * ball.prev.z - PITCH_HALF_L;
+      const inMouth = Math.abs(bp.x) < this.halfW + BALL_R &&
+        bp.y < this.config.goalH + BALL_R;
+      if (inMouth && depth < MOUTH_RATCHET_DEPTH && wasDepth > -0.02 &&
+          depth < wasDepth) {
+        bp.z = ball.prev.z; // freeze the outward slice, no impulse, no push
       }
     }
     // safety wall far behind the nets

@@ -23,6 +23,9 @@ export const SUBSTEPS = 12;
 export const ITERS = 3;
 export const CONTACT_CORD_R = 0.02; // inflated cord radius for ball contact
 export const STRAIN_LIMIT = 1.06;   // hard cap on cord stretch
+// how hard the knotted mesh drains a ball it is touching (1/s); a real net
+// swallows a shot instead of trampolining it back out
+export const NET_GRIP = 14;
 
 // XPBD compliances (m/N)
 export const COMPLIANCE_STRUCT = 2e-6;
