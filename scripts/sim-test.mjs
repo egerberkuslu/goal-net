@@ -51,6 +51,41 @@ function fly(world, seconds, onFrame) {
   check('shot A: no tunneling', minZ > -NET_LIMIT, `minZ=${minZ.toFixed(2)}`);
 }
 
+// 2b) the net SWALLOWS a 25 m/s shot: after the goal the ball never comes
+//     back over the line, it settles in the pocket inside the celebration,
+//     and it still never tunnels through the sheet.
+function swallow(sign) {
+  const w = new World();
+  w.ball.place(-0.7 * sign, -4 * sign);
+  w.ball.vel = { x: 1.2 * sign, y: 1.6, z: 24.9 * sign }; // |v| ≈ 25 m/s
+  w.ball.grounded = false;
+  const r = { goalT: null, minDepth: 1e9, maxOut: 0, lateSpeed: 0, deepest: 0 };
+  fly(w, 4.6, (ev, f) => {
+    const t = (f + 1) * DT;
+    for (const e of ev) if (e.type === 'goal' && r.goalT === null) r.goalT = t;
+    const z = w.ball.pos.z;
+    r.deepest = Math.max(r.deepest, Math.abs(z));
+    if (r.goalT === null) return;
+    r.minDepth = Math.min(r.minDepth, sign * z - PITCH_HALF_L);
+    if (t > r.goalT + 1.0) r.maxOut = Math.max(r.maxOut, -sign * w.ball.vel.z);
+    if (t > r.goalT + 2.5) r.lateSpeed = Math.max(r.lateSpeed, w.ball.speed());
+  });
+  r.finalZ = w.ball.pos.z;
+  return r;
+}
+
+for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
+  const r = swallow(sign);
+  check(`${name}: goal event`, r.goalT !== null, `t=${r.goalT?.toFixed(2)}`);
+  check(`${name}: never comes back over the line`, r.minDepth > -0.05,
+    `minDepth=${r.minDepth.toFixed(3)}`);
+  check(`${name}: no outward dribble`, r.maxOut <= 1, `outV=${r.maxOut.toFixed(2)}`);
+  check(`${name}: settled in the pocket`,
+    r.lateSpeed < 0.5 && Math.abs(r.finalZ) > PITCH_HALF_L + 0.15,
+    `v=${r.lateSpeed.toFixed(2)} z=${r.finalZ.toFixed(2)}`);
+  check(`${name}: no tunneling`, r.deepest < NET_LIMIT, `deepest=${r.deepest.toFixed(2)}`);
+}
+
 // 3) side wall bounce keeps the ball in
 {
   const w = new World();
