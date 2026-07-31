@@ -2,6 +2,9 @@
 // No networking and no game wiring here: the coordinator hooks the callbacks
 // up to PeerNet and calls showLobby/showError as messages arrive.
 
+import { TEAM_PALETTE, DEFAULT_TEAM_COLORS } from './protocol.js';
+import { canStart, readyOf, fieldPlayers, spectators } from './lobbyState.js';
+
 const NAME_KEY = 'goalnet-name';
 const CODE_LEN = 6;
 const ERROR_MS = 5000;
@@ -13,9 +16,11 @@ export const DEFAULT_SETTINGS = {
   goalLimit: 5,
   goalScale: 1,
   keepers: true,
+  teamColors: [...DEFAULT_TEAM_COLORS],
 };
 
 const noop = () => {};
+const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
 
 // data-value is always a string in the DOM; keepers is the only non-numeric key
 function parseSettingValue(key, raw) {
@@ -50,6 +55,9 @@ export class LobbyUI {
       onBan: noop,
       onLeave: noop,
       onAddBot: noop,
+      onReady: noop,
+      onSpectate: noop,
+      onColor: noop,
       ...callbacks,
     };
 
@@ -87,14 +95,106 @@ export class LobbyUI {
     this.roomCode = '';
     this.swapTarget = 1;
     this.rows = new Map(); // player id (string) -> <li>
+    this.specRows = new Map(); // spectator id (string) -> <li>
     this.errorTimer = null;
     this.copyTimer = null;
+    this.iAmReady = false;
 
     this.ready = !!(this.el.entry && this.el.lobby);
     if (!this.ready) return;
+    this.#buildExtraDom();
     this.#bind();
     if (this.el.name) this.el.name.value = readStoredName();
     this.#renderSettings();
+  }
+
+  // ---------- DOM the markup does not ship (index.html is off limits) ----------
+
+  #buildExtraDom() {
+    const el = this.el;
+    this.#injectStyle();
+
+    // entry screen: spectator path next to "Katıl"
+    if (el.join?.parentElement) {
+      const spec = document.createElement('button');
+      spec.id = 'mpSpectate';
+      spec.className = 'mp-ghost mp-small';
+      spec.textContent = 'İzleyici olarak katıl';
+      spec.title = 'Takıma girmeden maçı izle';
+      el.join.parentElement.insertBefore(spec, el.join.nextSibling);
+      el.spectate = spec;
+    }
+
+    // lobby: spectator column beside the two team columns
+    const teams = el.lobby?.querySelector('.mp-teams');
+    if (teams) {
+      const box = document.createElement('div');
+      box.className = 'mp-team mp-team-spec';
+      box.id = 'mpSpectatorBox';
+      const title = document.createElement('h3');
+      title.textContent = 'İZLEYİCİLER';
+      const list = document.createElement('ul');
+      list.className = 'mp-playerlist';
+      list.id = 'mpSpectators';
+      box.append(title, list);
+      teams.appendChild(box);
+      el.spectators = list;
+      el.spectatorBox = box;
+    }
+
+    // settings: one swatch row per team
+    if (el.settings) {
+      el.colorSegs = [0, 1].map((side) => {
+        const label = document.createElement('span');
+        label.className = 'mp-setlabel';
+        label.textContent = side === 0 ? 'Kırmızı forma' : 'Mavi forma';
+        const seg = document.createElement('span');
+        seg.className = 'mp-seg mp-colors';
+        seg.id = side === 0 ? 'mpColorsRed' : 'mpColorsBlue';
+        for (const color of TEAM_PALETTE[side]) {
+          const btn = document.createElement('button');
+          btn.className = 'mp-swatch';
+          btn.dataset.side = String(side);
+          btn.dataset.color = String(color);
+          btn.style.background = hex(color);
+          btn.title = hex(color);
+          btn.setAttribute('aria-label', `${side === 0 ? 'Kırmızı' : 'Mavi'} ${hex(color)}`);
+          btn.addEventListener('click', () => this.cb.onColor(side, color));
+          seg.appendChild(btn);
+        }
+        el.settings.append(label, seg);
+        return seg;
+      });
+    }
+
+    // lobby actions: ready toggle for guests
+    if (el.start?.parentElement) {
+      const ready = document.createElement('button');
+      ready.id = 'mpReady';
+      ready.className = 'mp-ghost';
+      ready.textContent = 'Hazır';
+      el.start.parentElement.insertBefore(ready, el.start);
+      el.readyBtn = ready;
+    }
+  }
+
+  #injectStyle() {
+    if (document.getElementById('mp-social-style')) return;
+    const style = document.createElement('style');
+    style.id = 'mp-social-style';
+    style.textContent = `
+      .mp-team-spec { border-top-color: #7f8ec0; min-width: 190px; }
+      .mp-ready { color: #4ad07a; font-weight: 700; font-size: 14px; }
+      .mp-ready.waiting { color: #7f8ec0; }
+      .mp-player.is-absent { opacity: .55; }
+      .overlay .mp-seg.mp-colors button.mp-swatch { width: 26px; height: 26px; padding: 0;
+        border-radius: 50%; border: 2px solid rgba(255, 255, 255, .25); }
+      .overlay .mp-seg.mp-colors button.mp-swatch.on { border-color: #fff;
+        box-shadow: 0 0 0 2px rgba(36, 86, 230, .9); }
+      .overlay .mp-seg.mp-colors button.mp-swatch:disabled { cursor: default; }
+      #mpReady.on { background: #1f8a4c; color: #fff; }
+    `;
+    document.head.appendChild(style);
   }
 
   // ---------- public API ----------
@@ -187,6 +287,12 @@ export class LobbyUI {
     }
     if (el.create) el.create.addEventListener('click', () => this.#create());
     if (el.join) el.join.addEventListener('click', () => this.#join());
+    if (el.spectate) el.spectate.addEventListener('click', () => this.#join(true));
+    if (el.readyBtn) el.readyBtn.addEventListener('click', () => {
+      this.iAmReady = !this.iAmReady;
+      this.#renderReadyButton();
+      this.cb.onReady(this.iAmReady);
+    });
     if (el.back) el.back.addEventListener('click', () => this.showMenu());
     if (el.cancel) el.cancel.addEventListener('click', () => this.#leave());
     if (el.copy) el.copy.addEventListener('click', () => this.#copyCode());
@@ -208,12 +314,13 @@ export class LobbyUI {
     this.cb.onCreate(name);
   }
 
-  #join() {
+  #join(spectate = false) {
     const name = this.#name();
     if (!name) { this.showError('Önce bir oyuncu adı gir.'); return; }
     const code = (this.el.code?.value || '').trim().toUpperCase();
     if (code.length !== CODE_LEN) { this.showError('Oda kodu 6 karakter olmalı.'); return; }
-    this.cb.onJoin(code, name);
+    if (spectate) this.cb.onSpectate(code, name);
+    else this.cb.onJoin(code, name);
   }
 
   #leave() {
@@ -283,6 +390,12 @@ export class LobbyUI {
       btn.classList.toggle('on', on);
       btn.disabled = !host;
     }
+    const colors = this.settings.teamColors ?? DEFAULT_TEAM_COLORS;
+    for (const btn of panel.querySelectorAll('button.mp-swatch')) {
+      const side = Number(btn.dataset.side);
+      btn.classList.toggle('on', colors[side] === Number(btn.dataset.color));
+      btn.disabled = !host;
+    }
     panel.classList.toggle('readonly', !host);
     if (this.el.settingsHint) {
       this.el.settingsHint.textContent = host
@@ -295,10 +408,11 @@ export class LobbyUI {
     const { players, you, isHost } = this.state;
     const columns = [this.el.teamRed, this.el.teamBlue];
     const alive = new Set();
+    const onPitch = fieldPlayers(players);
 
     columns.forEach((ul, team) => {
       if (!ul) return;
-      const list = players.filter((p) => (Number(p.team) || 0) === team);
+      const list = onPitch.filter((p) => (Number(p.team) || 0) === team);
       list.forEach((p, index) => {
         const li = this.#playerRow(p, you, isHost);
         alive.add(String(p.id));
@@ -321,14 +435,34 @@ export class LobbyUI {
       if (!alive.has(id)) { li.remove(); this.rows.delete(id); }
     }
 
+    this.#renderSpectators();
+
     const me = players.find((p) => String(p.id) === String(you));
     this.swapTarget = me && (Number(me.team) || 0) === 1 ? 0 : 1;
-    if (this.el.swap) this.el.swap.disabled = !me;
+    // spectators sit out: no team to switch to
+    if (this.el.swap) this.el.swap.disabled = !me || me.spectator === true;
   }
 
-  #playerRow(player, you, isHost) {
+  #renderSpectators() {
+    const ul = this.el.spectators;
+    if (!ul) return;
+    const { players, you, isHost } = this.state;
+    const list = spectators(players);
+    if (this.el.spectatorBox) this.el.spectatorBox.hidden = list.length === 0;
+
+    const alive = new Set(list.map((p) => String(p.id)));
+    list.forEach((p, index) => {
+      const li = this.#playerRow(p, you, isHost, this.specRows);
+      if (ul.children[index] !== li) ul.insertBefore(li, ul.children[index] || null);
+    });
+    for (const [id, li] of this.specRows) {
+      if (!alive.has(id)) { li.remove(); this.specRows.delete(id); }
+    }
+  }
+
+  #playerRow(player, you, isHost, store = this.rows) {
     const id = String(player.id);
-    let li = this.rows.get(id);
+    let li = store.get(id);
     if (!li) {
       li = document.createElement('li');
       li.className = 'mp-player';
@@ -337,6 +471,8 @@ export class LobbyUI {
 
       const name = document.createElement('span');
       name.className = 'mp-pname';
+      const ready = document.createElement('span');
+      ready.className = 'mp-ready';
       const tag = document.createElement('span');
       tag.className = 'mp-tag';
       const kick = document.createElement('button');
@@ -348,20 +484,27 @@ export class LobbyUI {
       ban.title = 'Odadan at ve tekrar girmesini engelle';
       ban.addEventListener('click', () => this.cb.onBan(li.__pid));
 
-      li.append(name, tag, kick, ban);
-      li.__parts = { name, tag, kick, ban };
-      this.rows.set(id, li);
+      li.append(name, ready, tag, kick, ban);
+      li.__parts = { name, ready, tag, kick, ban };
+      store.set(id, li);
     }
 
     li.__pid = player.id;
     const isSelf = String(you) === id;
-    const { name, tag, kick, ban } = li.__parts;
+    const { name, ready, tag, kick, ban } = li.__parts;
     name.textContent = player.name || 'Oyuncu';
     const marks = [];
     if (player.isHost) marks.push('👑');
+    if (player.spectator) marks.push('izleyici');
     if (isSelf) marks.push('sen');
     tag.textContent = marks.join(' ');
+    // host, bots and spectators need no ready flag, so they never show a mark
+    const needsReady = !player.isHost && !player.spectator && !String(player.id).startsWith('bot');
+    ready.textContent = !needsReady ? '' : (readyOf(player) ? '✓' : '…');
+    ready.classList.toggle('waiting', needsReady && !readyOf(player));
+    ready.title = !needsReady ? '' : (readyOf(player) ? 'Hazır' : 'Bekleniyor');
     li.classList.toggle('is-you', isSelf);
+    li.classList.toggle('is-absent', player.absent === true);
     const canModerate = isHost && !isSelf;
     kick.hidden = !canModerate;
     ban.hidden = !canModerate;
@@ -369,16 +512,41 @@ export class LobbyUI {
   }
 
   #renderActions() {
-    const { players, isHost } = this.state;
+    const { players, isHost, you } = this.state;
     if (this.el.start) {
-      const enough = players.length >= 2;
+      const enough = fieldPlayers(players).length >= 2;
+      const ok = canStart(players);
       this.el.start.hidden = !isHost;
-      this.el.start.disabled = !enough;
-      this.el.start.title = enough ? '' : 'En az 2 oyuncu gerekli';
+      this.el.start.disabled = !ok;
+      this.el.start.title = enough
+        ? (ok ? '' : 'Tüm oyuncular hazır olmalı')
+        : 'En az 2 oyuncu gerekli';
     }
     for (const btn of [this.el.addBotRed, this.el.addBotBlue]) {
       if (btn) btn.hidden = !isHost;
     }
+    const me = players.find((p) => String(p.id) === String(you));
+    if (this.el.readyBtn) {
+      // only a guest that actually takes the pitch has anything to confirm
+      this.el.readyBtn.hidden = isHost || !me || me.spectator === true;
+      this.iAmReady = me?.ready === true;
+      this.#renderReadyButton();
+    }
+  }
+
+  #renderReadyButton() {
+    const btn = this.el.readyBtn;
+    if (!btn) return;
+    btn.classList.toggle('on', this.iAmReady);
+    btn.textContent = this.iAmReady ? 'Hazır ✓' : 'Hazır';
+  }
+
+  /** Append a JS-built node (the chat panel) to the lobby overlay, once. */
+  attachChat(node) {
+    if (!node || !this.el.lobby) return;
+    const actions = this.el.lobby.querySelector('.mp-actions');
+    if (actions) this.el.lobby.insertBefore(node, actions);
+    else this.el.lobby.appendChild(node);
   }
 }
 
@@ -396,6 +564,9 @@ if (typeof location !== 'undefined' && location.search.includes('lobbydemo')) {
       onKick: log('onKick'),
       onBan: log('onBan'),
       onLeave: log('onLeave'),
+      onReady: log('onReady'),
+      onSpectate: log('onSpectate'),
+      onColor: log('onColor'),
     });
     const mock = {
       code: 'K7P2QX',
@@ -403,11 +574,15 @@ if (typeof location !== 'undefined' && location.search.includes('lobbydemo')) {
       isHost: true,
       players: [
         { id: 'p1', name: 'Ege', team: 0, isHost: true },
-        { id: 'p2', name: 'Mert', team: 0, isHost: false },
-        { id: 'p3', name: 'Zeynep', team: 1, isHost: false },
-        { id: 'p4', name: 'Can', team: 1, isHost: false },
+        { id: 'p2', name: 'Mert', team: 0, isHost: false, ready: true },
+        { id: 'p3', name: 'Zeynep', team: 1, isHost: false, ready: false },
+        { id: 'p4', name: 'Can', team: 1, isHost: false, ready: true },
+        { id: 'p5', name: 'Deniz', team: 0, isHost: false, spectator: true },
       ],
-      settings: { matchTime: 180, goalLimit: 5, goalScale: 1, keepers: true },
+      settings: {
+        matchTime: 180, goalLimit: 5, goalScale: 1, keepers: true,
+        teamColors: [...DEFAULT_TEAM_COLORS],
+      },
     };
     window.__lobbyDemo = { ui, mock, guest: { ...mock, you: 'p3', isHost: false } };
     ui.showMenu();
