@@ -18,11 +18,21 @@ export class Player {
     this.downTotal = RAGDOLL_TIME;
     this.tumbleSpin = 0;
     this.knockCooldown = 0; // hidden immunity so players can't be stun-locked
+    this.jumpY = 0;         // vertical leap height (keepers reaching high balls)
+    this.jumpVy = 0;
     this.dive = 0;          // dive/slide: seconds of the action left
     this.diveTotal = 0.55;
     this.diveKind = 'dive'; // 'dive' (keeper flight) | 'slide' (tackle)
     this.diveRecover = 0;   // scramble-up time after the action
     this.diveDir = { x: 1, z: 0 };
+  }
+
+  // Vertical leap: straight up with the arms raised, for balls over the head.
+  startJump() {
+    if (this.jumpY > 0 || this.down > 0 || this.dive > 0) return false;
+    this.jumpVy = 4.4; // reaches ~1m of extra height
+    this.jumpY = 0.001;
+    return true;
   }
 
   // Slide tackle: feet-first burst along the given direction. Pokes the ball
@@ -65,6 +75,8 @@ export class Player {
     this.knockCooldown = 0;
     this.dive = 0;
     this.diveRecover = 0;
+    this.jumpY = 0;
+    this.jumpVy = 0;
   }
 
   // A fast ball flattens the player: thrown along the ball's travel
@@ -85,6 +97,11 @@ export class Player {
 
   integrate(h) {
     this.knockCooldown = Math.max(0, this.knockCooldown - h);
+    if (this.jumpY > 0) {
+      this.jumpY += this.jumpVy * h;
+      this.jumpVy -= 9.81 * h;
+      if (this.jumpY <= 0) { this.jumpY = 0; this.jumpVy = 0; }
+    }
     if (this.down > 0) {
       this.down = Math.max(0, this.down - h);
       const f = Math.exp(-2.2 * h); // slide across the grass

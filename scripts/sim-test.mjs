@@ -414,6 +414,29 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
   check('dive: shot to the corner saved', goal === null, JSON.stringify(goal));
 }
 
+// 8d) keeper leaps for a ball floated in over his head
+{
+  const w = new World();
+  const keeper = w.addPlayer(0, 'keeper');
+  keeper.reset(0, -(PITCH_HALF_L - 0.9));
+  const ctrl = new KeeperController(w, keeper);
+  // crosses the keeper's line at ~2.1m: over a standing keeper, under the bar
+  w.ball.place(0, -11);
+  w.ball.vel = { x: 0.3, y: 6.6, z: -13.5 };
+  w.ball.grounded = false;
+  let goal = null, jumped = false;
+  const frames = Math.round(2.0 / DT);
+  for (let f = 0; f < frames; f++) {
+    const c = ctrl.update(DT);
+    keeper.input.x = c.x; keeper.input.z = c.z;
+    if (keeper.jumpY > 0.1) jumped = true;
+    w.step(DT);
+    for (const e of w.drainEvents()) if (e.type === 'goal') goal = e;
+  }
+  check('leap: keeper jumped', jumped);
+  check('leap: high ball kept out', goal === null, JSON.stringify(goal));
+}
+
 // 8) performance budget with two nets + players
 {
   const w = new World();

@@ -119,6 +119,13 @@ export class KeeperController {
         const crossX = b.x + bv.x * tHit;
         const dx = crossX - player.pos.x;
         const onTarget = Math.abs(crossX) < world.config.goalW / 2 + 0.35;
+        // a ball sailing in over the head: leap straight up for it
+        const crossY = b.y + bv.y * tHit - 4.905 * tHit * tHit;
+        if (onTarget && crossY > 1.5 && crossY < 2.75 && Math.abs(dx) < 1.0 &&
+            player.jumpY <= 0) {
+          player.startJump();
+          this.actionCooldown = Math.max(this.actionCooldown, 0.9);
+        }
         const needSpeed = Math.abs(dx) / Math.max(tHit, 0.06);
         if (onTarget && needSpeed > 5.5 && Math.abs(dx) > 1.0 && Math.abs(dx) < 3.0) {
           // impulse sized to land ON the intercept point, not past it

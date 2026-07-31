@@ -127,11 +127,22 @@ export class PlayerView {
       return;
     }
 
-    this.group.position.set(p.pos.x, 0, p.pos.z);
+    this.group.position.set(p.pos.x, p.jumpY || 0, p.pos.z);
     // header: a sharp forward nod of the whole upper body
     const nod = p.headerAnim > 0 ? Math.sin(Math.min(p.headerAnim, 1) * Math.PI) : 0;
     const lean = Math.min(sp / PLAYER_SPEED, 1) * 0.16 + nod * 0.5;
     this.group.rotation.set(lean, p.facing, 0, 'YXZ');
+    // arms shoot straight up during a leap
+    if (p.jumpY > 0.03) {
+      this.arms[0].rotation.x = -2.9;
+      this.arms[1].rotation.x = -2.9;
+      this.arms[0].rotation.z = 0.1;
+      this.arms[1].rotation.z = -0.1;
+      this.legs[0].rotation.x = 0.35;
+      this.legs[1].rotation.x = -0.2;
+      this.ring.visible = false;
+      return;
+    }
     this.head.position.y = 1.52 + nod * 0.1;
     this.head.position.z = nod * 0.16;
 

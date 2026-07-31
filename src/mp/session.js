@@ -90,6 +90,7 @@ class GuestMatch {
       p.diveRecover = sp.diveRecover;
       p.diveKind = sp.diveKind === 1 ? 'slide' : 'dive';
       p.diveDir = { x: Math.sin(sp.diveYaw), z: Math.cos(sp.diveYaw) };
+      p.jumpY = sp.jumpY;
       p.input.x = 0; p.input.z = 0; // guests never steer remote players
     }
 
@@ -498,6 +499,7 @@ export class MpSession {
         headerAnim: p.headerAnim, dive: p.dive, diveRecover: p.diveRecover,
         diveYaw: Math.atan2(p.diveDir.x, p.diveDir.z),
         diveKind: p.diveKind === 'slide' ? 1 : 0,
+        jumpY: p.jumpY,
         team: p.team, role: p.role,
       })),
       events: this.pendingEvents.splice(0),

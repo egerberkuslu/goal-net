@@ -139,8 +139,10 @@ export class World {
 
   collideBallPlayers() {
     const b = this.ball;
-    if (b.pos.y > PLAYER_H) return;
     for (const p of this.players) {
+      // a leap raises the reachable height (raised arms add a bit more)
+      const top = PLAYER_H + p.jumpY + (p.jumpY > 0.05 ? 0.45 : 0);
+      if (b.pos.y > top) continue;
       const dx = b.pos.x - p.pos.x, dz = b.pos.z - p.pos.z;
       const d = Math.sqrt(dx * dx + dz * dz);
       // a diving keeper is stretched out: much wider reach while airborne;

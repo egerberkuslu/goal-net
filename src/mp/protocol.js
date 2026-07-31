@@ -148,6 +148,7 @@ function snapPlayer(p) {
     diveRecover: optNum(p.diveRecover),
     diveYaw: optNum(p.diveYaw),
     diveKind: optNum(p.diveKind), // 0 = keeper dive, 1 = slide tackle
+    jumpY: optNum(p.jumpY),
     team: teamOf(p.team),
     role: p.role === undefined ? 'field' : p.role,
   };
