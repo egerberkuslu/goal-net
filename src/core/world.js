@@ -141,8 +141,16 @@ export class World {
       if (d >= rSum || d < 1e-6) continue;
       const nx = dx / d, nz = dz / d;
       const pen = rSum - d;
-      b.pos.x += nx * pen; b.pos.z += nz * pen;
-      b.contacts.push({ nx, ny: 0, nz, type: 'player', cvx: p.vel.x, cvz: p.vel.z });
+      // a player peeling away from the ball should leave it, not shove it on:
+      // ease the overlap out and drop their velocity from the contact so the
+      // ball is not flicked along by a body that is already retreating
+      const closing = p.vel.x * nx + p.vel.z * nz; // > 0: running into the ball
+      const push = closing < 0 ? Math.min(pen * 0.25, 0.02) : pen;
+      b.pos.x += nx * push; b.pos.z += nz * push;
+      b.contacts.push({
+        nx, ny: 0, nz, type: 'player',
+        cvx: closing < 0 ? 0 : p.vel.x, cvz: closing < 0 ? 0 : p.vel.z,
+      });
       b.lastTouch = p.team;
       // a screamer flattens whoever it hits
       const relX = b.vel.x - p.vel.x, relZ = b.vel.z - p.vel.z;
