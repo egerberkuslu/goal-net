@@ -101,9 +101,10 @@ class GuestMatch {
         this.onSnapEvent?.(e);
       } else if (e.type === 'post') { this.showMessage('Direk!', 'direk', 900); this.onSnapEvent?.(e); }
       else if (e.type === 'crossbar') { this.showMessage('Üst direk!', 'direk', 900); this.onSnapEvent?.(e); }
-      else if (e.type === 'throwin') this.showMessage('Taç!', 'kacti', 1000);
-      else if (e.type === 'goalkick') this.showMessage('Kale vuruşu!', 'kacti', 1000);
-      else if (e.type === 'corner') this.showMessage('Korner!', 'direk', 1000);
+      else if (e.type === 'throwin') { this.showMessage('Taç!', 'kacti', 1000); this.onSnapEvent?.(e); }
+      else if (e.type === 'goalkick') { this.showMessage('Kale vuruşu!', 'kacti', 1000); this.onSnapEvent?.(e); }
+      else if (e.type === 'corner') { this.showMessage('Korner!', 'direk', 1000); this.onSnapEvent?.(e); }
+      else if (e.type === 'kick' || e.type === 'ragdoll') this.onSnapEvent?.(e);
     }
     if (prevState !== 'kickoff' && snap.state === 'kickoff') this.showMessage('Hazır…', 'hazir', 1000);
     if (prevState !== 'end' && snap.state === 'end') this.showEnd();
@@ -331,7 +332,7 @@ export class MpSession {
     for (const k of game.keepers) controllers.set(k, new KeeperController(world, k));
 
     const prevHook = game.onWorldEvent;
-    const shared = new Set(['post', 'crossbar', 'throwin', 'goalkick', 'corner']);
+    const shared = new Set(['post', 'crossbar', 'throwin', 'goalkick', 'corner', 'kick', 'ragdoll']);
     game.onWorldEvent = (e, playing) => {
       prevHook?.(e, playing);
       if (!playing) return;

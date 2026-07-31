@@ -217,6 +217,27 @@
     </div>
   </div>
 
+  <div class="overlay hidden" id="pause">
+    <h2>Duraklatıldı</h2>
+    <p class="sub" id="pauseHint">ESC ile devam</p>
+    <div class="mp-settings" id="pauseSettings">
+      <span class="mp-setlabel">Kamera</span>
+      <span class="mp-seg" id="pauseCam"></span>
+      <span class="mp-setlabel">Ses</span>
+      <span class="mp-seg">
+        <input id="pauseVol" type="range" min="0" max="100" step="5"
+               style="width:180px; accent-color:#2456e6;" />
+        <span id="pauseVolVal" class="mp-tag" style="min-width:36px"></span>
+      </span>
+    </div>
+    <div class="mp-settings" id="pauseKeys" style="grid-template-columns:auto auto auto auto;"></div>
+    <p class="mp-hint">Tuş değiştirmek için kutuya tıkla, sonra yeni tuşa bas.</p>
+    <div class="mp-actions">
+      <button id="pauseResume">Devam Et</button>
+      <button id="pauseExit" class="mp-ghost">Ana Menü</button>
+    </div>
+  </div>
+
   <div class="overlay hidden" id="end">
     <h2 id="endTitle">Kazanan!</h2>
     <div id="endScore">0 — 0</div>

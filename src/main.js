@@ -9,6 +9,8 @@ import { AimView } from './view/aimView.js';
 import { CrowdView } from './view/crowdView.js';
 import { Game } from './game/game.js';
 import { MpSession, GuestMatch } from './mp/session.js';
+import { Sfx } from './view/sfx.js';
+import { PauseMenu } from './game/pauseMenu.js';
 
 const { renderer, scene, camera } = createScene(document.getElementById('app'));
 const crowd = new CrowdView(scene);
@@ -54,17 +56,15 @@ function buildMatch(config, roster = null, opts = {}) {
   } else {
     app.game = new Game(app.world, camera, dom, roster);
   }
-  app.game.onWorldEvent = (e, playing) => {
-    if (!playing) return;
-    if (e.type === 'goal') crowd.onGoal(e.scorer);
-    else if (e.type === 'post' || e.type === 'crossbar') crowd.onNearMiss();
+  const react = (e) => {
+    if (e.type === 'goal') { crowd.onGoal(e.scorer); sfx.play('goal'); }
+    else if (e.type === 'post' || e.type === 'crossbar') { crowd.onNearMiss(); sfx.play('post'); sfx.play('ooh'); }
+    else if (e.type === 'kick') sfx.play('kick');
+    else if (e.type === 'ragdoll') sfx.play('thud');
+    else if (e.type === 'throwin' || e.type === 'goalkick' || e.type === 'corner') sfx.play('whistle');
   };
-  if (opts.mp === 'guest') {
-    app.game.onSnapEvent = (e) => {
-      if (e.type === 'goal') crowd.onGoal(e.scorer);
-      else crowd.onNearMiss();
-    };
-  }
+  app.game.onWorldEvent = (e, playing) => { if (playing) react(e); };
+  if (opts.mp === 'guest') app.game.onSnapEvent = react;
   app.netView = new NetView(app.world.nets, scene);
   app.ballView = new BallView(app.world.ball, scene);
   app.playerViews = app.world.players.map((p) => new PlayerView(p, scene));
@@ -113,6 +113,25 @@ addEventListener('keydown', (e) => {
   if (label) app.game.showMessage(label, 'hazir', 900);
 });
 
+const sfx = new Sfx();
+const pause = new PauseMenu({
+  getRig: () => app.game.rig,
+  sfx,
+  isMp: () => session.inMatch,
+  onExit: () => {
+    if (session.active) session.leave();
+    buildMatch(makeConfig());
+    dom.end.classList.add('hidden');
+    dom.menu.classList.remove('hidden');
+  },
+});
+addEventListener('keydown', (e) => {
+  if (e.code !== 'Escape') return;
+  const inMenus = !dom.menu.classList.contains('hidden');
+  if (inMenus && !pause.active) return; // main menu: nothing to pause
+  pause.toggle();
+});
+
 let last = performance.now() / 1000;
 let accumulator = 0;
 
@@ -122,17 +141,22 @@ function frame(nowMs) {
   const dt = Math.min(now - last, 0.05);
   last = now;
 
-  // slow motion scales the step size, not the step rate, so it stays smooth
+  // slow motion scales the step size, not the step rate, so it stays smooth.
+  // A local pause freezes the simulation; multiplayer keeps running under
+  // the pause overlay (the host must keep serving its guests).
+  const frozen = pause.active && !session.inMatch;
   accumulator += dt;
   let steps = 0;
   while (accumulator >= DT && steps < 4) {
-    app.world.step(DT * app.game.timeScale);
+    if (!frozen) app.world.step(DT * app.game.timeScale);
     accumulator -= DT;
     steps++;
   }
 
-  app.game.update(dt, now);
-  session.frameHook(dt);
+  if (!frozen) {
+    app.game.update(dt, now);
+    session.frameHook(dt);
+  }
   app.netView.update();
   app.ballView.update(dt * app.game.timeScale);
   for (const pv of app.playerViews) pv.update(dt);
@@ -151,6 +175,7 @@ const ticker = new Worker(URL.createObjectURL(new Blob(
 )));
 ticker.onmessage = () => {
   if (!document.hidden) return;
+  if (pause.active && !session.inMatch) return;
   const now = performance.now() / 1000;
   const dt = Math.min(now - last, 0.1);
   last = now;

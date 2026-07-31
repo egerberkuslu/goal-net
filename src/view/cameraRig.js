@@ -1,3 +1,5 @@
+import { setInputBasis } from '../game/input.js';
+
 const MODE_KEY = 'goalnet-cam';
 export const CAM_MODES = [
   { id: 'yayin', label: 'Kamera: Yayın' },
@@ -55,5 +57,12 @@ export class CameraRig {
     for (const key of ['x', 'y', 'z', 'lx', 'ly', 'lz']) c[key] += (t[key] - c[key]) * k;
     this.camera.position.set(c.x, c.y, c.z);
     this.camera.lookAt(c.lx, c.ly, c.lz);
+
+    // keep keyboard directions matched to what is on screen: project the
+    // view direction to the ground and hand it to the input layer
+    let fx = c.lx - c.x, fz = c.lz - c.z;
+    const fl = Math.hypot(fx, fz) || 1;
+    fx /= fl; fz /= fl;
+    setInputBasis(fx, fz, -fz, fx); // screen-right = view dir rotated -90°
   }
 }
