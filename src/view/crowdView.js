@@ -81,6 +81,7 @@ attribute float aSec;
 attribute float aRate;
 uniform float uTime;
 uniform vec3 uAmp;   // celebration amplitude per section: neutral, red, blue
+uniform vec3 uSad;   // mourning slump per section (conceding fans)
 uniform float uOoh;  // synchronized near-miss bounce envelope
 `;
 
@@ -89,12 +90,15 @@ uniform float uOoh;  // synchronized near-miss bounce envelope
 // y-scaled x offset reads as an upper-body lean once instanced.
 const WOBBLE_BODY = /* glsl */`
 float amp = aSec < 0.5 ? uAmp.x : (aSec < 1.5 ? uAmp.y : uAmp.z);
+float sad = aSec < 0.5 ? uSad.x : (aSec < 1.5 ? uSad.y : uSad.z);
 float idleBob = sin(uTime * 1.7 + aPhase) * 0.014;
 float idleSway = sin(uTime * 0.9 + aPhase * 1.3) * 0.055;
 float jump = abs(sin(uTime * (7.0 + aRate * 3.5) + aPhase * 2.0)) * 0.34 * amp;
 float ooh = uOoh * 0.10 * (0.85 + 0.3 * sin(aPhase));
-transformed.y += idleBob + jump + ooh;
-transformed.x += idleSway * (1.0 + amp * 2.2) * transformed.y;
+// mourning: sink and hunch forward, idle motion dies down
+transformed.y += idleBob * (1.0 - sad * 0.8) + jump + ooh - sad * 0.10 * step(0.15, transformed.y);
+transformed.x += idleSway * (1.0 - sad * 0.7) * (1.0 + amp * 2.2) * transformed.y;
+transformed.z += sad * 0.14 * max(transformed.y, 0.0);
 `;
 
 export class CrowdView {
@@ -106,11 +110,13 @@ export class CrowdView {
     this.uniforms = {
       uTime: { value: 0 },
       uAmp: { value: new THREE.Vector3(0, 0, 0) },
+      uSad: { value: new THREE.Vector3(0, 0, 0) },
       uOoh: { value: 0 },
     };
     this._clock = 0;
     this._cheer = 0;      // seconds left on the goal celebration
     this._cheerTeam = 0;
+    this._mourn = 0;      // seconds left on the conceding block's slump
     this._ooh = 0;        // seconds left on the near-miss bounce
 
     const phase = new THREE.InstancedBufferAttribute(new Float32Array(this.count), 1);
@@ -202,6 +208,17 @@ export class CrowdView {
       amp.set(0, 0, 0);
     }
 
+    // the conceding fans sink into their seats and slowly straighten back up
+    const sad = this.uniforms.uSad.value;
+    if (this._mourn > 0) {
+      this._mourn = Math.max(0, this._mourn - dt);
+      const lvl = Math.min(1, this._mourn / 1.4);
+      sad.set(0, 0, 0);
+      if (this._cheerTeam === 0) sad.z = lvl; else sad.y = lvl;
+    } else if (sad.lengthSq() > 0) {
+      sad.set(0, 0, 0);
+    }
+
     if (this._ooh > 0) {
       this._ooh = Math.max(0, this._ooh - dt);
       // one synchronized bounce: rise and fall across the whole envelope
@@ -214,6 +231,7 @@ export class CrowdView {
   onGoal(scorerTeam) {
     this._cheerTeam = scorerTeam === 1 ? 1 : 0;
     this._cheer = GOAL_CHEER_TIME;
+    this._mourn = GOAL_CHEER_TIME + 1.6;
     this._ooh = 0;
   }
 

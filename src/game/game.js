@@ -85,6 +85,7 @@ export class Game {
       }
     }
     this.world.placeBall(0, 0);
+    this.world.restartTeam = null;
     this.chargeState.clear();
   }
 
@@ -94,6 +95,15 @@ export class Game {
     this.state = 'kickoff';
     this.kickoffAt = performance.now() / 1000 + 1.1;
     this.showMessage('Hazır…', 'hazir', 1000);
+  }
+
+  // Every restart: one mandatory frozen second for everyone, then only the
+  // team the restart belongs to may touch the ball (the other side is also
+  // held out of a FIFA-style ring by the physics). A timeout stops stalling.
+  beginRestart(now, team) {
+    this.restartFreezeUntil = now + 1.0;
+    this.world.restartTeam = team ?? null;
+    this.restartClearAt = now + 6;
   }
 
   showMessage(text, cls, ms = 1600) {
@@ -121,8 +131,17 @@ export class Game {
   }
 
   applyControls(dt, now) {
+    // restarts (throw-in / goal kick / corner) freeze everyone for a beat
+    const restartLocked = now < (this.restartFreezeUntil ?? 0);
     for (const [player, ctrl] of this.controllers) {
       const c = ctrl.update(dt);
+      if (restartLocked) {
+        player.input.x = 0; player.input.z = 0;
+        player.charge = 0;
+        const st = this.chargeState.get(player);
+        if (st) st.held = false;
+        continue;
+      }
       player.input.x = c.x; player.input.z = c.z;
 
       let st = this.chargeState.get(player);
@@ -164,6 +183,8 @@ export class Game {
   }
 
   onGoal(scorer, now) {
+    // scorers celebrate, the conceding side hangs their heads (kickoff resets)
+    for (const p of this.world.players) p.celebrate = p.team === scorer ? 1 : -1;
     this.score[scorer]++;
     this.updateScoreboard();
     this.showMessage('GOOOL!', 'gol', 2600);
@@ -193,6 +214,10 @@ export class Game {
       if (this.timeLeft <= 0) { this.endMatch(); return; }
     }
     if (playing) {
+      // stalling guard: the restart possession lock lifts after a few seconds
+      if (this.world.restartTeam !== null && now > (this.restartClearAt ?? 0)) {
+        this.world.restartTeam = null;
+      }
       // outs: the boards are low, so a high ball can leave the pitch.
       // Over a touchline -> throw-in from where it went out; over the goal
       // line / the goal -> goal kick.
@@ -200,9 +225,11 @@ export class Game {
       if (Math.abs(bp.x) > WALL_X + BALL_R) {
         const side = Math.sign(bp.x);
         const z = Math.max(-PITCH_HALF_L + 2, Math.min(PITCH_HALF_L - 2, bp.z));
+        const lastTouch = this.world.ball.lastTouch;
         this.world.placeBall(side * (WALL_X - 1.2), z);
         this.showMessage('Taç!', 'kacti', 1000);
         this.onWorldEvent?.({ type: 'throwin' }, true);
+        this.beginRestart(now, lastTouch === null ? null : 1 - lastTouch);
         this.outTimer = 0;
       } else if (Math.abs(bp.z) > PITCH_HALF_L + 0.2 && !this.world.scoringLocked) {
         // the whole end line is out of play: anything that clears the boards
@@ -215,10 +242,12 @@ export class Game {
           this.world.placeBall(cx, s * (PITCH_HALF_L - 0.4));
           this.showMessage('Korner!', 'direk', 1000);
           this.onWorldEvent?.({ type: 'corner' }, true);
+          this.beginRestart(now, 1 - defender);
         } else {
           this.world.placeBall(0, s * (PITCH_HALF_L - 3.2));
           this.showMessage('Kale vuruşu!', 'kacti', 1000);
           this.onWorldEvent?.({ type: 'goalkick' }, true);
+          this.beginRestart(now, defender);
         }
       }
     }

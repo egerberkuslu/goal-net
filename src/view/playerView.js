@@ -266,6 +266,35 @@ export class PlayerView {
       return;
     }
 
+    // goal aftermath: scorers bounce with arms up, the conceding side slumps
+    if (p.celebrate !== 0 && p.down <= 0 && p.dive <= 0) {
+      this.walkPhase += dt * 6;
+      if (p.celebrate === 1) {
+        const hop = Math.abs(Math.sin(this.walkPhase)) * 0.28;
+        const wave = Math.sin(this.walkPhase * 1.7) * 0.25;
+        this.group.position.set(p.pos.x, hop, p.pos.z);
+        this.group.rotation.set(0, p.facing, 0, 'YXZ');
+        this.arms[0].rotation.x = -2.7 + wave;
+        this.arms[1].rotation.x = -2.7 - wave;
+        this.arms[0].rotation.z = 0.35;
+        this.arms[1].rotation.z = -0.35;
+        this.legs[0].rotation.x = hop * 0.6;
+        this.legs[1].rotation.x = -hop * 0.6;
+      } else {
+        this.group.position.set(p.pos.x, 0, p.pos.z);
+        this.group.rotation.set(0.34, p.facing, 0, 'YXZ'); // hung head
+        this.arms[0].rotation.x = 0.25;
+        this.arms[1].rotation.x = 0.25;
+        this.arms[0].rotation.z = 0.05;
+        this.arms[1].rotation.z = -0.05;
+        this.legs[0].rotation.x = 0;
+        this.legs[1].rotation.x = 0;
+      }
+      this.ring.visible = false;
+      if (this.tag) this.tag.position.set(p.pos.x, 2.06 + (this.group.position.y || 0), p.pos.z);
+      return;
+    }
+
     this.group.position.set(p.pos.x, p.jumpY || 0, p.pos.z);
     // header: a sharp forward nod of the whole upper body
     const nod = p.headerAnim > 0 ? Math.sin(Math.min(p.headerAnim, 1) * Math.PI) : 0;

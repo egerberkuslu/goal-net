@@ -175,7 +175,11 @@ function frame(nowMs) {
     if (app.game.state === 'play' && !session.inMatch) recorder.record(app.world);
     if (app.game.state === 'goal' && !replay && !replayDone &&
         now > app.game.goalResetAt - 0.2) {
-      replay = recorder.startReplay(app.world, camera);
+      // only long-range screamers earn a replay
+      const shot = app.world.lastShot;
+      const goalZ = Math.sign(app.world.ball.pos.z) * 18;
+      const shotDist = shot ? Math.hypot(shot.x, goalZ - shot.z) : 0;
+      if (shotDist > 9.5) replay = recorder.startReplay(app.world, camera);
       replayDone = true;
     }
     if (replay) {

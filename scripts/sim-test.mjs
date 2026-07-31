@@ -135,6 +135,28 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
   check('over the bar: left the pitch', maxZ > PITCH_HALF_L + 0.15, `maxZ=${maxZ.toFixed(2)}`);
 }
 
+// 3d) the strip at the posts belongs to the post/goal, not the boards:
+//     a low shot just inside the post must score or hit the post, never
+//     bounce off a phantom wall
+{
+  for (const x of [3.45, 3.58]) {
+    const w = new World();
+    w.ball.place(x, 9);
+    w.ball.vel = { x: 0, y: 0.8, z: 16 };
+    w.ball.grounded = false;
+    let goal = null, woodwork = false;
+    fly(w, 1.5, (ev) => {
+      for (const e of ev) {
+        if (e.type === 'goal') goal = e;
+        if (e.type === 'post' || e.type === 'crossbar') woodwork = true;
+      }
+    });
+    check(`post strip x=${x}: goal or woodwork, no phantom wall`,
+      goal !== null || woodwork,
+      `goal=${!!goal} wood=${woodwork} z=${w.ball.pos.z.toFixed(2)}`);
+  }
+}
+
 // 4) end wall outside the mouth is solid (no phantom goal)
 {
   const w = new World();
@@ -280,6 +302,32 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
     check(`sniper cap ${dist}m: no ballooning over the bar`, !crossedHigh && goal !== null,
       goal ? 'goal' : 'no goal scored');
   }
+}
+
+// 6b3) restart possession: the penalized team cannot touch the ball and is
+//      held outside a 3m ring; the favored team's first touch clears it
+{
+  const w = new World();
+  const bad = w.addPlayer(0);
+  const good = w.addPlayer(1);
+  w.ball.place(0, 0);
+  w.restartTeam = 1;
+  bad.reset(0.8, 0); // starts inside the ring
+  good.reset(0, 6);
+  // penalized player pushes toward the ball, favored player stays away
+  for (let f = 0; f < Math.round(1.0 / DT); f++) {
+    bad.input.x = -1; bad.input.z = 0;
+    w.step(DT);
+  }
+  const dBad = Math.hypot(bad.pos.x - w.ball.pos.x, bad.pos.z - w.ball.pos.z);
+  check('restart: penalized held out of the ring', dBad > 2.9, `d=${dBad.toFixed(2)}`);
+  check('restart: penalized cannot kick', w.tryKick(bad, 0.5) === false);
+  check('restart: ball untouched', Math.hypot(w.ball.vel.x, w.ball.vel.z) < 0.2);
+  // favored team takes it
+  good.reset(0, 1.2);
+  const took = w.tryKick(good, 0.4);
+  check('restart: favored team kicks freely', took !== false);
+  check('restart: lock cleared on first touch', w.restartTeam === null);
 }
 
 // 6c) slide tackle: pokes the ball away and flattens the opponent

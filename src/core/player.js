@@ -14,6 +14,7 @@ export class Player {
     this.charge = 0;      // 0..1 kick charge, set by the game layer
     this.kickAnim = 0;    // >0 while the kick leg swings, set by the game layer
     this.headerAnim = 0;  // >0 while the head snaps forward
+    this.celebrate = 0;   // 1: scored (arms up), -1: conceded (slump)
     this.down = 0;        // ragdoll: seconds until back on their feet
     this.downTotal = RAGDOLL_TIME;
     this.tumbleSpin = 0;
@@ -77,6 +78,7 @@ export class Player {
     this.diveRecover = 0;
     this.jumpY = 0;
     this.jumpVy = 0;
+    this.celebrate = 0;
   }
 
   // A fast ball flattens the player: thrown along the ball's travel

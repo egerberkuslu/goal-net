@@ -43,6 +43,9 @@ export class World {
     this.time = 0;
     this.events = [];
     this.scoringLocked = false;
+    // restart possession: only this team may touch the ball (null = anyone).
+    // Cleared automatically on their first touch.
+    this.restartTeam = null;
     for (let i = 0; i < 50; i++) this.step(DT); // drape the nets
     this.events.length = 0;
   }
@@ -89,6 +92,7 @@ export class World {
       }
 
       this.collidePlayers();
+      this.enforceRestartZone();
       this.collideBallPlayers();
       this.collideBallStatic();
       for (const net of this.nets) net.collideGround();
@@ -152,9 +156,31 @@ export class World {
     }
   }
 
+  // FIFA-style exclusion: while a restart belongs to one team, the other team
+  // is held out of a ring around the ball (scaled 9.15m -> our pitch).
+  enforceRestartZone() {
+    if (this.restartTeam === null) return;
+    const b = this.ball.pos;
+    const R = 3.0;
+    const limX = WALL_X - PLAYER_R, limZ = PITCH_HALF_L - PLAYER_R - 0.1;
+    for (const p of this.players) {
+      if (p.team === this.restartTeam) continue;
+      const dx = p.pos.x - b.x, dz = p.pos.z - b.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      if (d >= R) continue;
+      const nx = d > 1e-4 ? dx / d : 1, nz = d > 1e-4 ? dz / d : 0;
+      p.pos.x = Math.max(-limX, Math.min(limX, b.x + nx * R));
+      p.pos.z = Math.max(-limZ, Math.min(limZ, b.z + nz * R));
+      const vn = p.vel.x * nx + p.vel.z * nz;
+      if (vn < 0) { p.vel.x -= vn * nx; p.vel.z -= vn * nz; }
+    }
+  }
+
   collideBallPlayers() {
     const b = this.ball;
     for (const p of this.players) {
+      // during a restart the ball is untouchable for the penalized team
+      if (this.restartTeam !== null && p.team !== this.restartTeam) continue;
       // a leap raises the reachable height (raised arms add a bit more)
       const top = PLAYER_H + p.jumpY + (p.jumpY > 0.05 ? 0.45 : 0);
       if (b.pos.y > top) continue;
@@ -182,6 +208,7 @@ export class World {
         cvx: closing < 0 ? 0 : p.vel.x, cvz: closing < 0 ? 0 : p.vel.z,
       });
       b.lastTouch = p.team;
+      if (this.restartTeam === p.team) this.restartTeam = null; // restart taken
       // a screamer flattens whoever it hits
       const relX = b.vel.x - p.vel.x, relZ = b.vel.z - p.vel.z;
       const relSp = Math.sqrt(relX * relX + relZ * relZ);
@@ -208,11 +235,12 @@ export class World {
     // the relative speed, and neither may break the hold
     let p = this.carrier;
     let dist = p ? Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z) : Infinity;
-    const carrierOk = p && p.down <= 0 && p.dive <= 0 && wants(p) && dist < 2.3;
+    const allowed = (q) => this.restartTeam === null || q.team === this.restartTeam;
+    const carrierOk = p && p.down <= 0 && p.dive <= 0 && wants(p) && dist < 2.3 && allowed(p);
     if (!carrierOk) {
       p = null; dist = 1.45;
       for (const q of this.players) {
-        if (q.down > 0 || q.dive > 0 || !wants(q)) continue;
+        if (q.down > 0 || q.dive > 0 || !wants(q) || !allowed(q)) continue;
         const d = Math.hypot(b.pos.x - q.pos.x, b.pos.z - q.pos.z);
         if (d < dist) { dist = d; p = q; }
       }
@@ -294,10 +322,12 @@ export class World {
         ball.contacts.push({ nx: 1, ny: 0, nz: 0, type: 'wall' });
       }
     }
-    // goal-line boards: solid outside the goal mouth, open inside it (goal!),
-    // open above board height, and never pulling an already-out ball back
+    // goal-line boards: solid only clearly OUTSIDE the posts (the visual
+    // boards start past the post plus the ball radius; the post capsule
+    // guards the strip in between). Starting the wall at the post's inner
+    // face used to swallow balls that should have hit the post or gone in.
     const wasInsideZ = Math.abs(ball.prev.z) < PITCH_HALF_L - BALL_R + 0.02;
-    if (belowBoards && wasInsideZ && Math.abs(bp.x) > this.halfW - 0.05) {
+    if (belowBoards && wasInsideZ && Math.abs(bp.x) > this.halfW + 0.1) {
       if (bp.z > PITCH_HALF_L - BALL_R) {
         bp.z = PITCH_HALF_L - BALL_R;
         ball.contacts.push({ nx: 0, ny: 0, nz: -1, type: 'wall' });
@@ -462,6 +492,7 @@ export class World {
   }
 
   tryKick(player, charge) {
+    if (this.restartTeam !== null && player.team !== this.restartTeam) return false;
     const p = this.kickParams(player, charge);
     if (!p) return false;
     const b = this.ball;
@@ -469,6 +500,9 @@ export class World {
     b.omega = { ...p.omega };
     b.grounded = false;
     b.lastTouch = player.team;
+    if (this.restartTeam === player.team) this.restartTeam = null; // restart taken
+    // where the shot was struck from — the replay only rolls for screamers
+    this.lastShot = { x: b.pos.x, z: b.pos.z };
     this.events.push({ type: 'kick', team: player.team });
     return p.header ? 'header' : true;
   }
