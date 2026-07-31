@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Goal Net — Şut Oyunu</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0f1e;
+      font-family: 'Segoe UI', system-ui, sans-serif; touch-action: none;
+      -webkit-user-select: none; user-select: none; }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .hud { position: fixed; z-index: 10; color: #fff; pointer-events: none; }
+    #score { top: 14px; left: 50%; transform: translateX(-50%);
+      font-size: 22px; font-weight: 700; letter-spacing: 1px;
+      background: rgba(8, 14, 30, .55); padding: 8px 22px; border-radius: 999px;
+      backdrop-filter: blur(6px); }
+    #score b { color: #7CFC8E; }
+    #modes { top: 14px; right: 14px; pointer-events: auto; display: flex; gap: 8px; }
+    #modes button { border: 1px solid rgba(255,255,255,.25); color: #cfd8ff;
+      background: rgba(8, 14, 30, .55); padding: 8px 14px; border-radius: 10px;
+      font-size: 14px; cursor: pointer; backdrop-filter: blur(6px); }
+    #modes button.active { background: #2456e6; color: #fff; border-color: #2456e6; }
+    #msg { top: 34%; left: 50%; transform: translate(-50%, -50%) scale(.6);
+      font-size: 64px; font-weight: 900; letter-spacing: 3px; opacity: 0;
+      text-shadow: 0 4px 24px rgba(0,0,0,.6); transition: all .18s ease-out; }
+    #msg.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    #msg.gol { color: #7CFC8E; } #msg.direk { color: #ffd257; } #msg.kacti { color: #ff7d7d; }
+    #hint { bottom: 18px; left: 50%; transform: translateX(-50%);
+      font-size: 14px; color: rgba(255,255,255,.75);
+      background: rgba(8, 14, 30, .45); padding: 7px 16px; border-radius: 999px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="hud" id="score">Gol <b>0</b> / Şut 0</div>
+  <div class="hud" id="modes">
+    <button id="btnPenalty" class="active">Penaltı</button>
+    <button id="btnFreekick">Serbest Vuruş</button>
+  </div>
+  <div class="hud" id="msg"></div>
+  <div class="hud" id="hint">Topu sürükleyip bırak — eğri çizersen falso atarsın</div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
