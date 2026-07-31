@@ -121,12 +121,15 @@ export class World {
     for (const p of this.players) {
       const dx = b.pos.x - p.pos.x, dz = b.pos.z - p.pos.z;
       const d = Math.sqrt(dx * dx + dz * dz);
-      const rSum = BALL_R + PLAYER_R;
+      // a diving keeper is stretched out: much wider reach while airborne
+      const reach = p.dive > 0 ? 0.85 : PLAYER_R;
+      const rSum = BALL_R + reach;
       if (d >= rSum || d < 1e-6) continue;
       const nx = dx / d, nz = dz / d;
       const pen = rSum - d;
       b.pos.x += nx * pen; b.pos.z += nz * pen;
       b.contacts.push({ nx, ny: 0, nz, type: 'player', cvx: p.vel.x, cvz: p.vel.z });
+      b.lastTouch = p.team;
       // a screamer flattens whoever it hits
       const relX = b.vel.x - p.vel.x, relZ = b.vel.z - p.vel.z;
       const relSp = Math.sqrt(relX * relX + relZ * relZ);
@@ -147,8 +150,12 @@ export class World {
     // ad boards are the walls, and they are LOW: only a ball below the board
     // top rebounds — anything higher sails out (throw-in / goal kick, handled
     // by the game layer)
+    // Boards rebound ONLY balls that were inside on the previous substep:
+    // a ball that sailed over them and came down outside stays outside, so
+    // the game layer can award the throw-in / goal kick / corner.
     const belowBoards = bp.y < BOARD_TOP;
-    if (belowBoards) {
+    const wasInsideX = Math.abs(ball.prev.x) < WALL_X - BALL_R + 0.02;
+    if (belowBoards && wasInsideX) {
       if (bp.x > WALL_X - BALL_R) {
         bp.x = WALL_X - BALL_R;
         ball.contacts.push({ nx: -1, ny: 0, nz: 0, type: 'wall' });
@@ -158,12 +165,13 @@ export class World {
       }
     }
     // goal-line boards: solid outside the goal mouth, open inside it (goal!),
-    // and open above board height (over the top -> goal kick)
-    if (belowBoards && Math.abs(bp.x) > this.halfW - 0.05) {
-      if (bp.z > PITCH_HALF_L - BALL_R && bp.z < PITCH_HALF_L + 0.5) {
+    // open above board height, and never pulling an already-out ball back
+    const wasInsideZ = Math.abs(ball.prev.z) < PITCH_HALF_L - BALL_R + 0.02;
+    if (belowBoards && wasInsideZ && Math.abs(bp.x) > this.halfW - 0.05) {
+      if (bp.z > PITCH_HALF_L - BALL_R) {
         bp.z = PITCH_HALF_L - BALL_R;
         ball.contacts.push({ nx: 0, ny: 0, nz: -1, type: 'wall' });
-      } else if (bp.z < -(PITCH_HALF_L - BALL_R) && bp.z > -(PITCH_HALF_L + 0.5)) {
+      } else if (bp.z < -(PITCH_HALF_L - BALL_R)) {
         bp.z = -(PITCH_HALF_L - BALL_R);
         ball.contacts.push({ nx: 0, ny: 0, nz: 1, type: 'wall' });
       }
@@ -276,6 +284,7 @@ export class World {
     b.vel = { ...p.vel };
     b.omega = { ...p.omega };
     b.grounded = false;
+    b.lastTouch = player.team;
     this.events.push({ type: 'kick', team: player.team });
     return true;
   }

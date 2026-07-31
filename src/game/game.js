@@ -194,18 +194,22 @@ export class Game {
         this.showMessage('Taç!', 'kacti', 1000);
         this.onWorldEvent?.({ type: 'throwin' }, true);
         this.outTimer = 0;
-      } else if (Math.abs(bp.z) > PITCH_HALF_L + 0.15 && !this.world.scoringLocked) {
-        // grace period: the ball may be resting on the net roof or rolling
-        // off it — restart once it is clearly out of play
-        this.outTimer += dt;
-        if (this.outTimer > 0.7) {
-          this.outTimer = 0;
-          this.world.placeBall(0, Math.sign(bp.z) * (PITCH_HALF_L - 3.2));
+      } else if (Math.abs(bp.z) > PITCH_HALF_L + 0.2 && !this.world.scoringLocked) {
+        // the whole end line is out of play: anything that clears the boards
+        // without being a goal restarts immediately — corner if the defender
+        // touched it last, goal kick otherwise
+        const s = Math.sign(bp.z);
+        const defender = s > 0 ? 1 : 0;
+        if (this.world.ball.lastTouch === defender) {
+          const cx = (Math.sign(bp.x) || 1) * 10.6;
+          this.world.placeBall(cx, s * (PITCH_HALF_L - 0.4));
+          this.showMessage('Korner!', 'direk', 1000);
+          this.onWorldEvent?.({ type: 'corner' }, true);
+        } else {
+          this.world.placeBall(0, s * (PITCH_HALF_L - 3.2));
           this.showMessage('Kale vuruşu!', 'kacti', 1000);
           this.onWorldEvent?.({ type: 'goalkick' }, true);
         }
-      } else {
-        this.outTimer = 0;
       }
     }
 

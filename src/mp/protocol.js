@@ -143,6 +143,9 @@ function snapPlayer(p) {
     down: optNum(p.down),
     charge: optNum(p.charge),
     kickAnim: optNum(p.kickAnim),
+    dive: optNum(p.dive),
+    diveRecover: optNum(p.diveRecover),
+    diveYaw: optNum(p.diveYaw),
     team: teamOf(p.team),
     role: p.role === undefined ? 'field' : p.role,
   };

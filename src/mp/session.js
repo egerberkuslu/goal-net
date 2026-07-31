@@ -84,6 +84,9 @@ class GuestMatch {
       if (sp.down > 0 && p.downTotal <= 0) p.downTotal = 1.5;
       p.charge = sp.charge;
       p.kickAnim = sp.kickAnim;
+      p.dive = sp.dive;
+      p.diveRecover = sp.diveRecover;
+      p.diveDir = { x: Math.sin(sp.diveYaw), z: Math.cos(sp.diveYaw) };
       p.input.x = 0; p.input.z = 0; // guests never steer remote players
     }
 
@@ -97,6 +100,7 @@ class GuestMatch {
       else if (e.type === 'crossbar') { this.showMessage('Üst direk!', 'direk', 900); this.onSnapEvent?.(e); }
       else if (e.type === 'throwin') this.showMessage('Taç!', 'kacti', 1000);
       else if (e.type === 'goalkick') this.showMessage('Kale vuruşu!', 'kacti', 1000);
+      else if (e.type === 'corner') this.showMessage('Korner!', 'direk', 1000);
     }
     if (prevState !== 'kickoff' && snap.state === 'kickoff') this.showMessage('Hazır…', 'hazir', 1000);
     if (prevState !== 'end' && snap.state === 'end') this.showEnd();
@@ -323,7 +327,7 @@ export class MpSession {
     for (const k of game.keepers) controllers.set(k, new KeeperController(world, k));
 
     const prevHook = game.onWorldEvent;
-    const shared = new Set(['post', 'crossbar', 'throwin', 'goalkick']);
+    const shared = new Set(['post', 'crossbar', 'throwin', 'goalkick', 'corner']);
     game.onWorldEvent = (e, playing) => {
       prevHook?.(e, playing);
       if (!playing) return;
@@ -485,6 +489,8 @@ export class MpSession {
       players: world.players.map((p) => ({
         id: p.mpId, x: p.pos.x, z: p.pos.z, vx: p.vel.x, vz: p.vel.z,
         facing: p.facing, down: p.down, charge: p.charge, kickAnim: p.kickAnim,
+        dive: p.dive, diveRecover: p.diveRecover,
+        diveYaw: Math.atan2(p.diveDir.x, p.diveDir.z),
         team: p.team, role: p.role,
       })),
       events: this.pendingEvents.splice(0),

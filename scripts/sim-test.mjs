@@ -72,6 +72,19 @@ function fly(world, seconds, onFrame) {
   check('high ball: sails over the boards', maxX > WALL_X + 0.3, `maxX=${maxX.toFixed(2)}`);
 }
 
+// 3b2) once outside, the ball STAYS outside (no teleport back at low height)
+{
+  const w = new World();
+  w.ball.place(6, 0);
+  w.ball.vel = { x: 8.5, y: 5.2, z: 0 };
+  w.ball.grounded = false;
+  let maxX = 0;
+  fly(w, 3.0, () => { maxX = Math.max(maxX, Math.abs(w.ball.pos.x)); });
+  const finalX = w.ball.pos.x;
+  check('out ball: crossed the boards', maxX > WALL_X + 0.3, `maxX=${maxX.toFixed(2)}`);
+  check('out ball: not teleported back in', finalX > WALL_X, `x=${finalX.toFixed(2)}`);
+}
+
 // 3c) a chip over the crossbar leaves play behind the goal without scoring
 {
   const w = new World();
@@ -216,6 +229,29 @@ function fly(world, seconds, onFrame) {
   check('small goal: x=3.2 misses the narrowed mouth', goal2 === null, JSON.stringify(goal2));
   check('small goal: x=3.2 hits the end wall',
     maxZ2 <= PITCH_HALF_L - BALL_R + 0.02, `maxZ=${maxZ2.toFixed(2)}`);
+}
+
+// 8c) keeper dives for a corner-bound shot
+{
+  const w = new World();
+  const keeper = w.addPlayer(0, 'keeper');
+  keeper.reset(0, -(PITCH_HALF_L - 0.9));
+  const ctrl = new KeeperController(w, keeper);
+  w.ball.place(-0.5, -9);
+  w.ball.vel = { x: 3.4, y: 1.2, z: -13 };
+  w.ball.grounded = false;
+  w.ball.lastTouch = 1;
+  let goal = null, dived = false;
+  const frames = Math.round(2.0 / DT);
+  for (let f = 0; f < frames; f++) {
+    const c = ctrl.update(DT);
+    keeper.input.x = c.x; keeper.input.z = c.z;
+    if (keeper.dive > 0) dived = true;
+    w.step(DT);
+    for (const e of w.drainEvents()) if (e.type === 'goal') goal = e;
+  }
+  check('dive: keeper left his feet', dived);
+  check('dive: shot to the corner saved', goal === null, JSON.stringify(goal));
 }
 
 // 8) performance budget with two nets + players

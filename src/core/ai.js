@@ -93,12 +93,40 @@ export class KeeperController {
     this.guardZ = -this.attackSign * (PITCH_HALF_L - 0.9);
     this.holdingKick = false;
     this.heldFor = 0;
+    this.diveCooldown = 0;
+    this.actionCooldown = 0; // shared breather between clears and dives
+    this.decideTimer = 0;
+    this.cachedMove = { x: 0, z: 0 };
   }
 
   update(dt) {
     const { world, player, attackSign } = this;
     const b = world.ball.pos;
     const bv = world.ball.vel;
+
+    this.actionCooldown = Math.max(0, this.actionCooldown - dt);
+
+    // dive at shots headed for the corners: fast, incoming, and crossing the
+    // line too far away to reach on foot
+    this.diveCooldown = Math.max(0, this.diveCooldown - dt);
+    const incoming = bv.z * -attackSign > 7;
+    if (incoming && this.diveCooldown <= 0 && this.actionCooldown <= 0 &&
+        player.dive <= 0 && b.y < 2.2) {
+      const dz = Math.abs(b.z - player.pos.z);
+      const tHit = dz / Math.abs(bv.z || 1);
+      if (dz < 6 && tHit < 0.42) {
+        const crossX = b.x + bv.x * tHit;
+        const dx = crossX - player.pos.x;
+        if (Math.abs(dx) > 0.55 && Math.abs(dx) < 3.2) {
+          // impulse sized to land ON the intercept point, not past it
+          // (dive displacement ~= 0.386 * impulse over the dive duration)
+          const power = Math.min(8.5, Math.max(3.2, Math.abs(dx) * 2.6));
+          player.startDive(Math.sign(dx), 0, power);
+          this.diveCooldown = 1.6;
+          this.actionCooldown = 1.4;
+        }
+      }
+    }
 
     const distGoal = Math.hypot(b.x, b.z + this.attackSign * PITCH_HALF_L);
     const dangerous = distGoal < 5.0 && b.y < 1.8;
@@ -122,22 +150,33 @@ export class KeeperController {
       target = { x: tx, z: this.guardZ };
     }
 
-    let dx = target.x - player.pos.x;
-    let dz = target.z - player.pos.z;
-    const len = Math.sqrt(dx * dx + dz * dz);
-    if (len > 0.12) { dx /= len; dz /= len; } else { dx = 0; dz = 0; }
+    // 8 Hz steering refresh keeps the keeper from twitching every frame
+    this.decideTimer -= dt;
+    if (this.decideTimer <= 0) {
+      this.decideTimer = 0.12;
+      let dx = target.x - player.pos.x;
+      let dz = target.z - player.pos.z;
+      const len = Math.sqrt(dx * dx + dz * dz);
+      if (len > 0.12) { dx /= len; dz /= len; } else { dx = 0; dz = 0; }
+      // catching a breath after a clearance or dive: slower, stays composed
+      const pace = this.actionCooldown > 0 ? 0.55 : 1;
+      this.cachedMove = { x: dx * pace, z: dz * pace };
+    }
 
-    // clear the ball only when it is fieldward of the keeper
+    // clear the ball only when it is fieldward of the keeper, and never
+    // twice in a row without a breather
     const ballFieldward = (b.z - player.pos.z) * attackSign > 0;
     const distBall = Math.hypot(b.x - player.pos.x, b.z - player.pos.z);
     let kick = false;
-    if (ballFieldward && distBall < KICK_RANGE + BALL_R + 0.25) {
+    if (this.actionCooldown <= 0 && ballFieldward &&
+        distBall < KICK_RANGE + BALL_R + 0.25) {
       if (!this.holdingKick) { this.holdingKick = true; this.heldFor = 0; }
       this.heldFor += dt;
       kick = this.heldFor < 0.45 * KICK_CHARGE_TIME; // quick, punchy clearance
+      if (!kick) { this.holdingKick = false; this.actionCooldown = 1.2; }
     } else {
       this.holdingKick = false;
     }
-    return { x: dx, z: dz, kick };
+    return { x: this.cachedMove.x, z: this.cachedMove.z, kick };
   }
 }

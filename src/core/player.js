@@ -17,6 +17,23 @@ export class Player {
     this.downTotal = RAGDOLL_TIME;
     this.tumbleSpin = 0;
     this.knockCooldown = 0; // hidden immunity so players can't be stun-locked
+    this.dive = 0;          // keeper dive: seconds of flight left
+    this.diveTotal = 0.55;
+    this.diveRecover = 0;   // scramble-up time after the dive
+    this.diveDir = { x: 1, z: 0 };
+  }
+
+  // Keeper dive: a sideways burst with the body stretched out. No steering
+  // mid-air; short recovery after landing.
+  startDive(dx, dz, power = 8.5) {
+    if (this.dive > 0 || this.diveRecover > 0 || this.down > 0) return false;
+    const len = Math.hypot(dx, dz) || 1;
+    this.diveDir = { x: dx / len, z: dz / len };
+    this.dive = this.diveTotal;
+    this.vel.x += this.diveDir.x * power;
+    this.vel.z += this.diveDir.z * power;
+    this.charge = 0;
+    return true;
   }
 
   reset(x, z) {
@@ -28,6 +45,8 @@ export class Player {
     this.kickAnim = 0;
     this.down = 0;
     this.knockCooldown = 0;
+    this.dive = 0;
+    this.diveRecover = 0;
   }
 
   // A fast ball flattens the player: thrown along the ball's travel
@@ -49,6 +68,15 @@ export class Player {
     if (this.down > 0) {
       this.down = Math.max(0, this.down - h);
       const f = Math.exp(-2.2 * h); // slide across the grass
+      this.vel.x *= f; this.vel.z *= f;
+    } else if (this.dive > 0) {
+      this.dive = Math.max(0, this.dive - h);
+      if (this.dive === 0) this.diveRecover = 0.45;
+      const f = Math.exp(-1.4 * h); // glide through the dive
+      this.vel.x *= f; this.vel.z *= f;
+    } else if (this.diveRecover > 0) {
+      this.diveRecover = Math.max(0, this.diveRecover - h);
+      const f = Math.exp(-6 * h); // getting up, barely moving
       this.vel.x *= f; this.vel.z *= f;
     } else {
       let { x, z } = this.input;

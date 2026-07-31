@@ -95,6 +95,24 @@ export class PlayerView {
     this.legs[0].rotation.z = 0;
     this.legs[1].rotation.z = 0;
 
+    // keeper dive: superman stretch toward the dive direction
+    const divePose = p.dive > 0
+      ? Math.min((p.diveTotal - p.dive) / 0.18, 1)
+      : (p.diveRecover > 0 ? p.diveRecover / 0.45 : 0);
+    if (divePose > 0.01) {
+      const yaw = Math.atan2(p.diveDir.x, p.diveDir.z);
+      const air = p.dive > 0 ? Math.sin(Math.min((p.diveTotal - p.dive) / p.diveTotal, 1) * Math.PI) : 0;
+      this.group.position.set(p.pos.x, air * 0.55, p.pos.z);
+      this.group.rotation.set(divePose * 1.35, yaw, 0, 'YXZ');
+      for (const [i, s] of [[0, 1], [1, -1]]) {
+        this.legs[i].rotation.x = divePose * 0.25 * s;
+        this.arms[i].rotation.x = -divePose * 2.9;
+        this.arms[i].rotation.z = s * 0.16 * (1 - divePose);
+      }
+      this.ring.visible = false;
+      return;
+    }
+
     this.group.position.set(p.pos.x, 0, p.pos.z);
     const lean = Math.min(sp / PLAYER_SPEED, 1) * 0.16;
     this.group.rotation.set(lean, p.facing, 0, 'YXZ');
