@@ -237,8 +237,8 @@ function fly(world, seconds, onFrame) {
   const keeper = w.addPlayer(0, 'keeper');
   keeper.reset(0, -(PITCH_HALF_L - 0.9));
   const ctrl = new KeeperController(w, keeper);
-  w.ball.place(-0.5, -9);
-  w.ball.vel = { x: 3.4, y: 1.2, z: -13 };
+  w.ball.place(-2, -8);
+  w.ball.vel = { x: 8.5, y: 0.8, z: -20.5 };
   w.ball.grounded = false;
   w.ball.lastTouch = 1;
   let goal = null, dived = false;

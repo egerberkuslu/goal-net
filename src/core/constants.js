@@ -33,7 +33,7 @@ export const NODE_MASS = 0.004; // ~4 g of cord per knot
 export const REST_GROUND = 0.62;
 export const REST_POST = 0.7;
 export const REST_WALL = 0.72;
-export const REST_PLAYER = 0.65;
+export const REST_PLAYER = 0.32; // soft touch so dribbling sticks to the feet
 
 // arena (Haxball-style bounded pitch, goals on the z axis)
 export const PITCH_HALF_L = 18;  // goal lines at z = ±18
@@ -49,7 +49,8 @@ export const PLAYER_SPEED = 6.5;
 export const PLAYER_ACCEL_RATE = 9; // 1/s velocity approach rate
 
 // kicking
-export const KICK_RANGE = 1.05;  // centre distance within which a kick connects
+export const KICK_RANGE = 1.35;  // centre distance within which a kick connects
+export const KICK_ASSIST = 0.4;  // pull toward the goal frame when facing it
 export const KICK_MIN = 11;
 export const KICK_MAX = 24;
 export const LOFT_MIN = 0.06;

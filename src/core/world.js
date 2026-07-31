@@ -6,7 +6,8 @@ import {
   DT, SUBSTEPS, ITERS,
   PITCH_HALF_L, WALL_X, WALL_Z_BACK,
   PLAYER_R, PLAYER_H,
-  KICK_RANGE, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX, RAGDOLL_SPEED, BOARD_TOP,
+  KICK_RANGE, KICK_ASSIST, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX,
+  RAGDOLL_SPEED, BOARD_TOP,
 } from './constants.js';
 import { makeConfig } from './config.js';
 
@@ -265,7 +266,21 @@ export class World {
     const dx = b.pos.x - player.pos.x, dz = b.pos.z - player.pos.z;
     const d = Math.sqrt(dx * dx + dz * dz);
     if (d > KICK_RANGE + BALL_R + rangeBonus || d < 1e-6) return null;
-    const dirX = dx / d, dirZ = dz / d;
+    let dirX = dx / d, dirZ = dz / d;
+    // aim assist: when the kick already points roughly at the opponent goal,
+    // pull it toward the centre of the frame (the preview shares this math)
+    const goalZ = (player.team === 0 ? 1 : -1) * PITCH_HALF_L;
+    let gx = -b.pos.x, gz = goalZ - b.pos.z;
+    const gLen = Math.sqrt(gx * gx + gz * gz) || 1;
+    gx /= gLen; gz /= gLen;
+    const dot = dirX * gx + dirZ * gz;
+    if (dot > 0.45) {
+      const a = KICK_ASSIST * dot;
+      dirX = dirX * (1 - a) + gx * a;
+      dirZ = dirZ * (1 - a) + gz * a;
+      const dLen = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
+      dirX /= dLen; dirZ /= dLen;
+    }
     const speed = KICK_MIN + (KICK_MAX - KICK_MIN) * charge;
     const loft = LOFT_MIN + (LOFT_MAX - LOFT_MIN) * charge;
     const cosL = Math.cos(loft), sinL = Math.sin(loft);

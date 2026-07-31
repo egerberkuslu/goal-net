@@ -106,18 +106,21 @@ export class KeeperController {
 
     this.actionCooldown = Math.max(0, this.actionCooldown - dt);
 
-    // dive at shots headed for the corners: fast, incoming, and crossing the
-    // line too far away to reach on foot
+    // dive ONLY as a last resort: a real shot (fast, on target, from
+    // distance) crossing the line where running can no longer reach it.
+    // Everything else is handled on foot — that keeps him catching balls.
     this.diveCooldown = Math.max(0, this.diveCooldown - dt);
-    const incoming = bv.z * -attackSign > 7;
+    const incoming = bv.z * -attackSign > 9;
     if (incoming && this.diveCooldown <= 0 && this.actionCooldown <= 0 &&
         player.dive <= 0 && b.y < 2.2) {
       const dz = Math.abs(b.z - player.pos.z);
       const tHit = dz / Math.abs(bv.z || 1);
-      if (dz < 6 && tHit < 0.42) {
+      if (dz > 2.5 && dz < 7.5 && tHit < 0.5) {
         const crossX = b.x + bv.x * tHit;
         const dx = crossX - player.pos.x;
-        if (Math.abs(dx) > 0.55 && Math.abs(dx) < 3.2) {
+        const onTarget = Math.abs(crossX) < world.config.goalW / 2 + 0.35;
+        const needSpeed = Math.abs(dx) / Math.max(tHit, 0.06);
+        if (onTarget && needSpeed > 5.5 && Math.abs(dx) > 1.0 && Math.abs(dx) < 3.0) {
           // impulse sized to land ON the intercept point, not past it
           // (dive displacement ~= 0.386 * impulse over the dive duration)
           const power = Math.min(8.5, Math.max(3.2, Math.abs(dx) * 2.6));

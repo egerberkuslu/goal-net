@@ -36,6 +36,7 @@ class GuestMatch {
     this.timeLeft = world.config.matchTime;
     this.mode = 'mp-guest';
     this.camZ = 0;
+    this.cam = { x: 28, y: 24.5, z: 0, lx: 2.6, ly: 0.2, lz: 0 };
     this.msgTimer = null;
     this.byId = new Map();
     this.slowUntil = 0;
@@ -92,9 +93,9 @@ class GuestMatch {
 
     for (const e of snap.events || []) {
       if (e.type === 'goal') {
-        this.showMessage('GOOOL!', 'gol', 2200);
-        this.timeScale = 0.28;
-        this.slowUntil = now + 1.3;
+        this.showMessage('GOOOL!', 'gol', 2600);
+        this.timeScale = 0.3;
+        this.slowUntil = now + 2.2;
         this.onSnapEvent?.(e);
       } else if (e.type === 'post') { this.showMessage('Direk!', 'direk', 900); this.onSnapEvent?.(e); }
       else if (e.type === 'crossbar') { this.showMessage('Üst direk!', 'direk', 900); this.onSnapEvent?.(e); }
@@ -128,8 +129,18 @@ class GuestMatch {
     if (this.timeScale < 1 && now > this.slowUntil) this.timeScale = 1;
     const b = this.world.ball.pos;
     this.camZ += (b.z * 0.28 - this.camZ) * Math.min(1, dt * 3);
-    this.camera.position.set(28, 24.5, this.camZ);
-    this.camera.lookAt(2.6, 0.2, this.camZ * 1.2);
+    let t;
+    if (this.state === 'goal') {
+      const s = Math.sign(b.z) || 1;
+      t = { x: 8.5, y: 2.8, z: s * 12.6, lx: b.x * 0.8, ly: 1.0, lz: s * 17.6 };
+    } else {
+      t = { x: 28, y: 24.5, z: this.camZ, lx: 2.6, ly: 0.2, lz: this.camZ * 1.2 };
+    }
+    const k = Math.min(1, dt * 3.2);
+    const c = this.cam;
+    for (const key of ['x', 'y', 'z', 'lx', 'ly', 'lz']) c[key] += (t[key] - c[key]) * k;
+    this.camera.position.set(c.x, c.y, c.z);
+    this.camera.lookAt(c.lx, c.ly, c.lz);
   }
 }
 
