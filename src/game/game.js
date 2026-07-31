@@ -5,6 +5,7 @@ import {
   KeyboardController, P1_KEYS, P1_ALT_KEYS, P1_X_KICK, P2_KEYS,
 } from './input.js';
 import { BotController, KeeperController } from '../core/ai.js';
+import { CameraRig } from '../view/cameraRig.js';
 
 const TEAM_NAMES = ['KIRMIZI', 'MAVİ'];
 
@@ -31,8 +32,7 @@ export class Game {
     this.timeLeft = world.config.matchTime;
     this.msgTimer = null;
     this.outTimer = 0;
-    this.camZ = 0;
-    this.cam = { x: 28, y: 24.5, z: 0, lx: 2.6, ly: 0.2, lz: 0 };
+    this.rig = new CameraRig(camera);
 
     this.byId = new Map();
     for (const entry of roster ?? defaultRoster(world.config)) {
@@ -233,21 +233,11 @@ export class Game {
       }
     }
 
-    // camera: side-on, glides along z with the ball; on a goal it swoops in
-    // low next to the net so the slow-motion billow fills the screen
-    const b = this.world.ball.pos;
-    this.camZ += (b.z * 0.28 - this.camZ) * Math.min(1, dt * 3);
-    let t;
-    if (this.state === 'goal') {
-      const s = Math.sign(b.z) || 1;
-      t = { x: 8.5, y: 2.8, z: s * 12.6, lx: b.x * 0.8, ly: 1.0, lz: s * 17.6 };
-    } else {
-      t = { x: 28, y: 24.5, z: this.camZ, lx: 2.6, ly: 0.2, lz: this.camZ * 1.2 };
-    }
-    const k = Math.min(1, dt * 3.2);
-    const c = this.cam;
-    for (const key of ['x', 'y', 'z', 'lx', 'ly', 'lz']) c[key] += (t[key] - c[key]) * k;
-    this.camera.position.set(c.x, c.y, c.z);
-    this.camera.lookAt(c.lx, c.ly, c.lz);
+    // camera: mode-driven rig; a goal always cuts to the net close-up
+    this.rig.update(dt, {
+      ball: this.world.ball.pos,
+      state: this.state,
+      me: this.playerRed,
+    });
   }
 }

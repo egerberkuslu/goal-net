@@ -176,60 +176,77 @@ export class World {
     }
   }
 
-  // Dribble assist: while a player runs with the ball at their feet, gently
-  // spring it toward a spot just ahead of them so it does not skitter away.
-  // Only the nearest carrier gets the pull, and only at controllable speeds.
-  // The pull follows where the player STEERS, not where they are drifting, so
-  // a curve keeps the ball ahead of the turn while an about-turn lets go of it
-  // instead of hauling it backwards.
+  // Dribble carry: the ball ORBITS the carrier. Its bearing around the player
+  // swings toward the input direction at a fixed angular rate, so any change
+  // of direction — including a full about-turn — walks the ball around the
+  // body to the new front instead of dragging it through the player or
+  // abandoning it. Release happens only on a kick / poke (relative-speed
+  // spike) or when an opponent gets closer.
   dribbleAssist(h) {
     const b = this.ball;
     if (b.pos.y > 0.5) { this.carrier = null; return; }
-    let best = null, bestD = 1.4;
-    for (const p of this.players) {
-      if (p.down > 0 || p.dive > 0) continue;
-      if (Math.hypot(p.vel.x, p.vel.z) < 1.2) continue;
-      const d = Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z);
-      if (d < bestD) { bestD = d; best = p; }
+    const wants = (p) => Math.hypot(p.vel.x, p.vel.z) > 0.6 ||
+                         Math.hypot(p.input.x, p.input.z) > 0.2;
+    // the current carrier is sticky: an about-turn briefly opens the gap and
+    // the relative speed, and neither may break the hold
+    let p = this.carrier;
+    let dist = p ? Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z) : Infinity;
+    const carrierOk = p && p.down <= 0 && p.dive <= 0 && wants(p) && dist < 2.3;
+    if (!carrierOk) {
+      p = null; dist = 1.45;
+      for (const q of this.players) {
+        if (q.down > 0 || q.dive > 0 || !wants(q)) continue;
+        const d = Math.hypot(b.pos.x - q.pos.x, b.pos.z - q.pos.z);
+        if (d < dist) { dist = d; p = q; }
+      }
+      if (!p) { this.carrier = null; return; }
     }
-    if (!best) { this.carrier = null; return; }
-    const p = best;
     const relX = b.vel.x - p.vel.x, relZ = b.vel.z - p.vel.z;
     const relSp = Math.hypot(relX, relZ);
-    // a ball has to settle at the feet before it is carried; once it is, the
-    // grip survives the higher relative speeds a turn creates
+    // a loose ball must settle before it is carried; a held ball tolerates
+    // the transient speeds of a hard turn. A kick blows straight through.
     const held = this.carrier === p;
-    if (relSp > (held ? 10.5 : 4.5)) { this.carrier = null; return; }
-    const sp = Math.hypot(p.vel.x, p.vel.z);
-    const vx = p.vel.x / sp, vz = p.vel.z / sp;          // heading
-    const inv = bestD > 1e-4 ? 1 / bestD : 0;
+    if (relSp > (held ? 13 : 4.5)) { this.carrier = null; return; }
+    const inv = dist > 1e-4 ? 1 / dist : 0;
     const nx = (b.pos.x - p.pos.x) * inv, nz = (b.pos.z - p.pos.z) * inv;
-    if (relX * nx + relZ * nz > 4.5) { this.carrier = null; return; } // squirting away
+    // a kick or poke fires the ball radially away much faster than any turn
+    if (relX * nx + relZ * nz > (held ? 8 : 4.5)) { this.carrier = null; return; }
+    this.carrier = p;
+
+    // desired bearing: input first, then heading, then facing
     let ix = p.input.x, iz = p.input.z;
     const il = Math.hypot(ix, iz);
-    if (il > 1e-4) { ix /= il; iz /= il; } else { ix = vx; iz = vz; }
-    // grip fades out as the intent turns against the run, and as the ball
-    // falls behind the direction being asked for
-    const turn = ix * vx + iz * vz;   // 1 = straight on, -1 = about-turn
-    const ahead = ix * nx + iz * nz;  // 1 = ball in front of the new heading
-    const grip = Math.max(0, Math.min(1, (turn + 0.15) / 0.5))
-               * Math.max(0, Math.min(1, (ahead + 0.8) / 0.5));
-    if (grip <= 0) {
-      // let go: bleed the carried momentum so the loose ball is left behind
-      // near the turn instead of rocketing off down the pitch
-      if (held && relSp < 4.5) {
-        const f = Math.exp(-3.5 * h);
-        b.vel.x *= f; b.vel.z *= f;
-      }
-      return;
+    if (il < 0.2) {
+      const sp = Math.hypot(p.vel.x, p.vel.z);
+      if (sp > 0.5) { ix = p.vel.x / sp; iz = p.vel.z / sp; }
+      else { ix = Math.sin(p.facing); iz = Math.cos(p.facing); }
+    } else { ix /= il; iz /= il; }
+    const targetA = Math.atan2(ix, iz);
+    const curA = Math.atan2(nx, nz);
+    let dA = targetA - curA;
+    if (dA > Math.PI) dA -= 2 * Math.PI;
+    if (dA < -Math.PI) dA += 2 * Math.PI;
+    const maxTurn = 14 * h; // ~0.22s for a full about-turn
+    const applied = Math.max(-maxTurn, Math.min(maxTurn, dA));
+    const newA = curA + applied;
+    const R = 0.6;
+    const tx = p.pos.x + Math.sin(newA) * R;
+    const tz = p.pos.z + Math.cos(newA) * R;
+    // the carry point itself moves: player velocity plus the orbital sweep.
+    // Feeding that forward lets the ball come AROUND a body that is already
+    // accelerating the other way, instead of trailing behind it forever.
+    const sweep = (applied / h) * R;
+    const ringVx = p.vel.x + Math.cos(newA) * sweep;
+    const ringVz = p.vel.z - Math.sin(newA) * sweep;
+    const matchK = 10 + Math.min(14, Math.abs(dA) * 10);
+    b.vel.x += ((tx - b.pos.x) * 60 + (ringVx - b.vel.x) * matchK) * h;
+    b.vel.z += ((tz - b.pos.z) * 60 + (ringVz - b.vel.z) * matchK) * h;
+    // turning with the ball scrubs a little pace — and gives the ball the
+    // fraction of a second it needs to swing past the body
+    if (held && Math.abs(dA) > 1.2) {
+      const drag = Math.exp(-2.6 * h);
+      p.vel.x *= drag; p.vel.z *= drag;
     }
-    this.carrier = p;
-    let cx = vx * 0.35 + ix * 0.65, cz = vz * 0.35 + iz * 0.65;
-    const cl = Math.hypot(cx, cz) || 1;
-    cx /= cl; cz /= cl;
-    const tx = p.pos.x + cx * 0.62, tz = p.pos.z + cz * 0.62;
-    b.vel.x += ((tx - b.pos.x) * 20 + (p.vel.x - b.vel.x) * 8) * grip * h;
-    b.vel.z += ((tz - b.pos.z) * 20 + (p.vel.z - b.vel.z) * 8) * grip * h;
     b.lastTouch = p.team;
   }
 
@@ -397,9 +414,23 @@ export class World {
     const speed = header
       ? 8 + (KICK_MAX - KICK_MIN) * 0.5 * charge
       : KICK_MIN + (KICK_MAX - KICK_MIN) * charge;
-    const loft = header
+    let loft = header
       ? 0.03 + 0.12 * charge
       : LOFT_MIN + (LOFT_MAX - LOFT_MIN) * charge;
+    // sniper cap: a full-power shot clearly aimed at the goal from close in
+    // must not balloon over the bar — cap the loft so the (drag-free) arc
+    // still passes under it at the goal plane. Drag only pulls it lower.
+    if (!header && dot > 0.5 && gLen < 15) {
+      let lo = 0, hi = loft;
+      for (let i = 0; i < 10; i++) {
+        const mid = (lo + hi) / 2;
+        const t = gLen / (speed * Math.cos(mid));
+        const yAt = b.pos.y + speed * Math.sin(mid) * t - 4.905 * t * t;
+        // clearance covers the bar capsule + ball radius + a safety margin
+        if (yAt > this.config.goalH - 0.45) hi = mid; else lo = mid;
+      }
+      loft = Math.min(loft, lo);
+    }
     const cosL = Math.cos(loft), sinL = Math.sin(loft);
     const lateral = dirX * player.vel.z - dirZ * player.vel.x;
     const back = (5 + loft * 25) * (header ? 0.4 : 1);

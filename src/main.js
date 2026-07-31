@@ -107,6 +107,11 @@ dom.btnAgain.addEventListener('click', () => {
   if (session.active && session.inMatch) session.backToLobbyAfterMatch();
   else app.game.startMatch(app.game.mode ?? '1p');
 });
+addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyV') return;
+  const label = app.game.rig?.cycle();
+  if (label) app.game.showMessage(label, 'hazir', 900);
+});
 
 let last = performance.now() / 1000;
 let accumulator = 0;

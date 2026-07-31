@@ -179,7 +179,7 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
 }
 
 // 6b) dribble: the ball rides at the feet through a run, and an about-turn
-//     drops it instead of hauling it backwards
+//     carries it around the body to the new front (orbital carry)
 {
   const w = new World();
   const p = w.addPlayer(0);
@@ -205,22 +205,25 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
   check('dribble: ball stays at the feet', avg < 1.0, `avg=${avg.toFixed(2)} m`);
   check('dribble: never gets away', max < 1.4, `max=${max.toFixed(2)} m`);
 
-  const ballZAtFlip = w.ball.pos.z;
-  let turnTime = null, minBallZ = ballZAtFlip;
-  drive(0, -1, 1.2, (t) => {
+  let turnTime = null, frontTime = null;
+  drive(0, -1, 1.4, (t) => {
     if (turnTime === null && p.vel.z < -4) turnTime = t;
-    minBallZ = Math.min(minBallZ, w.ball.pos.z);
+    // ball has swung around to the NEW front (bearing -z) and is in reach
+    const bx = w.ball.pos.x - p.pos.x, bz = w.ball.pos.z - p.pos.z;
+    const dNow = Math.hypot(bx, bz);
+    if (frontTime === null && bz < -0.25 && dNow < 1.0) frontTime = t;
   });
   check('dribble: about-turn accelerates freely',
     turnTime !== null && turnTime < 0.9,
     turnTime === null ? 'never reached -4 m/s' : `vz<-4 after ${turnTime.toFixed(2)} s`);
-  check('dribble: ball not dragged backwards', ballZAtFlip - minBallZ < 0.5,
-    `pulled back ${(ballZAtFlip - minBallZ).toFixed(2)} m`);
+  check('dribble: ball orbits to the new front',
+    frontTime !== null && frontTime < 0.9,
+    frontTime === null ? 'ball never came around' : `in front after ${frontTime.toFixed(2)} s`);
+  check('dribble: still carried after the turn', gap() < 1.1, `d=${gap().toFixed(2)} m`);
 }
 
-// 6c) the same run and about-turn, but the carrier is a shoulder off the
-//     ball's line — the everyday case, where the old assist hauled the ball
-//     five metres back up the pitch
+// 6c) the same run and about-turn with the carrier a shoulder off the ball's
+//     line — the everyday case; the orbital carry must keep control too
 {
   const w = new World();
   const p = w.addPlayer(0);
@@ -236,11 +239,10 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
   drive(0, 1, 1.5);
   const carried = Math.hypot(w.ball.pos.x - p.pos.x, w.ball.pos.z - p.pos.z);
   check('dribble: off-centre ball still carried', carried < 1.0, `d=${carried.toFixed(2)} m`);
-  const ballZAtFlip = w.ball.pos.z;
-  let minBallZ = ballZAtFlip;
-  drive(0, -1, 1.2, () => { minBallZ = Math.min(minBallZ, w.ball.pos.z); });
-  check('dribble: off-centre about-turn leaves the ball',
-    ballZAtFlip - minBallZ < 0.5, `pulled back ${(ballZAtFlip - minBallZ).toFixed(2)} m`);
+  drive(0, -1, 1.4);
+  const after = Math.hypot(w.ball.pos.x - p.pos.x, w.ball.pos.z - p.pos.z);
+  check('dribble: off-centre about-turn keeps control', after < 1.1,
+    `d=${after.toFixed(2)} m`);
 }
 
 // 6d) a right-angle change of direction keeps the ball, it is a turn and not
@@ -258,6 +260,26 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
     max = Math.max(max, Math.hypot(w.ball.pos.x - p.pos.x, w.ball.pos.z - p.pos.z));
   }
   check('dribble: right-angle turn keeps the ball', max < 1.4, `max=${max.toFixed(2)} m`);
+}
+
+// 6b2) sniper cap: a full-power shot aimed at the goal from close range must
+//      stay under the bar instead of ballooning out of play
+{
+  const w = new World();
+  const p = w.addPlayer(0);
+  for (const dist of [5, 8, 11]) {
+    p.reset(0, PITCH_HALF_L - dist - 0.9);
+    w.ball.place(0, PITCH_HALF_L - dist);
+    w.scoringLocked = false;
+    w.tryKick(p, 1.0); // full charge, aim assist engaged (straight at goal)
+    let goal = null, crossedHigh = false;
+    fly(w, 1.2, (ev) => {
+      for (const e of ev) if (e.type === 'goal') goal = e;
+      if (Math.abs(w.ball.pos.z) > PITCH_HALF_L - 0.2 && w.ball.pos.y > 2.42) crossedHigh = true;
+    });
+    check(`sniper cap ${dist}m: no ballooning over the bar`, !crossedHigh && goal !== null,
+      goal ? 'goal' : 'no goal scored');
+  }
 }
 
 // 6c) slide tackle: pokes the ball away and flattens the opponent
