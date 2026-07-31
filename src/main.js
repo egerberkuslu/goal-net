@@ -6,6 +6,7 @@ import { NetView } from './view/netView.js';
 import { BallView } from './view/ballView.js';
 import { PlayerView } from './view/playerView.js';
 import { AimView } from './view/aimView.js';
+import { CrowdView } from './view/crowdView.js';
 import { Game } from './game/game.js';
 
 const config = makeConfig();
@@ -31,6 +32,12 @@ const netView = new NetView(world.nets, scene);
 const ballView = new BallView(world.ball, scene);
 const playerViews = world.players.map((p) => new PlayerView(p, scene));
 const aimViews = [game.playerRed, game.playerBlue].map((p) => new AimView(p, world, scene));
+const crowd = new CrowdView(scene);
+game.onWorldEvent = (e, playing) => {
+  if (!playing) return;
+  if (e.type === 'goal') crowd.onGoal(e.scorer);
+  else if (e.type === 'post' || e.type === 'crossbar') crowd.onNearMiss();
+};
 
 let last = performance.now() / 1000;
 let accumulator = 0;
@@ -54,6 +61,7 @@ function frame(nowMs) {
   netView.update();
   ballView.update(dt * game.timeScale);
   for (const pv of playerViews) pv.update(dt);
+  crowd.update(dt, now);
   const aiming = game.state === 'play' || game.state === 'kickoff';
   for (const av of aimViews) av.update(aiming && game.isHuman(av.player));
   renderer.render(scene, camera);

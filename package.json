@@ -7,9 +7,12 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:sim": "node scripts/sim-test.mjs"
+    "test:sim": "node scripts/sim-test.mjs",
+    "test:mp": "node scripts/mp-test.mjs",
+    "test:crowd": "node scripts/crowd-test.mjs"
   },
   "dependencies": {
+    "peerjs": "^1.5.0",
     "three": "^0.170.0"
   },
   "devDependencies": {

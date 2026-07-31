@@ -38,6 +38,17 @@ export class PlayerView {
       return leg;
     });
 
+    const armGeo = new THREE.CylinderGeometry(0.055, 0.045, 0.48, 10);
+    armGeo.translate(0, -0.24, 0); // pivot at the shoulder
+    this.arms = [-1, 1].map((side) => {
+      const arm = new THREE.Mesh(armGeo, jersey);
+      arm.position.set(side * 0.32, 1.28, 0);
+      arm.rotation.z = side * 0.16; // resting flare away from the torso
+      arm.castShadow = true;
+      this.group.add(arm);
+      return arm;
+    });
+
     this.ring = new THREE.Mesh(
       new THREE.TorusGeometry(0.5, 0.045, 10, 32),
       new THREE.MeshBasicMaterial({ color: TEAM_COLORS[player.team], transparent: true, opacity: 0.85 }),
@@ -70,6 +81,12 @@ export class PlayerView {
       this.legs[1].rotation.x = -flail + flat * 0.7;
       this.legs[0].rotation.z = flat * 0.35;
       this.legs[1].rotation.z = -flat * 0.35;
+      // arms fly up and windmill while going down, settle spread on the grass
+      const wind = Math.sin(t * 32 + 1.3) * 0.9 * (1 - t);
+      this.arms[0].rotation.x = -2.4 * flat + wind;
+      this.arms[1].rotation.x = -2.4 * flat - wind;
+      this.arms[0].rotation.z = 0.16 + flat * 1.1 + wind * 0.3;
+      this.arms[1].rotation.z = -0.16 - flat * 1.1 + wind * 0.3;
       this.ring.visible = false;
       return;
     }
@@ -86,6 +103,11 @@ export class PlayerView {
     this.legs[0].rotation.x = Math.sin(this.walkPhase) * stride;
     // right leg does the kicking
     this.legs[1].rotation.x = kick > 0 ? -kick * 1.5 : Math.sin(this.walkPhase + Math.PI) * stride;
+    // arms swing opposite the legs; the kicking motion throws them out
+    this.arms[0].rotation.x = Math.sin(this.walkPhase + Math.PI) * stride * 0.8 + kick * 0.9;
+    this.arms[1].rotation.x = Math.sin(this.walkPhase) * stride * 0.8 - kick * 0.5;
+    this.arms[0].rotation.z = 0.16 + kick * 0.5;
+    this.arms[1].rotation.z = -0.16 - kick * 0.2;
 
     const c = p.charge;
     this.ring.visible = c > 0.02;

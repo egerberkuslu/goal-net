@@ -140,6 +140,7 @@ export class Game {
     if (this.state === 'play' || this.state === 'kickoff') this.applyControls(dt, now);
 
     for (const e of this.world.drainEvents()) {
+      this.onWorldEvent?.(e, playing);
       if (e.type === 'goal' && playing) this.onGoal(e.scorer, now);
       else if (e.type === 'post' && playing) this.showMessage('Direk!', 'direk', 900);
       else if (e.type === 'crossbar' && playing) this.showMessage('Üst direk!', 'direk', 900);
