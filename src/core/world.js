@@ -7,7 +7,7 @@ import {
   PITCH_HALF_L, WALL_X, WALL_Z_BACK,
   PLAYER_R, PLAYER_H,
   KICK_RANGE, KICK_ASSIST, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX,
-  RAGDOLL_SPEED, BOARD_TOP, NET_GRIP,
+  RAGDOLL_SPEED, BOARD_TOP, NET_GRIP, FOUL_BALL_DIST,
 } from './constants.js';
 import { makeConfig } from './config.js';
 
@@ -46,8 +46,24 @@ export class World {
     // restart possession: only this team may touch the ball (null = anyone).
     // Cleared automatically on their first touch.
     this.restartTeam = null;
+    // second half: the teams have changed ends. Every "which way does this
+    // team attack" question in the sim goes through attackSign(), so flipping
+    // this single flag turns the pitch around for scoring, aim assist, the
+    // bots, the keepers and the kickoff layout at once.
+    this.sideSwap = false;
     for (let i = 0; i < 50; i++) this.step(DT); // drape the nets
     this.events.length = 0;
+  }
+
+  // +1 when this team shoots toward +z, -1 when it shoots toward -z.
+  // Red (team 0) attacks +z in the first half and -z after the change of ends.
+  attackSign(team) {
+    return (team === 0 ? 1 : -1) * (this.sideSwap ? -1 : 1);
+  }
+
+  // the team that scores when the ball crosses the goal line at this end
+  scorerAt(goalZ) {
+    return this.attackSign(0) * Math.sign(goalZ) > 0 ? 0 : 1;
   }
 
   addPlayer(team, role = 'field') {
@@ -118,10 +134,11 @@ export class World {
     if (!inMouth) return;
     if (prevZ > -PITCH_HALF_L && b.z <= -PITCH_HALF_L) {
       this.scoringLocked = true;
-      this.events.push({ type: 'goal', scorer: 1 }); // into goal A -> blue scores
+      // into goal A: credited to whichever team is attacking this end
+      this.events.push({ type: 'goal', scorer: this.scorerAt(-PITCH_HALF_L) });
     } else if (prevZ < PITCH_HALF_L && b.z >= PITCH_HALF_L) {
       this.scoringLocked = true;
-      this.events.push({ type: 'goal', scorer: 0 }); // into goal B -> red scores
+      this.events.push({ type: 'goal', scorer: this.scorerAt(PITCH_HALF_L) });
     }
   }
 
@@ -142,8 +159,22 @@ export class World {
         for (const [s, t] of [[a, b], [b, a]]) {
           if (s.dive > 0 && s.diveKind === 'slide' && s.team !== t.team &&
               t.down <= 0 && t.dive <= 0) {
+            // a tackle that reaches the ball is fair however hard it lands;
+            // one that only reaches the man, with the ball nowhere near, is
+            // a foul. Measure before the knockdown so the shove cannot move
+            // the verdict.
+            const wonBall = Math.hypot(this.ball.pos.x - s.pos.x,
+              this.ball.pos.z - s.pos.z) <= FOUL_BALL_DIST;
             t.knockDown(s.diveDir.x, s.diveDir.z, 13);
-            if (t.down > 0) this.events.push({ type: 'ragdoll', team: t.team });
+            if (t.down > 0) {
+              this.events.push({ type: 'ragdoll', team: t.team });
+              // spot of the offence is where the victim went down
+              if (!wonBall) {
+                this.events.push({
+                  type: 'foul', team: t.team, x: t.pos.x, z: t.pos.z,
+                });
+              }
+            }
           }
         }
       }
@@ -449,7 +480,7 @@ export class World {
     let dirX = dx / d, dirZ = dz / d;
     // aim assist: when the kick already points roughly at the opponent goal,
     // pull it toward the centre of the frame (the preview shares this math)
-    const goalZ = (player.team === 0 ? 1 : -1) * PITCH_HALF_L;
+    const goalZ = this.attackSign(player.team) * PITCH_HALF_L;
     let gx = -b.pos.x, gz = goalZ - b.pos.z;
     const gLen = Math.sqrt(gx * gx + gz * gz) || 1;
     gx /= gLen; gz /= gLen;

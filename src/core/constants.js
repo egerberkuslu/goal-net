@@ -66,6 +66,18 @@ export const KICK_CHARGE_TIME = 0.6; // seconds to full charge
 export const RAGDOLL_SPEED = 11; // relative ball speed that floors a player
 export const RAGDOLL_TIME = 1.5;
 
+// fouls and set pieces
+// a slide that floors an opponent while the ball is farther away than this is
+// a foul, not a tackle: the tackler took the man, not the ball
+export const FOUL_BALL_DIST = 1.2;
+export const BOX_HALF_W = 7;        // penalty area half-width
+export const BOX_DEPTH = 4.5;       // penalty area depth from the goal line
+export const PENALTY_SPOT_INSET = 6; // spot sits this far in front of the line
+export const SETPIECE_FREEZE = 1.2;  // ceremony seconds before the kick is live
+export const SETPIECE_TIMEOUT = 8;   // hard release so play can never stall
+
 // match
 export const MATCH_TIME = 180;
 export const MATCH_GOALS = 5;
+export const HALF_BREAK = 2.5;   // seconds of the half-time freeze
+export const GOLDEN_MAX = 90;    // sudden death runs at most this long
