@@ -3,7 +3,7 @@ import {
   GOAL_W, GOAL_H, POST_R, NET_BOT_DEPTH, PITCH_HALF_L, PITCH_HALF_W, WALL_X,
 } from '../core/constants.js';
 
-const HALF_W = GOAL_W / 2;
+const DEFAULT_HALF_W = GOAL_W / 2;
 
 function tubeBetween(a, b, r, material) {
   const dir = new THREE.Vector3().subVectors(b, a);
@@ -102,12 +102,46 @@ function addCage(scene) {
   panel(2 * PITCH_HALF_L, H, -WALL_X, H / 2, 0, Math.PI / 2);
   for (const s of [-1, 1]) {
     const z = s * PITCH_HALF_L;
-    const sideW = WALL_X - HALF_W;
-    // end walls left/right of the goal, plus the strip above the crossbar
-    panel(sideW, H, -(HALF_W + sideW / 2), H / 2, z);
-    panel(sideW, H, HALF_W + sideW / 2, H / 2, z);
+    const sideW = WALL_X - DEFAULT_HALF_W;
+    // end walls left/right of the goal, plus the strip above the crossbar.
+    // The cage is static architecture, so it keeps the DEFAULT goal size: with
+    // goalScale > 1 the frame pokes slightly through this strip, which is an
+    // accepted v1 cosmetic compromise.
+    panel(sideW, H, -(DEFAULT_HALF_W + sideW / 2), H / 2, z);
+    panel(sideW, H, DEFAULT_HALF_W + sideW / 2, H / 2, z);
     panel(GOAL_W, H - GOAL_H, 0, GOAL_H + (H - GOAL_H) / 2, z);
   }
+}
+
+// Goal frames + stanchions for both ends, sized from the match config. Kept
+// out of createScene so a lobby can rebuild them when the goal size changes.
+export function buildGoalFrames(scene, config) {
+  const { goalW, goalH } = config;
+  const halfW = goalW / 2;
+  const group = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.35 });
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  for (const end of [-1, 1]) {
+    const gz = end * PITCH_HALF_L;
+    const back = end * (PITCH_HALF_L + NET_BOT_DEPTH);
+    const kink = end * (PITCH_HALF_L + 0.85);
+    for (const s of [-1, 1]) {
+      group.add(tubeBetween(V(s * halfW, 0, gz), V(s * halfW, goalH + POST_R, gz), POST_R, white));
+      group.add(tubeBetween(V(s * halfW, goalH + POST_R, gz), V(s * halfW, goalH - 0.1, kink), 0.028, white));
+      group.add(tubeBetween(V(s * halfW, goalH - 0.1, kink), V(s * halfW, 0, back), 0.028, white));
+    }
+    group.add(tubeBetween(V(-halfW - POST_R, goalH, gz), V(halfW + POST_R, goalH, gz), POST_R, white));
+  }
+  scene.add(group);
+  return {
+    group,
+    dispose() {
+      scene.remove(group);
+      for (const m of group.children) m.geometry.dispose();
+      group.clear();
+      white.dispose();
+    },
+  };
 }
 
 function addStadium(scene) {
@@ -205,20 +239,7 @@ export function createScene(container) {
   apron.position.y = -0.02;
   scene.add(apron);
 
-  // goal frames + stanchions at both ends
-  const white = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.35 });
-  const V = (x, y, z) => new THREE.Vector3(x, y, z);
-  for (const end of [-1, 1]) {
-    const gz = end * PITCH_HALF_L;
-    const back = end * (PITCH_HALF_L + NET_BOT_DEPTH);
-    const kink = end * (PITCH_HALF_L + 0.85);
-    for (const s of [-1, 1]) {
-      scene.add(tubeBetween(V(s * HALF_W, 0, gz), V(s * HALF_W, GOAL_H + POST_R, gz), POST_R, white));
-      scene.add(tubeBetween(V(s * HALF_W, GOAL_H + POST_R, gz), V(s * HALF_W, GOAL_H - 0.1, kink), 0.028, white));
-      scene.add(tubeBetween(V(s * HALF_W, GOAL_H - 0.1, kink), V(s * HALF_W, 0, back), 0.028, white));
-    }
-    scene.add(tubeBetween(V(-HALF_W - POST_R, GOAL_H, gz), V(HALF_W + POST_R, GOAL_H, gz), POST_R, white));
-  }
+  // goal frames are built separately by buildGoalFrames(scene, config)
 
   addStadium(scene);
   addCage(scene);

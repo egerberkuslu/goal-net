@@ -1,6 +1,4 @@
-import {
-  KICK_CHARGE_TIME, PITCH_HALF_L, MATCH_TIME, MATCH_GOALS,
-} from '../core/constants.js';
+import { KICK_CHARGE_TIME, PITCH_HALF_L } from '../core/constants.js';
 import {
   KeyboardController, P1_KEYS, P1_ALT_KEYS, P1_X_KICK, P2_KEYS,
 } from './input.js';
@@ -16,13 +14,14 @@ export class Game {
     this.state = 'menu';
     this.timeScale = 1;
     this.score = [0, 0];
-    this.timeLeft = MATCH_TIME;
+    this.timeLeft = world.config.matchTime;
     this.msgTimer = null;
     this.outTimer = 0;
     this.camZ = 0;
 
     this.playerRed = world.addPlayer(0);
     this.playerBlue = world.addPlayer(1);
+    // TODO: honour world.config.keepers (skip keeper creation when false)
     this.keeperRed = world.addPlayer(0, 'keeper');
     this.keeperBlue = world.addPlayer(1, 'keeper');
     this.chargeState = new Map(); // player -> {held, t}
@@ -46,7 +45,7 @@ export class Game {
       [this.keeperBlue, new KeeperController(this.world, this.keeperBlue)],
     ]);
     this.score = [0, 0];
-    this.timeLeft = MATCH_TIME;
+    this.timeLeft = this.world.config.matchTime;
     this.dom.menu.classList.add('hidden');
     this.dom.end.classList.add('hidden');
     this.updateScoreboard();
@@ -169,7 +168,8 @@ export class Game {
     if (this.state === 'goal') {
       if (this.timeScale < 1 && now > this.slowUntil) this.timeScale = 1;
       if (now > this.goalResetAt) {
-        if (this.score[0] >= MATCH_GOALS || this.score[1] >= MATCH_GOALS) this.endMatch();
+        const limit = this.world.config.goalLimit; // 0 = unlimited, time decides
+        if (limit > 0 && (this.score[0] >= limit || this.score[1] >= limit)) this.endMatch();
         else this.kickoff();
       }
     }

@@ -1,15 +1,18 @@
 import { World } from './core/world.js';
+import { makeConfig } from './core/config.js';
 import { DT } from './core/constants.js';
-import { createScene } from './view/scene.js';
+import { createScene, buildGoalFrames } from './view/scene.js';
 import { NetView } from './view/netView.js';
 import { BallView } from './view/ballView.js';
 import { PlayerView } from './view/playerView.js';
 import { AimView } from './view/aimView.js';
 import { Game } from './game/game.js';
 
+const config = makeConfig();
 const { renderer, scene, camera } = createScene(document.getElementById('app'));
+const goalFrames = buildGoalFrames(scene, config);
 
-const world = new World();
+const world = new World(config);
 const game = new Game(world, camera, {
   scoreRed: document.getElementById('scoreRed'),
   scoreBlue: document.getElementById('scoreBlue'),
@@ -58,4 +61,4 @@ function frame(nowMs) {
 requestAnimationFrame(frame);
 
 // debug handle for tests
-window.__game = { game, world };
+window.__game = { game, world, config, goalFrames };
