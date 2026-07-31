@@ -138,10 +138,12 @@ export class Game {
       if (!c.kick && st.held) {
         st.held = false;
         const kicked = this.world.tryKick(player, player.charge);
-        if (kicked) player.kickAnim = 1;
+        if (kicked === 'header') player.headerAnim = 1;
+        else if (kicked) player.kickAnim = 1;
         player.charge = 0;
       }
       player.kickAnim = Math.max(0, player.kickAnim - dt * 4);
+      player.headerAnim = Math.max(0, player.headerAnim - dt * 5);
     }
   }
 

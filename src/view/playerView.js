@@ -26,6 +26,7 @@ export class PlayerView {
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 14), skin);
     head.position.y = 1.52;
     head.castShadow = true;
+    this.head = head;
     this.group.add(head);
 
     const legGeo = new THREE.CylinderGeometry(0.075, 0.06, 0.55, 10);
@@ -114,8 +115,12 @@ export class PlayerView {
     }
 
     this.group.position.set(p.pos.x, 0, p.pos.z);
-    const lean = Math.min(sp / PLAYER_SPEED, 1) * 0.16;
+    // header: a sharp forward nod of the whole upper body
+    const nod = p.headerAnim > 0 ? Math.sin(Math.min(p.headerAnim, 1) * Math.PI) : 0;
+    const lean = Math.min(sp / PLAYER_SPEED, 1) * 0.16 + nod * 0.5;
     this.group.rotation.set(lean, p.facing, 0, 'YXZ');
+    this.head.position.y = 1.52 + nod * 0.1;
+    this.head.position.z = nod * 0.16;
 
     this.walkPhase += dt * (4 + sp * 2.6);
     const stride = Math.min(sp / PLAYER_SPEED, 1) * 0.55;

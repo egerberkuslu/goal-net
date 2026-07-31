@@ -3,8 +3,8 @@ export const GOAL_W = 7.32;
 export const GOAL_H = 2.44;
 export const POST_R = 0.06;
 
-export const NET_TOP_DEPTH = 0.85; // how far back the net roof extends
-export const NET_BOT_DEPTH = 1.7;  // ground footprint depth behind goal line
+export const NET_TOP_DEPTH = 1.1;  // how far back the net roof extends
+export const NET_BOT_DEPTH = 2.4;  // ground footprint depth behind goal line
 export const NET_CELL = 0.14;      // mesh opening size
 export const CORD_R = 0.006;
 
@@ -14,7 +14,9 @@ export const BALL_A = Math.PI * BALL_R * BALL_R;
 
 export const GRAV = 9.81;
 export const RHO_AIR = 1.2;
-export const CD_BALL = 0.25;
+// calibrated so the oversized display ball flies like a regulation ball
+// (drag area scales with r^2, so Cd is scaled down to match A/m of the real thing)
+export const CD_BALL = 0.14;
 
 export const DT = 1 / 60;
 export const SUBSTEPS = 12;
@@ -33,13 +35,13 @@ export const NODE_MASS = 0.004; // ~4 g of cord per knot
 export const REST_GROUND = 0.62;
 export const REST_POST = 0.7;
 export const REST_WALL = 0.72;
-export const REST_PLAYER = 0.32; // soft touch so dribbling sticks to the feet
+export const REST_PLAYER = 0.25; // soft touch so dribbling sticks to the feet
 
 // arena (Haxball-style bounded pitch, goals on the z axis)
 export const PITCH_HALF_L = 18;  // goal lines at z = ±18
 export const PITCH_HALF_W = 11;  // touchlines at x = ±11
 export const WALL_X = 11.5;      // side wall at the ad boards
-export const WALL_Z_BACK = 20.6; // safety wall behind the nets
+export const WALL_Z_BACK = 21.4; // safety wall behind the (deeper) nets
 export const BOARD_TOP = 0.76;   // boards only block the ball below this height
 
 // players
@@ -49,8 +51,8 @@ export const PLAYER_SPEED = 6.5;
 export const PLAYER_ACCEL_RATE = 9; // 1/s velocity approach rate
 
 // kicking
-export const KICK_RANGE = 1.35;  // centre distance within which a kick connects
-export const KICK_ASSIST = 0.4;  // pull toward the goal frame when facing it
+export const KICK_RANGE = 1.5;   // centre distance within which a kick connects
+export const KICK_ASSIST = 0.55; // pull toward the goal frame when facing it
 export const KICK_MIN = 11;
 export const KICK_MAX = 24;
 export const LOFT_MIN = 0.06;

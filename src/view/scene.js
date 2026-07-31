@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
-  GOAL_W, GOAL_H, POST_R, NET_BOT_DEPTH, PITCH_HALF_L, PITCH_HALF_W, WALL_X,
+  GOAL_W, GOAL_H, POST_R, NET_TOP_DEPTH, NET_BOT_DEPTH,
+  PITCH_HALF_L, PITCH_HALF_W, WALL_X,
 } from '../core/constants.js';
 
 const DEFAULT_HALF_W = GOAL_W / 2;
@@ -77,7 +78,7 @@ export function buildGoalFrames(scene, config) {
   for (const end of [-1, 1]) {
     const gz = end * PITCH_HALF_L;
     const back = end * (PITCH_HALF_L + NET_BOT_DEPTH);
-    const kink = end * (PITCH_HALF_L + 0.85);
+    const kink = end * (PITCH_HALF_L + NET_TOP_DEPTH);
     for (const s of [-1, 1]) {
       group.add(tubeBetween(V(s * halfW, 0, gz), V(s * halfW, goalH + POST_R, gz), POST_R, white));
       group.add(tubeBetween(V(s * halfW, goalH + POST_R, gz), V(s * halfW, goalH - 0.1, kink), 0.028, white));

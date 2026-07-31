@@ -59,6 +59,7 @@ export class World {
       ball.integrate(h);
       for (const p of this.players) p.integrate(h);
 
+      this.netContact = false;
       for (let it = 0; it < ITERS; it++) {
         for (const net of this.nets) {
           net.solveConstraints(h);
@@ -74,6 +75,14 @@ export class World {
       for (const net of this.nets) net.collideGround();
       for (const net of this.nets) net.updateVelocities(h);
       ball.updateVelocity(h);
+      // cords grip the ball: while in the net, energy drains fast so the
+      // shot is swallowed instead of trampolining back onto the pitch
+      if (this.netContact) {
+        const f = Math.exp(-10 * h);
+        ball.vel.x *= f; ball.vel.y *= f; ball.vel.z *= f;
+        ball.omega.x *= f; ball.omega.y *= f; ball.omega.z *= f;
+      }
+      this.dribbleAssist(h);
 
       this.checkGoal(prevBallZ);
     }
@@ -141,6 +150,31 @@ export class World {
     }
   }
 
+  // Dribble assist: while a player runs with the ball at their feet, gently
+  // spring it toward a spot just ahead of them so it does not skitter away.
+  // Only the nearest carrier gets the pull, and only at controllable speeds.
+  dribbleAssist(h) {
+    const b = this.ball;
+    if (b.pos.y > 0.5) return;
+    let best = null, bestD = 1.4;
+    for (const p of this.players) {
+      if (p.down > 0 || p.dive > 0) continue;
+      if (Math.hypot(p.vel.x, p.vel.z) < 1.2) continue;
+      const d = Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    if (!best) return;
+    const p = best;
+    const relX = b.vel.x - p.vel.x, relZ = b.vel.z - p.vel.z;
+    if (Math.hypot(relX, relZ) > 4.5) return; // a kicked ball is not dribbled
+    const sp = Math.hypot(p.vel.x, p.vel.z);
+    const dirX = p.vel.x / sp, dirZ = p.vel.z / sp;
+    const tx = p.pos.x + dirX * 0.62, tz = p.pos.z + dirZ * 0.62;
+    b.vel.x += ((tx - b.pos.x) * 6 + (p.vel.x - b.vel.x) * 2.5) * h;
+    b.vel.z += ((tz - b.pos.z) * 6 + (p.vel.z - b.vel.z) * 2.5) * h;
+    b.lastTouch = p.team;
+  }
+
   collideBallStatic() {
     const { ball } = this;
     const bp = ball.pos;
@@ -175,6 +209,15 @@ export class World {
       } else if (bp.z < -(PITCH_HALF_L - BALL_R)) {
         bp.z = -(PITCH_HALF_L - BALL_R);
         ball.contacts.push({ nx: 0, ny: 0, nz: 1, type: 'wall' });
+      }
+    }
+    // once a goal has been scored the mouth is one-way: the ball stays in
+    // the net through the celebration instead of dribbling back out
+    if (this.scoringLocked) {
+      const s = Math.sign(bp.z) || 1;
+      if (s * bp.z < PITCH_HALF_L + BALL_R && s * bp.z > PITCH_HALF_L - 1.5) {
+        bp.z = s * (PITCH_HALF_L + BALL_R);
+        ball.contacts.push({ nx: 0, ny: 0, nz: s, type: 'player', cvx: 0, cvz: 0 });
       }
     }
     // safety wall far behind the nets
@@ -243,6 +286,7 @@ export class World {
         const la = lambda * wa * (1 - t), lb = lambda * wb * t;
         pos[oa] -= nx * la; pos[oa + 1] -= ny * la; pos[oa + 2] -= nz * la;
         pos[ob] -= nx * lb; pos[ob + 1] -= ny * lb; pos[ob + 2] -= nz * lb;
+        this.netContact = true;
         // contact friction: knots grip the ball, cords don't slide off it
         for (const [idx, sBary] of [[a, 1 - t], [b, t]]) {
           if (invMass[idx] === 0 || sBary < 0.05) continue;
@@ -262,10 +306,13 @@ export class World {
   // kick and the aim preview so they can never disagree.
   kickParams(player, charge, rangeBonus = 0) {
     const b = this.ball;
-    if (b.pos.y > 1.2) return null;
+    if (b.pos.y > 2.15) return null;
+    // above knee height it becomes a header: shorter reach, less power, flat
+    const header = b.pos.y > 1.15;
     const dx = b.pos.x - player.pos.x, dz = b.pos.z - player.pos.z;
     const d = Math.sqrt(dx * dx + dz * dz);
-    if (d > KICK_RANGE + BALL_R + rangeBonus || d < 1e-6) return null;
+    const reach = header ? 1.0 : KICK_RANGE;
+    if (d > reach + BALL_R + rangeBonus || d < 1e-6) return null;
     let dirX = dx / d, dirZ = dz / d;
     // aim assist: when the kick already points roughly at the opponent goal,
     // pull it toward the centre of the frame (the preview shares this math)
@@ -274,21 +321,26 @@ export class World {
     const gLen = Math.sqrt(gx * gx + gz * gz) || 1;
     gx /= gLen; gz /= gLen;
     const dot = dirX * gx + dirZ * gz;
-    if (dot > 0.45) {
+    if (dot > 0.25) {
       const a = KICK_ASSIST * dot;
       dirX = dirX * (1 - a) + gx * a;
       dirZ = dirZ * (1 - a) + gz * a;
       const dLen = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
       dirX /= dLen; dirZ /= dLen;
     }
-    const speed = KICK_MIN + (KICK_MAX - KICK_MIN) * charge;
-    const loft = LOFT_MIN + (LOFT_MAX - LOFT_MIN) * charge;
+    const speed = header
+      ? 8 + (KICK_MAX - KICK_MIN) * 0.5 * charge
+      : KICK_MIN + (KICK_MAX - KICK_MIN) * charge;
+    const loft = header
+      ? 0.03 + 0.12 * charge
+      : LOFT_MIN + (LOFT_MAX - LOFT_MIN) * charge;
     const cosL = Math.cos(loft), sinL = Math.sin(loft);
     const lateral = dirX * player.vel.z - dirZ * player.vel.x;
-    const back = 5 + loft * 25;
+    const back = (5 + loft * 25) * (header ? 0.4 : 1);
     return {
       vel: { x: dirX * cosL * speed, y: sinL * speed, z: dirZ * cosL * speed },
       omega: { x: -dirZ * back, y: lateral * 7, z: dirX * back },
+      header,
     };
   }
 
@@ -301,7 +353,7 @@ export class World {
     b.grounded = false;
     b.lastTouch = player.team;
     this.events.push({ type: 'kick', team: player.team });
-    return true;
+    return p.header ? 'header' : true;
   }
 
   placeBall(x, z) {

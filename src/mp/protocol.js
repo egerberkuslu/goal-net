@@ -143,6 +143,7 @@ function snapPlayer(p) {
     down: optNum(p.down),
     charge: optNum(p.charge),
     kickAnim: optNum(p.kickAnim),
+    headerAnim: optNum(p.headerAnim),
     dive: optNum(p.dive),
     diveRecover: optNum(p.diveRecover),
     diveYaw: optNum(p.diveYaw),

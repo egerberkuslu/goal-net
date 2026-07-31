@@ -13,6 +13,7 @@ export class Player {
     this.facing = team === 0 ? 0 : Math.PI; // yaw around +y, 0 faces +z
     this.charge = 0;      // 0..1 kick charge, set by the game layer
     this.kickAnim = 0;    // >0 while the kick leg swings, set by the game layer
+    this.headerAnim = 0;  // >0 while the head snaps forward
     this.down = 0;        // ragdoll: seconds until back on their feet
     this.downTotal = RAGDOLL_TIME;
     this.tumbleSpin = 0;

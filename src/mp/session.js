@@ -85,6 +85,7 @@ class GuestMatch {
       if (sp.down > 0 && p.downTotal <= 0) p.downTotal = 1.5;
       p.charge = sp.charge;
       p.kickAnim = sp.kickAnim;
+      p.headerAnim = sp.headerAnim;
       p.dive = sp.dive;
       p.diveRecover = sp.diveRecover;
       p.diveDir = { x: Math.sin(sp.diveYaw), z: Math.cos(sp.diveYaw) };
@@ -500,7 +501,7 @@ export class MpSession {
       players: world.players.map((p) => ({
         id: p.mpId, x: p.pos.x, z: p.pos.z, vx: p.vel.x, vz: p.vel.z,
         facing: p.facing, down: p.down, charge: p.charge, kickAnim: p.kickAnim,
-        dive: p.dive, diveRecover: p.diveRecover,
+        headerAnim: p.headerAnim, dive: p.dive, diveRecover: p.diveRecover,
         diveYaw: Math.atan2(p.diveDir.x, p.diveDir.z),
         team: p.team, role: p.role,
       })),
