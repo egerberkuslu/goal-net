@@ -2,20 +2,19 @@ import { Net } from './net.js';
 import { Ball } from './ball.js';
 import { Player } from './player.js';
 import {
-  GOAL_W, GOAL_H, POST_R, BALL_R, CONTACT_CORD_R, BALL_M,
+  POST_R, BALL_R, CONTACT_CORD_R, BALL_M,
   DT, SUBSTEPS, ITERS,
   PITCH_HALF_L, WALL_X, WALL_Z_BACK,
   PLAYER_R, PLAYER_H,
   KICK_RANGE, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX, RAGDOLL_SPEED,
 } from './constants.js';
+import { makeConfig } from './config.js';
 
-const HALF_W = GOAL_W / 2;
-
-function frameFor(goalZ) {
+function frameFor(goalZ, halfW, goalH) {
   return [
-    { ax: -HALF_W, ay: 0, az: goalZ, bx: -HALF_W, by: GOAL_H, bz: goalZ, name: 'post' },
-    { ax: HALF_W, ay: 0, az: goalZ, bx: HALF_W, by: GOAL_H, bz: goalZ, name: 'post' },
-    { ax: -HALF_W, ay: GOAL_H, az: goalZ, bx: HALF_W, by: GOAL_H, bz: goalZ, name: 'crossbar' },
+    { ax: -halfW, ay: 0, az: goalZ, bx: -halfW, by: goalH, bz: goalZ, name: 'post' },
+    { ax: halfW, ay: 0, az: goalZ, bx: halfW, by: goalH, bz: goalZ, name: 'post' },
+    { ax: -halfW, ay: goalH, az: goalZ, bx: halfW, by: goalH, bz: goalZ, name: 'crossbar' },
   ];
 }
 
@@ -23,12 +22,17 @@ function frameFor(goalZ) {
 // ball only leaves play through a goal mouth), players and ball in one
 // substepped solver loop.
 export class World {
-  constructor() {
+  constructor(config = makeConfig()) {
+    this.config = config;
+    this.halfW = config.goalW / 2;
     this.nets = [
-      new Net({ goalZ: -PITCH_HALF_L, sign: 1 }),  // goal A, mouth faces +z
-      new Net({ goalZ: PITCH_HALF_L, sign: -1 }),  // goal B, mouth faces -z
+      new Net(config, { goalZ: -PITCH_HALF_L, sign: 1 }),  // goal A, mouth faces +z
+      new Net(config, { goalZ: PITCH_HALF_L, sign: -1 }),  // goal B, mouth faces -z
     ];
-    this.frames = [...frameFor(-PITCH_HALF_L), ...frameFor(PITCH_HALF_L)];
+    this.frames = [
+      ...frameFor(-PITCH_HALF_L, this.halfW, config.goalH),
+      ...frameFor(PITCH_HALF_L, this.halfW, config.goalH),
+    ];
     this.ball = new Ball();
     this.players = [];
     this.time = 0;
@@ -77,7 +81,7 @@ export class World {
   checkGoal(prevZ) {
     if (this.scoringLocked) return;
     const b = this.ball.pos;
-    const inMouth = Math.abs(b.x) < HALF_W - 0.02 && b.y < GOAL_H - 0.02;
+    const inMouth = Math.abs(b.x) < this.halfW - 0.02 && b.y < this.config.goalH - 0.02;
     if (!inMouth) return;
     if (prevZ > -PITCH_HALF_L && b.z <= -PITCH_HALF_L) {
       this.scoringLocked = true;
@@ -149,7 +153,7 @@ export class World {
       ball.contacts.push({ nx: 1, ny: 0, nz: 0, type: 'wall' });
     }
     // end walls: solid outside the goal mouth, open inside it (goal!)
-    if (Math.abs(bp.x) > HALF_W - 0.05 || bp.y > GOAL_H + 0.1) {
+    if (Math.abs(bp.x) > this.halfW - 0.05 || bp.y > this.config.goalH + 0.1) {
       if (bp.z > PITCH_HALF_L - BALL_R && bp.z < PITCH_HALF_L + 0.5) {
         bp.z = PITCH_HALF_L - BALL_R;
         ball.contacts.push({ nx: 0, ny: 0, nz: -1, type: 'wall' });

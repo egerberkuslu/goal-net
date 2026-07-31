@@ -1,5 +1,5 @@
 import {
-  PITCH_HALF_L, KICK_RANGE, KICK_CHARGE_TIME, BALL_R, PLAYER_R, GOAL_W,
+  PITCH_HALF_L, KICK_RANGE, KICK_CHARGE_TIME, BALL_R, PLAYER_R,
 } from './constants.js';
 
 // Simple Haxball-style bot: get goal-side of the ball, push it toward the
@@ -116,7 +116,9 @@ export class KeeperController {
     } else {
       // shadow the ball's x with a little velocity lead, hold the line
       const lead = Math.max(-1, Math.min(1, bv.x * 0.18));
-      const tx = Math.max(-(GOAL_W / 2 - 0.4), Math.min(GOAL_W / 2 - 0.4, b.x * 0.55 + lead));
+      // hold the line inside the posts of whatever goal size the match uses
+      const lim = Math.max(0, world.config.goalW / 2 - 0.4);
+      const tx = Math.max(-lim, Math.min(lim, b.x * 0.55 + lead));
       target = { x: tx, z: this.guardZ };
     }
 

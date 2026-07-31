@@ -1,17 +1,18 @@
 import {
-  GOAL_W, GOAL_H, NET_TOP_DEPTH, NET_BOT_DEPTH, NET_CELL, NODE_MASS,
+  NET_TOP_DEPTH, NET_BOT_DEPTH, NET_CELL, NODE_MASS,
   COMPLIANCE_STRUCT, COMPLIANCE_SHEAR, COMPLIANCE_STITCH, STRAIN_LIMIT,
 } from './constants.js';
+import { makeConfig } from './config.js';
 
 // The net is one parametric main sheet (width columns x depth profile) draped
 // from the crossbar over the back frame, plus two side panels stitched to the
 // main sheet's edge columns. Solved with XPBD distance constraints.
 
-function buildProfile() {
+function buildProfile(goalH) {
   // (z, y) polyline from crossbar back over the stanchion down to the ground pegs
   const pts = [
-    { z: 0, y: GOAL_H },
-    { z: -NET_TOP_DEPTH, y: GOAL_H - 0.1 },
+    { z: 0, y: goalH },
+    { z: -NET_TOP_DEPTH, y: goalH - 0.1 },
     { z: -NET_BOT_DEPTH, y: 0 },
   ];
   const out = [];
@@ -34,7 +35,8 @@ export class Net {
   // Built at the origin (goal line z=0, mouth facing +z, net draping to -z),
   // then transformed: worldZ = goalZ + sign * localZ. sign=-1 mirrors the net
   // so its mouth faces -z (the far goal).
-  constructor({ goalZ = 0, sign = 1 } = {}) {
+  constructor(config = makeConfig(), { goalZ = 0, sign = 1 } = {}) {
+    const { goalW, goalH } = config;
     this.goalZ = goalZ;
     this.sign = sign;
     const positions = [];
@@ -45,17 +47,17 @@ export class Net {
       return positions.length / 3 - 1;
     };
 
-    const { profile, kinkIndex } = buildProfile();
+    const { profile, kinkIndex } = buildProfile(goalH);
     const NP = profile.length;
-    const NW = Math.round(GOAL_W / NET_CELL);
-    const halfW = GOAL_W / 2;
+    const NW = Math.round(goalW / NET_CELL);
+    const halfW = goalW / 2;
 
     // --- main sheet ---
     const mainIdx = []; // [j][i]
     for (let j = 0; j < NP; j++) {
       mainIdx.push([]);
       for (let i = 0; i <= NW; i++) {
-        const x = -halfW + (GOAL_W * i) / NW;
+        const x = -halfW + (goalW * i) / NW;
         let w = 1 / NODE_MASS;
         if (j === 0) w = 0; // laced to the crossbar
         if (j === kinkIndex && (i === 0 || i === NW)) w = 0; // stanchion corners
@@ -87,10 +89,10 @@ export class Net {
     const yTopAt = (z) => {
       if (z >= -NET_TOP_DEPTH) {
         const t = -z / NET_TOP_DEPTH;
-        return GOAL_H + (GOAL_H - 0.1 - GOAL_H) * t;
+        return goalH + (goalH - 0.1 - goalH) * t;
       }
       const t = (-z - NET_TOP_DEPTH) / (NET_BOT_DEPTH - NET_TOP_DEPTH);
-      return (GOAL_H - 0.1) * (1 - t);
+      return (goalH - 0.1) * (1 - t);
     };
     const edgeColumn = (side) => mainIdx.map((row) => row[side < 0 ? 0 : NW]);
 
