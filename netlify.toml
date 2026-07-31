@@ -1,0 +1,26 @@
+# Netlify: static build of the game itself. The multiplayer broker is PeerJS'
+# free public cloud and the (optional) room registry runs elsewhere, so this
+# site needs no functions, no server and no environment secrets.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Single page: anything that is not a real file falls back to index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Hashed bundles are immutable; the entry document never is.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

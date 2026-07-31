@@ -1,0 +1,17 @@
+# Render.com Blueprint for the open-rooms registry. Point Render at the repo
+# and pick "New > Blueprint"; the free plan is enough (it sleeps when idle,
+# which only costs the room list one poll cycle to refill).
+services:
+  - type: web
+    name: goalnet-rooms
+    runtime: node
+    plan: free
+    region: frankfurt
+    # No dependencies: the registry is a single stdlib node file.
+    buildCommand: "echo no build step"
+    startCommand: "node server/room-list.mjs"
+    healthCheckPath: /rooms
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Render injects its own PORT; room-list.mjs already honours it.

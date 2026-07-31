@@ -1,0 +1,32 @@
+# Fly.io deployment of the open-rooms registry.
+#   fly launch --no-deploy --copy-config --config deploy/fly.toml --dockerfile deploy/Dockerfile.rooms
+#   fly deploy --config deploy/fly.toml --dockerfile deploy/Dockerfile.rooms
+# Rename `app` to something unique before the first deploy.
+app = "goalnet-rooms"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "Dockerfile.rooms"
+
+[env]
+  PORT = "5200"
+
+[http_service]
+  internal_port = 5200
+  force_https = true
+  # The registry is stateless-ish (in-memory, 25 s TTL): a cold start only
+  # costs the currently announced rooms one poll cycle, so the machine may
+  # sleep when nobody is browsing.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # ONE machine only — the room list lives in that process's memory.
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 200
+    hard_limit = 400
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

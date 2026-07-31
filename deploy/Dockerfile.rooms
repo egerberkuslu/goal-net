@@ -1,0 +1,18 @@
+# Open-rooms registry (server/room-list.mjs) — a single tiny node process with
+# no dependencies, so the image is just the runtime plus one file.
+# Build from the REPO ROOT:
+#   docker build -f deploy/Dockerfile.rooms -t goalnet-rooms .
+FROM node:20-alpine
+
+ENV NODE_ENV=production
+ENV PORT=5200
+WORKDIR /app
+
+COPY server/room-list.mjs ./server/room-list.mjs
+
+USER node
+EXPOSE 5200
+
+# The registry keeps rooms in memory with a 25 s TTL: run exactly ONE instance,
+# otherwise hosts announce to one machine and players poll another.
+CMD ["node", "server/room-list.mjs"]
