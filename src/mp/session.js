@@ -24,7 +24,10 @@ const RECONNECT_TRIES = 3;
 const RECONNECT_GAP_MS = 2000;
 /** How long a guest waits for the resume `start` before falling back to the lobby. */
 const RESUME_GRACE_MS = 4000;
-const ROOMS_URL = `${location.protocol}//${location.hostname}:5200`;
+// deployed builds point at a hosted registry via localStorage override
+const ROOMS_URL = (() => {
+  try { return localStorage.getItem('goalnet-rooms-url') || ''; } catch { return ''; }
+})() || `${location.protocol}//${location.hostname}:5200`;
 
 // Held by the guest side: replays the last input received from a peer.
 class RemoteController {

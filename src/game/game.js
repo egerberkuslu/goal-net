@@ -38,6 +38,7 @@ export class Game {
     for (const entry of roster ?? defaultRoster(world.config)) {
       const p = world.addPlayer(entry.team, entry.role ?? 'field');
       p.mpId = entry.id;
+      p.mpName = entry.name ?? '';
       this.byId.set(entry.id, p);
     }
     this.playerRed = world.players.find((p) => p.team === 0 && p.role === 'field') ?? null;

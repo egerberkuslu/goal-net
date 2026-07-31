@@ -16,6 +16,7 @@ const num = (v, fallback) =>
 
 // Values arrive over the wire from other peers, so every field is validated
 // and clamped rather than trusted.
+// teamColors ([int,int], optional) rides through untouched for the views.
 export function makeConfig(overrides = {}) {
   const o = overrides && typeof overrides === 'object' ? overrides : {};
   const goalScale = clamp(num(o.goalScale, 1), GOAL_SCALE_MIN, GOAL_SCALE_MAX);
