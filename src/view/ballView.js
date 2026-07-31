@@ -72,12 +72,22 @@ export class BallView {
   }
 
   update(dt) {
-    const { pos, omega } = this.ball;
+    const { pos, vel, omega, grounded } = this.ball;
     this.mesh.position.set(pos.x, pos.y, pos.z);
-    const w = Math.hypot(omega.x, omega.y, omega.z);
-    if (w > 1e-3) {
-      this.spinAxis.set(omega.x / w, omega.y / w, omega.z / w);
-      this.mesh.rotateOnWorldAxis(this.spinAxis, w * dt);
+    if (grounded) {
+      // on the ground the ball ROLLS: spin comes from its travel, axis
+      // perpendicular to the motion — this is what sells dribbling
+      const sp = Math.hypot(vel.x, vel.z);
+      if (sp > 0.05) {
+        this.spinAxis.set(vel.z / sp, 0, -vel.x / sp);
+        this.mesh.rotateOnWorldAxis(this.spinAxis, (sp / BALL_R) * dt);
+      }
+    } else {
+      const w = Math.hypot(omega.x, omega.y, omega.z);
+      if (w > 1e-3) {
+        this.spinAxis.set(omega.x / w, omega.y / w, omega.z / w);
+        this.mesh.rotateOnWorldAxis(this.spinAxis, w * dt);
+      }
     }
   }
 

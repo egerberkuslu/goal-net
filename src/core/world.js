@@ -229,7 +229,10 @@ export class World {
     const maxTurn = 14 * h; // ~0.22s for a full about-turn
     const applied = Math.max(-maxTurn, Math.min(maxTurn, dA));
     const newA = curA + applied;
-    const R = 0.6;
+    // the carry point breathes like real touches: the ball is knocked a
+    // little ahead, drops back to the feet, gets knocked on again
+    this.touchPhase = (this.touchPhase || 0) + h * (0.9 + Math.hypot(p.vel.x, p.vel.z) * 0.12);
+    const R = 0.62 + 0.16 * Math.sin(this.touchPhase * Math.PI * 2);
     const tx = p.pos.x + Math.sin(newA) * R;
     const tz = p.pos.z + Math.cos(newA) * R;
     // the carry point itself moves: player velocity plus the orbital sweep.
