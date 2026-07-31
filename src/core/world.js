@@ -60,6 +60,21 @@ export class World {
       this.time += h;
       const prevBallZ = ball.pos.z;
       for (const net of this.nets) net.integrate(h, this.time);
+      if (this.puppet) {
+        // replay playback: ball and players are driven from recorded frames;
+        // only the nets simulate, reacting to the scripted ball
+        for (let it = 0; it < ITERS; it++) {
+          for (const net of this.nets) {
+            net.solveConstraints(h);
+            if (Math.abs(ball.pos.z - net.goalZ) < 3.5) this.collideBallNet(net);
+            net.limitStrain();
+          }
+        }
+        for (const net of this.nets) net.collideGround();
+        for (const net of this.nets) net.updateVelocities(h);
+        this.events.length = 0;
+        continue;
+      }
       ball.integrate(h);
       for (const p of this.players) p.integrate(h);
 
