@@ -26,6 +26,18 @@ const SIDE_LEN = 52; // side stands run this far along z
 // corner seats end up buried inside the side stand boxes.
 const END_HALF_X = SIDE_X(0) - TIER_DEPTH / 2 - 0.2;
 
+// Stand geometry shared with the effects layer so confetti erupts out of the
+// same seats the crowd sits in instead of duplicating the numbers.
+export const STAND_INFO = {
+  tiers: TIERS,
+  tierDepth: TIER_DEPTH,
+  sideLen: SIDE_LEN,
+  sideX: SIDE_X,
+  endZ: END_Z,
+  tierTop: TIER_TOP,
+  endHalfX: END_HALF_X,
+};
+
 const SEAT_PITCH = 0.6; // spacing along a row
 const ROW_OFFSETS = [-0.62, 0, 0.62]; // three rows across each 2.2-deep tier
 const EMPTY_SEAT_CHANCE = 0.08;
