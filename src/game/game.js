@@ -1,7 +1,9 @@
 import {
   KICK_CHARGE_TIME, PITCH_HALF_L, MATCH_TIME, MATCH_GOALS,
 } from '../core/constants.js';
-import { KeyboardController, P1_KEYS, P2_KEYS } from './input.js';
+import {
+  KeyboardController, P1_KEYS, P1_ALT_KEYS, P1_X_KICK, P2_KEYS,
+} from './input.js';
 import { BotController, KeeperController } from '../core/ai.js';
 
 const TEAM_NAMES = ['KIRMIZI', 'MAVİ'];
@@ -33,8 +35,10 @@ export class Game {
 
   startMatch(mode) {
     this.mode = mode;
+    // 1P: red plays WASD+Space or arrows+X; 2P: arrows belong to blue
+    const p1Maps = mode === '2p' ? [P1_KEYS, P1_X_KICK] : [P1_KEYS, P1_ALT_KEYS];
     this.controllers = new Map([
-      [this.playerRed, new KeyboardController(P1_KEYS)],
+      [this.playerRed, new KeyboardController(p1Maps)],
       [this.playerBlue, mode === '2p'
         ? new KeyboardController(P2_KEYS)
         : new BotController(this.world, this.playerBlue)],
@@ -74,6 +78,10 @@ export class Game {
     this.msgTimer = setTimeout(() => { m.className = 'hud'; }, ms);
   }
 
+  isHuman(player) {
+    return !!this.controllers && this.controllers.get(player) instanceof KeyboardController;
+  }
+
   updateScoreboard() {
     this.dom.scoreRed.textContent = this.score[0];
     this.dom.scoreBlue.textContent = this.score[1];
@@ -89,6 +97,12 @@ export class Game {
 
       let st = this.chargeState.get(player);
       if (!st) { st = { held: false, t: 0 }; this.chargeState.set(player, st); }
+      if (player.down > 0) { // floored players can't kick
+        st.held = false;
+        player.charge = 0;
+        player.kickAnim = Math.max(0, player.kickAnim - dt * 4);
+        continue;
+      }
       if (c.kick && !st.held) { st.held = true; st.t = now; }
       if (st.held) player.charge = Math.min((now - st.t) / KICK_CHARGE_TIME, 1);
       if (!c.kick && st.held) {
@@ -160,10 +174,11 @@ export class Game {
       }
     }
 
-    // camera: side-on, glides along z with the ball
+    // camera: side-on, glides along z with the ball; aimed slightly toward
+    // the near touchline so the bottom of the pitch stays in frame
     const b = this.world.ball.pos;
     this.camZ += (b.z * 0.28 - this.camZ) * Math.min(1, dt * 3);
-    this.camera.position.set(28, 23, this.camZ);
-    this.camera.lookAt(0, 0.4, this.camZ * 1.2);
+    this.camera.position.set(28, 24.5, this.camZ);
+    this.camera.lookAt(2.6, 0.2, this.camZ * 1.2);
   }
 }

@@ -136,23 +136,29 @@ function addStadium(scene) {
     head.lookAt(0, 0, 0);
     scene.add(head);
   }
-  // low ad boards ringing the pitch (the visual for the invisible walls)
+  // ad boards sit flush with the invisible walls, right behind the lines,
+  // so wall rebounds visibly come off the boards
   const colors = [0x1c3f8f, 0x8f1c2e, 0x1c8f5a, 0xa8781c];
   const along = new THREE.BoxGeometry(6, 0.75, 0.1);
   const across = new THREE.BoxGeometry(0.1, 0.75, 6);
+  const endBoard = new THREE.BoxGeometry(3.8, 0.75, 0.1);
   let ci = 0;
   for (const side of [-1, 1]) {
+    // touchline boards at the side walls
     for (let z = -18; z < 18; z += 6) {
       const b = new THREE.Mesh(across, new THREE.MeshLambertMaterial({ color: colors[ci++ % 4] }));
-      b.position.set(side * (WALL_X + 0.15), 0.38, z + 3);
+      b.position.set(side * (WALL_X + 0.06), 0.38, z + 3);
       b.castShadow = true;
       scene.add(b);
     }
-    for (let x = -12; x < 12; x += 6) {
-      const b = new THREE.Mesh(along, new THREE.MeshLambertMaterial({ color: colors[ci++ % 4] }));
-      b.position.set(x + 3, 0.38, side * 20.9);
-      b.castShadow = true;
-      scene.add(b);
+    // goal-line boards from each post out to the side walls
+    for (const sx of [-1, 1]) {
+      for (let i = 0; i < 2; i++) {
+        const b = new THREE.Mesh(endBoard, new THREE.MeshLambertMaterial({ color: colors[ci++ % 4] }));
+        b.position.set(sx * (3.85 + 1.9 + i * 3.8), 0.38, side * (PITCH_HALF_L + 0.12));
+        b.castShadow = true;
+        scene.add(b);
+      }
     }
   }
 }

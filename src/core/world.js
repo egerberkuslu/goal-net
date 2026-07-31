@@ -6,7 +6,7 @@ import {
   DT, SUBSTEPS, ITERS,
   PITCH_HALF_L, WALL_X, WALL_Z_BACK,
   PLAYER_R, PLAYER_H,
-  KICK_RANGE, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX,
+  KICK_RANGE, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX, RAGDOLL_SPEED,
 } from './constants.js';
 
 const HALF_W = GOAL_W / 2;
@@ -123,6 +123,13 @@ export class World {
       const pen = rSum - d;
       b.pos.x += nx * pen; b.pos.z += nz * pen;
       b.contacts.push({ nx, ny: 0, nz, type: 'player', cvx: p.vel.x, cvz: p.vel.z });
+      // a screamer flattens whoever it hits
+      const relX = b.vel.x - p.vel.x, relZ = b.vel.z - p.vel.z;
+      const relSp = Math.sqrt(relX * relX + relZ * relZ);
+      if (relSp > RAGDOLL_SPEED && p.down <= 0) {
+        p.knockDown(relX / relSp, relZ / relSp, relSp);
+        this.events.push({ type: 'ragdoll', team: p.team });
+      }
     }
   }
 
@@ -229,28 +236,35 @@ export class World {
     }
   }
 
-  // Kick the ball if it is within reach of the player. Direction is from the
-  // player centre through the ball; charge raises both power and loft. The
-  // player's sideways motion puts curl on the ball (feeds the Magnus force).
-  tryKick(player, charge) {
+  // Kick parameters for a player at the current instant, or null when the
+  // ball is out of reach. Direction is from the player centre through the
+  // ball; charge raises both power and loft; the player's sideways motion
+  // puts curl on the ball (feeds the Magnus force). Shared by the actual
+  // kick and the aim preview so they can never disagree.
+  kickParams(player, charge, rangeBonus = 0) {
     const b = this.ball;
-    if (b.pos.y > 1.2) return false;
+    if (b.pos.y > 1.2) return null;
     const dx = b.pos.x - player.pos.x, dz = b.pos.z - player.pos.z;
     const d = Math.sqrt(dx * dx + dz * dz);
-    if (d > KICK_RANGE + BALL_R || d < 1e-6) return false;
+    if (d > KICK_RANGE + BALL_R + rangeBonus || d < 1e-6) return null;
     const dirX = dx / d, dirZ = dz / d;
     const speed = KICK_MIN + (KICK_MAX - KICK_MIN) * charge;
     const loft = LOFT_MIN + (LOFT_MAX - LOFT_MIN) * charge;
     const cosL = Math.cos(loft), sinL = Math.sin(loft);
-    b.vel.x = dirX * cosL * speed;
-    b.vel.y = sinL * speed;
-    b.vel.z = dirZ * cosL * speed;
-    // lateral player velocity -> side spin (positive lateral = curl that way)
     const lateral = dirX * player.vel.z - dirZ * player.vel.x;
     const back = 5 + loft * 25;
-    b.omega.x = -dirZ * back;
-    b.omega.y = lateral * 7;
-    b.omega.z = dirX * back;
+    return {
+      vel: { x: dirX * cosL * speed, y: sinL * speed, z: dirZ * cosL * speed },
+      omega: { x: -dirZ * back, y: lateral * 7, z: dirX * back },
+    };
+  }
+
+  tryKick(player, charge) {
+    const p = this.kickParams(player, charge);
+    if (!p) return false;
+    const b = this.ball;
+    b.vel = { ...p.vel };
+    b.omega = { ...p.omega };
     b.grounded = false;
     this.events.push({ type: 'kick', team: player.team });
     return true;

@@ -4,6 +4,7 @@ import { createScene } from './view/scene.js';
 import { NetView } from './view/netView.js';
 import { BallView } from './view/ballView.js';
 import { PlayerView } from './view/playerView.js';
+import { AimView } from './view/aimView.js';
 import { Game } from './game/game.js';
 
 const { renderer, scene, camera } = createScene(document.getElementById('app'));
@@ -26,6 +27,7 @@ const game = new Game(world, camera, {
 const netView = new NetView(world.nets, scene);
 const ballView = new BallView(world.ball, scene);
 const playerViews = world.players.map((p) => new PlayerView(p, scene));
+const aimViews = [game.playerRed, game.playerBlue].map((p) => new AimView(p, world, scene));
 
 let last = performance.now() / 1000;
 let accumulator = 0;
@@ -49,6 +51,8 @@ function frame(nowMs) {
   netView.update();
   ballView.update(dt * game.timeScale);
   for (const pv of playerViews) pv.update(dt);
+  const aiming = game.state === 'play' || game.state === 'kickoff';
+  for (const av of aimViews) av.update(aiming && game.isHuman(av.player));
   renderer.render(scene, camera);
 }
 requestAnimationFrame(frame);

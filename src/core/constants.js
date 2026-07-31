@@ -55,6 +55,10 @@ export const LOFT_MIN = 0.06;
 export const LOFT_MAX = 0.42;
 export const KICK_CHARGE_TIME = 0.6; // seconds to full charge
 
+// ragdoll knockdowns
+export const RAGDOLL_SPEED = 11; // relative ball speed that floors a player
+export const RAGDOLL_TIME = 1.5;
+
 // match
 export const MATCH_TIME = 180;
 export const MATCH_GOALS = 5;

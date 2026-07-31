@@ -122,6 +122,23 @@ function fly(world, seconds, onFrame) {
   check('idle: finite', finite);
 }
 
+// 7b) a screamer knocks the player down, and they recover
+{
+  const w = new World();
+  const p = w.addPlayer(1);
+  p.reset(0, 3);
+  w.ball.place(0, -2);
+  w.ball.vel = { x: 0, y: 0.8, z: 16 };
+  w.ball.grounded = false;
+  let ragdolled = false;
+  fly(w, 0.6, (ev) => { for (const e of ev) if (e.type === 'ragdoll') ragdolled = true; });
+  check('ragdoll: knocked down', ragdolled && p.down > 0, `down=${p.down.toFixed(2)}`);
+  const zAfterHit = p.pos.z;
+  fly(w, 2.0);
+  check('ragdoll: shoved along shot direction', zAfterHit > 3.05, `z=${zAfterHit.toFixed(2)}`);
+  check('ragdoll: back up', p.down === 0);
+}
+
 // 8b) keeper saves a straight low shot at its goal
 {
   const w = new World();

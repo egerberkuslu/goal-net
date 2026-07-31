@@ -53,8 +53,30 @@ export class PlayerView {
 
   update(dt) {
     const p = this.player;
-    this.group.position.set(p.pos.x, 0, p.pos.z);
     const sp = p.speed();
+
+    if (p.down > 0) {
+      // ragdoll: topple onto the back with a tumble, then scramble up
+      const t = 1 - p.down / p.downTotal; // 0 -> 1 over the knockdown
+      const fall = Math.min(t / 0.2, 1);
+      const rise = Math.max(0, (t - 0.72) / 0.28);
+      const flat = fall * fall * (1 - rise * rise);
+      const pitch = -flat * (Math.PI / 2) * 1.04;
+      const hop = Math.sin(Math.min(t / 0.3, 1) * Math.PI) * 0.3 * (1 - t);
+      const flail = Math.sin(t * 26) * 0.45 * (1 - t);
+      this.group.position.set(p.pos.x, hop, p.pos.z);
+      this.group.rotation.set(pitch, p.facing + p.tumbleSpin * flat, flail * 0.4, 'YXZ');
+      this.legs[0].rotation.x = flail + flat * 0.5;
+      this.legs[1].rotation.x = -flail + flat * 0.7;
+      this.legs[0].rotation.z = flat * 0.35;
+      this.legs[1].rotation.z = -flat * 0.35;
+      this.ring.visible = false;
+      return;
+    }
+    this.legs[0].rotation.z = 0;
+    this.legs[1].rotation.z = 0;
+
+    this.group.position.set(p.pos.x, 0, p.pos.z);
     const lean = Math.min(sp / PLAYER_SPEED, 1) * 0.16;
     this.group.rotation.set(lean, p.facing, 0, 'YXZ');
 
