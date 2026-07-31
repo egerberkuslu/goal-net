@@ -1,21 +1,130 @@
 import * as THREE from 'three';
 import { PLAYER_SPEED } from '../core/constants.js';
 
-const TEAM_COLORS = [0xe23b3b, 0x3b6de2];
-const TEAM_DARK = [0x7c1f1f, 0x1f3a7c];
-const KEEPER_COLORS = [0xf2b632, 0x38d6c4];
+export const DEFAULT_TEAM_COLORS = [0xe23b3b, 0x3b6de2];
+
+// ------------------------------------------------------------- palette -----
+
+const _c = new THREE.Color();
+const _hsl = { h: 0, s: 0, l: 0 };
+
+/** Pure: nudge a colour's lightness. amount > 0 lightens, < 0 darkens. */
+export function shade(hex, amount) {
+  _c.setHex(hex >>> 0);
+  _c.getHSL(_hsl);
+  const l = Math.max(0, Math.min(1, _hsl.l + amount));
+  return _c.setHSL(_hsl.h, _hsl.s, l).getHex();
+}
+
+// Pure: the keeper wears an accent derived from their own team colour rather
+// than a hard-coded yellow/teal — rotate the hue half a turn and brighten, so
+// it can never be confused with the outfield shirt whatever the team picked.
+export function deriveKeeperColor(hex) {
+  _c.setHex(hex >>> 0);
+  _c.getHSL(_hsl);
+  const h = (_hsl.h + 0.5) % 1;
+  const s = Math.max(0.55, Math.min(1, _hsl.s));
+  const l = Math.max(0.52, Math.min(0.72, _hsl.l + 0.16));
+  return _c.setHSL(h, s, l).getHex();
+}
+
+// Pure: full kit for both teams from the optional config.teamColors contract
+// (`[0xRRGGBB, 0xRRGGBB]`); anything missing or malformed falls back.
+export function teamPalette(teamColors) {
+  const base = [0, 1].map((i) => {
+    const v = Array.isArray(teamColors) ? teamColors[i] : undefined;
+    return Number.isFinite(v) ? (v >>> 0) & 0xffffff : DEFAULT_TEAM_COLORS[i];
+  });
+  return {
+    jersey: base,
+    shorts: base.map((c) => shade(c, -0.22)),
+    keeper: base.map(deriveKeeperColor),
+    keeperShorts: base.map((c) => shade(deriveKeeperColor(c), -0.28)),
+    ring: base,
+  };
+}
+
+// ------------------------------------------------------------ name tags ----
+
+export const NAME_MAX = 14;
+const TAG_WORLD_W = 1.1;   // metres wide, constant in world space
+const TAG_Y = 2.06;        // just above the head
+
+// Pure: names arrive from other peers, so collapse whitespace, drop control
+// characters and cap the length before it ever reaches a canvas.
+export function sanitizeName(raw, max = NAME_MAX) {
+  if (typeof raw !== 'string') return '';
+  const clean = raw
+    .replace(new RegExp(String.raw`[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202f]`, 'g'), ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean) return '';
+  if (clean.length <= max) return clean;
+  return `${clean.slice(0, Math.max(1, max - 1))}…`;
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// A canvas-texture Sprite: always camera-facing for free, one draw call, and
+// a fixed world size so it does not swell when the camera comes close.
+function makeNameSprite(name) {
+  if (typeof document === 'undefined') return null; // headless
+  const W = 256, H = 72, pad = 10;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = 'bold 34px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const textW = Math.min(W - pad * 2, ctx.measureText(name).width + 34);
+  const pillW = Math.max(64, textW);
+  const pillH = H - pad * 2;
+  ctx.fillStyle = 'rgba(12,16,22,0.72)';
+  roundRectPath(ctx, (W - pillW) / 2, pad, pillW, pillH, pillH / 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(name, W / 2, H / 2 + 1);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthTest: true, depthWrite: false,
+  }));
+  sprite.scale.set(TAG_WORLD_W, TAG_WORLD_W * (H / W), 1);
+  sprite.renderOrder = 5;
+  return sprite;
+}
 
 // Minimal procedural character: capsule torso, sphere head, two swinging legs.
 // No skeletal animation — lean, walk-cycle and kick swing are all computed.
 export class PlayerView {
-  constructor(player, scene) {
+  // `teamColors` is the optional config.teamColors pair; omit it for defaults.
+  constructor(player, scene, teamColors = null) {
     this.player = player;
     this.group = new THREE.Group();
 
-    const jerseyColor = player.role === 'keeper'
-      ? KEEPER_COLORS[player.team] : TEAM_COLORS[player.team];
+    const pal = teamPalette(teamColors);
+    this.palette = pal;
+    const keeper = player.role === 'keeper';
+    const jerseyColor = keeper ? pal.keeper[player.team] : pal.jersey[player.team];
+    const shortsColor = keeper ? pal.keeperShorts[player.team] : pal.shorts[player.team];
     const jersey = new THREE.MeshStandardMaterial({ color: jerseyColor, roughness: 0.7 });
-    const shorts = new THREE.MeshStandardMaterial({ color: TEAM_DARK[player.team], roughness: 0.7 });
+    const shorts = new THREE.MeshStandardMaterial({ color: shortsColor, roughness: 0.7 });
     const skin = new THREE.MeshStandardMaterial({ color: 0xe8b98f, roughness: 0.8 });
 
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.45, 6, 14), jersey);
@@ -52,20 +161,50 @@ export class PlayerView {
 
     this.ring = new THREE.Mesh(
       new THREE.TorusGeometry(0.5, 0.045, 10, 32),
-      new THREE.MeshBasicMaterial({ color: TEAM_COLORS[player.team], transparent: true, opacity: 0.85 }),
+      new THREE.MeshBasicMaterial({ color: pal.ring[player.team], transparent: true, opacity: 0.85 }),
     );
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.position.y = 0.04;
     this.ring.visible = false;
     this.group.add(this.ring);
 
+    // Name tag lives in the scene, not in the body group: the group pitches
+    // and rolls through dives and ragdolls, and the label must not tumble.
+    this.tagName = sanitizeName(player.mpName);
+    this.tag = this.tagName ? makeNameSprite(this.tagName) : null;
+    if (this.tag) scene.add(this.tag);
+
     this.walkPhase = 0;
     scene.add(this.group);
+  }
+
+  // Names can land after the view exists (a peer renames in the lobby), so the
+  // tag can be rebuilt in place. Passing an empty name removes it.
+  setName(name) {
+    const clean = sanitizeName(name);
+    if (clean === this.tagName) return;
+    const scene = this.tag?.parent ?? this.group.parent;
+    if (this.tag) {
+      this.tag.parent?.remove(this.tag);
+      this.tag.material.map?.dispose();
+      this.tag.material.dispose();
+      this.tag = null;
+    }
+    this.tagName = clean;
+    this.tag = clean ? makeNameSprite(clean) : null;
+    if (this.tag && scene) scene.add(this.tag);
   }
 
   update(dt) {
     const p = this.player;
     const sp = p.speed();
+
+    if (this.tag) {
+      this.tag.visible = p.down <= 0; // no label on a ragdolled player
+      if (this.tag.visible) {
+        this.tag.position.set(p.pos.x, TAG_Y + (p.jumpY || 0), p.pos.z);
+      }
+    }
 
     if (p.down > 0) {
       // ragdoll: topple onto the back with a tumble, then scramble up
@@ -168,6 +307,12 @@ export class PlayerView {
   }
 
   dispose() {
+    if (this.tag) {
+      this.tag.parent?.remove(this.tag);
+      this.tag.material.map?.dispose();
+      this.tag.material.dispose();
+      this.tag = null;
+    }
     this.group.parent?.remove(this.group);
     this.group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
