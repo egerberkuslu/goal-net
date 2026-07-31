@@ -5,11 +5,13 @@
 
 /** Message type constants. */
 export const MSG = Object.freeze({
-  HELLO: 'hello',   // guest -> host: {name}
+  HELLO: 'hello',   // guest -> host: {name, spectate}
   TEAM: 'team',     // guest -> host: {team}
+  READY: 'ready',   // guest -> host: {ready}
   INPUT: 'input',   // guest -> host: {seq, x, z, kick}
+  CHAT: 'chat',     // guest -> host: {text}; host -> guest: {from, text}
   LOBBY: 'lobby',   // host -> guest: {you, players, settings}
-  START: 'start',   // host -> guest: {settings}
+  START: 'start',   // host -> guest: {settings, roster}
   SNAP: 'snap',     // host -> guest: 20 Hz world state
   KICKED: 'kicked', // host -> guest: {reason}
   END: 'end',       // host -> guest: {score}
@@ -27,10 +29,28 @@ export const SETTING_VALUES = Object.freeze({
   goalScale: Object.freeze([0.8, 1, 1.3]),
 });
 
+/** Roles a roster entry may claim. */
+export const ROLES = Object.freeze(['field', 'keeper']);
+
+/**
+ * Fixed shirt-colour palette, [redSideChoices, blueSideChoices]. The first entry
+ * of each side is the historical default, so an unset `teamColors` looks exactly
+ * like it always did. Anything outside these sets is rejected on the wire.
+ */
+export const TEAM_PALETTE = Object.freeze([
+  Object.freeze([0xe23b3b, 0xff7a3d, 0xf2c53d, 0xd63bb0, 0x8c3b1f, 0xe2578f]),
+  Object.freeze([0x3b6de2, 0x2fb8c6, 0x3fc46a, 0x6b3be2, 0x2b3f6b, 0x9fb0d8]),
+]);
+
+/** Colours used when a peer sends no `teamColors`. */
+export const DEFAULT_TEAM_COLORS = Object.freeze([TEAM_PALETTE[0][0], TEAM_PALETTE[1][0]]);
+
 export const CODE_LEN = 6;
 export const MAX_NAME = 20;
 export const MAX_ID = 64;      // peer ids are ~36 chars; leave headroom
 export const MAX_PLAYERS = 16;
+export const MAX_ROSTER = MAX_PLAYERS + 2; // + one keeper per team
+export const MAX_CHAT = 120;
 export const MAX_EVENTS = 32;
 export const MAX_EVENT_KEYS = 8;
 export const DEFAULT_NAME = 'Oyuncu'; // user-facing fallback (UI is Turkish)
@@ -59,6 +79,9 @@ const oneOf = (v, allowed) => { need(allowed.includes(v)); return v; };
 
 // ------------------------------------------------------------------ helpers
 
+/** Control, zero-width and line-separator characters that never belong in text. */
+const CTRL_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g;
+
 /**
  * Clean a display name: strip control characters, collapse whitespace, cap length.
  * Always returns a non-empty string (falls back to DEFAULT_NAME).
@@ -68,10 +91,28 @@ const oneOf = (v, allowed) => { need(allowed.includes(v)); return v; };
 export function sanitizeName(name) {
   if (typeof name !== 'string') return DEFAULT_NAME;
   const clean = name
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g, ' ')
+    .replace(CTRL_CHARS, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return clean.slice(0, MAX_NAME).trim() || DEFAULT_NAME;
+}
+
+/**
+ * Clean one chat line: strip control characters, drop angle brackets so the text
+ * can never read as markup even if a future renderer forgets textContent,
+ * collapse whitespace and cap the length.
+ * @param {unknown} text raw chat text from a peer or an input field
+ * @returns {string} 0..MAX_CHAT characters; empty means "nothing to say"
+ */
+export function sanitizeChat(text) {
+  if (typeof text !== 'string') return '';
+  return text
+    .replace(CTRL_CHARS, ' ')
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_CHAT)
+    .trim();
 }
 
 /**
@@ -111,6 +152,19 @@ export function randomCode() {
 
 // --------------------------------------------------------------- sub-shapes
 
+/**
+ * Shirt colours: a two-entry array whose sides must each come from the fixed
+ * palette. Absent means "the classic red/blue pair".
+ */
+function teamColorsOf(v) {
+  if (v === undefined) return [...DEFAULT_TEAM_COLORS];
+  need(Array.isArray(v) && v.length === 2);
+  return [0, 1].map((side) => {
+    need(isInt(v[side]) && TEAM_PALETTE[side].includes(v[side]));
+    return v[side];
+  });
+}
+
 /** Match settings; every field must be one of the contract's allowed values. */
 function settingsOf(s) {
   need(isObj(s));
@@ -120,13 +174,38 @@ function settingsOf(s) {
     goalLimit: oneOf(s.goalLimit, SETTING_VALUES.goalLimit),
     goalScale: oneOf(s.goalScale, SETTING_VALUES.goalScale),
     keepers: s.keepers,
+    teamColors: teamColorsOf(s.teamColors),
   };
 }
 
-/** Lobby roster entry. */
+/** Lobby roster entry. `ready` and `spectator` default to false. */
 function lobbyPlayer(p) {
   need(isObj(p) && isBool(p.isHost));
-  return { id: idOf(p.id), name: sanitizeName(p.name), team: teamOf(p.team), isHost: p.isHost };
+  need(p.ready === undefined || isBool(p.ready));
+  need(p.spectator === undefined || isBool(p.spectator));
+  return {
+    id: idOf(p.id),
+    name: sanitizeName(p.name),
+    team: teamOf(p.team),
+    isHost: p.isHost,
+    ready: p.ready === true,
+    spectator: p.spectator === true,
+  };
+}
+
+/**
+ * Match roster entry as carried by `start`: who exists on the pitch, on which
+ * team, in which role, under which display name. Guests build their world from
+ * this instead of re-deriving it from the last lobby broadcast.
+ */
+function rosterEntry(e) {
+  need(isObj(e));
+  return {
+    id: idOf(e.id),
+    team: teamOf(e.team),
+    role: e.role === undefined ? 'field' : oneOf(e.role, ROLES),
+    name: sanitizeName(e.name),
+  };
 }
 
 /** Snapshot player entry; optional kinematics default to 0, role to 'field'. */
@@ -203,10 +282,22 @@ function listOf(arr, max, fn, optional = false) {
 const VALIDATORS = {
   [MSG.HELLO]: (m) => {
     need(typeof m.name === 'string');
-    return { t: MSG.HELLO, name: sanitizeName(m.name) };
+    need(m.spectate === undefined || isBool(m.spectate));
+    return { t: MSG.HELLO, name: sanitizeName(m.name), spectate: m.spectate === true };
   },
 
   [MSG.TEAM]: (m) => ({ t: MSG.TEAM, team: teamOf(m.team) }),
+
+  [MSG.READY]: (m) => { need(isBool(m.ready)); return { t: MSG.READY, ready: m.ready }; },
+
+  // Guest -> host carries only `text`; the host rebroadcasts it with `from`.
+  [MSG.CHAT]: (m) => {
+    const text = sanitizeChat(m.text);
+    need(text.length > 0);
+    const out = { t: MSG.CHAT, text };
+    if (m.from !== undefined) out.from = sanitizeName(m.from);
+    return out;
+  },
 
   [MSG.INPUT]: (m) => {
     need(isInt(m.seq) && m.seq >= 0 && m.seq <= Number.MAX_SAFE_INTEGER);
@@ -228,7 +319,13 @@ const VALIDATORS = {
     settings: settingsOf(m.settings),
   }),
 
-  [MSG.START]: (m) => ({ t: MSG.START, settings: settingsOf(m.settings) }),
+  [MSG.START]: (m) => ({
+    t: MSG.START,
+    settings: settingsOf(m.settings),
+    // optional so a host that omits it still starts: the guest then falls back
+    // to deriving the roster from the last lobby broadcast
+    roster: listOf(m.roster, MAX_ROSTER, rosterEntry, true),
+  }),
 
   [MSG.SNAP]: (m) => {
     need(isInt(m.tick) && m.tick >= 0);
