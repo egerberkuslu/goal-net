@@ -260,6 +260,27 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
   check('dribble: right-angle turn keeps the ball', max < 1.4, `max=${max.toFixed(2)} m`);
 }
 
+// 6c) slide tackle: pokes the ball away and flattens the opponent
+{
+  const w = new World();
+  const tackler = w.addPlayer(0);
+  const victim = w.addPlayer(1);
+  tackler.reset(0, -2);
+  victim.reset(0.3, -0.6);
+  w.ball.place(0.1, -0.9);
+  const started = tackler.startSlide(0, 1);
+  let victimDown = false, ballKicked = 0;
+  fly(w, 1.5, () => {
+    if (victim.down > 0) victimDown = true;
+    ballKicked = Math.max(ballKicked, Math.hypot(w.ball.vel.x, w.ball.vel.z));
+  });
+  check('slide: starts', started === true);
+  check('slide: ball poked away', ballKicked > 4 && ballKicked < 20,
+    `v=${ballKicked.toFixed(1)}`);
+  check('slide: opponent flattened', victimDown);
+  check('slide: tackler recovers', tackler.dive === 0 && tackler.diveRecover === 0);
+}
+
 // 7) both nets idle-settle, everything stays finite
 {
   const w = new World();

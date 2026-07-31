@@ -108,7 +108,8 @@ export class World {
 
   collidePlayers() {
     const ps = this.players;
-    // player vs player: positional half-half separation
+    // player vs player: positional half-half separation; a sliding tackle
+    // that reaches an opponent takes them down
     for (let i = 0; i < ps.length; i++) {
       for (let j = i + 1; j < ps.length; j++) {
         const a = ps[i], b = ps[j];
@@ -119,6 +120,13 @@ export class World {
         const push = (rSum - d) / (2 * d);
         a.pos.x -= dx * push; a.pos.z -= dz * push;
         b.pos.x += dx * push; b.pos.z += dz * push;
+        for (const [s, t] of [[a, b], [b, a]]) {
+          if (s.dive > 0 && s.diveKind === 'slide' && s.team !== t.team &&
+              t.down <= 0 && t.dive <= 0) {
+            t.knockDown(s.diveDir.x, s.diveDir.z, 13);
+            if (t.down > 0) this.events.push({ type: 'ragdoll', team: t.team });
+          }
+        }
       }
     }
     // pitch bounds: players stay on the field, off the nets
@@ -135,8 +143,9 @@ export class World {
     for (const p of this.players) {
       const dx = b.pos.x - p.pos.x, dz = b.pos.z - p.pos.z;
       const d = Math.sqrt(dx * dx + dz * dz);
-      // a diving keeper is stretched out: much wider reach while airborne
-      const reach = p.dive > 0 ? 0.85 : PLAYER_R;
+      // a diving keeper is stretched out: much wider reach while airborne;
+      // a slide pokes with the feet, only slightly beyond the body
+      const reach = p.dive > 0 ? (p.diveKind === 'slide' ? 0.6 : 0.85) : PLAYER_R;
       const rSum = BALL_R + reach;
       if (d >= rSum || d < 1e-6) continue;
       const nx = dx / d, nz = dz / d;
@@ -146,7 +155,11 @@ export class World {
       // ball is not flicked along by a body that is already retreating
       const closing = p.vel.x * nx + p.vel.z * nz; // > 0: running into the ball
       const push = closing < 0 ? Math.min(pen * 0.25, 0.02) : pen;
+      // shift prev along with pos: depenetration must not inject velocity
+      // (a fast body re-penetrating every substep would pump the ball);
+      // the restitution reflect provides the actual bounce
       b.pos.x += nx * push; b.pos.z += nz * push;
+      b.prev.x += nx * push; b.prev.z += nz * push;
       b.contacts.push({
         nx, ny: 0, nz, type: 'player',
         cvx: closing < 0 ? 0 : p.vel.x, cvz: closing < 0 ? 0 : p.vel.z,
@@ -155,7 +168,8 @@ export class World {
       // a screamer flattens whoever it hits
       const relX = b.vel.x - p.vel.x, relZ = b.vel.z - p.vel.z;
       const relSp = Math.sqrt(relX * relX + relZ * relZ);
-      if (relSp > RAGDOLL_SPEED && p.down <= 0) {
+      // mid-dive/-slide players are already committed and cannot be floored
+      if (relSp > RAGDOLL_SPEED && p.down <= 0 && p.dive <= 0) {
         p.knockDown(relX / relSp, relZ / relSp, relSp);
         this.events.push({ type: 'ragdoll', team: p.team });
       }

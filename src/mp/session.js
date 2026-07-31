@@ -16,8 +16,8 @@ const ROOMS_URL = `${location.protocol}//${location.hostname}:5200`;
 
 // Held by the guest side: replays the last input received from a peer.
 class RemoteController {
-  constructor() { this.last = { x: 0, z: 0, kick: false }; }
-  set(msg) { this.last = { x: msg.x, z: msg.z, kick: msg.kick }; }
+  constructor() { this.last = { x: 0, z: 0, kick: false, slide: false }; }
+  set(msg) { this.last = { x: msg.x, z: msg.z, kick: msg.kick, slide: !!msg.slide }; }
   update() { return this.last; }
 }
 
@@ -88,6 +88,7 @@ class GuestMatch {
       p.headerAnim = sp.headerAnim;
       p.dive = sp.dive;
       p.diveRecover = sp.diveRecover;
+      p.diveKind = sp.diveKind === 1 ? 'slide' : 'dive';
       p.diveDir = { x: Math.sin(sp.diveYaw), z: Math.cos(sp.diveYaw) };
       p.input.x = 0; p.input.z = 0; // guests never steer remote players
     }
@@ -478,6 +479,7 @@ export class MpSession {
         const c = this.guestKeyboard.update();
         this.net.send(this.hostPeerId, {
           t: MSG.INPUT, seq: this.inputSeq++, x: c.x, z: c.z, kick: c.kick,
+          slide: c.slide,
         });
       }
     }
@@ -503,6 +505,7 @@ export class MpSession {
         facing: p.facing, down: p.down, charge: p.charge, kickAnim: p.kickAnim,
         headerAnim: p.headerAnim, dive: p.dive, diveRecover: p.diveRecover,
         diveYaw: Math.atan2(p.diveDir.x, p.diveDir.z),
+        diveKind: p.diveKind === 'slide' ? 1 : 0,
         team: p.team, role: p.role,
       })),
       events: this.pendingEvents.splice(0),

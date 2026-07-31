@@ -94,6 +94,13 @@ export class Ball {
       const f = Math.max(0, 1 - 0.6 * h); // rolling resistance on grass
       vel.x *= f; vel.z *= f;
     }
+    // sanity cap: squeeze situations (ball pinched between bodies) can pump
+    // the contact loop; nothing legitimate moves the ball this fast
+    const sp = Math.hypot(vel.x, vel.y, vel.z);
+    if (sp > 34) {
+      const s = 34 / sp;
+      vel.x *= s; vel.y *= s; vel.z *= s;
+    }
   }
 
   speed() {

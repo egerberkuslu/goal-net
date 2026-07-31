@@ -147,6 +147,7 @@ function snapPlayer(p) {
     dive: optNum(p.dive),
     diveRecover: optNum(p.diveRecover),
     diveYaw: optNum(p.diveYaw),
+    diveKind: optNum(p.diveKind), // 0 = keeper dive, 1 = slide tackle
     team: teamOf(p.team),
     role: p.role === undefined ? 'field' : p.role,
   };
@@ -215,6 +216,7 @@ const VALIDATORS = {
       x: clamp(num(m.x), -1, 1),
       z: clamp(num(m.z), -1, 1),
       kick: m.kick,
+      slide: m.slide === true,
     };
   },
 

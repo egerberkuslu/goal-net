@@ -18,10 +18,26 @@ export class Player {
     this.downTotal = RAGDOLL_TIME;
     this.tumbleSpin = 0;
     this.knockCooldown = 0; // hidden immunity so players can't be stun-locked
-    this.dive = 0;          // keeper dive: seconds of flight left
+    this.dive = 0;          // dive/slide: seconds of the action left
     this.diveTotal = 0.55;
-    this.diveRecover = 0;   // scramble-up time after the dive
+    this.diveKind = 'dive'; // 'dive' (keeper flight) | 'slide' (tackle)
+    this.diveRecover = 0;   // scramble-up time after the action
     this.diveDir = { x: 1, z: 0 };
+  }
+
+  // Slide tackle: feet-first burst along the given direction. Pokes the ball
+  // away through the normal contact, and flattens opponents it runs into.
+  startSlide(dx, dz) {
+    if (this.dive > 0 || this.diveRecover > 0 || this.down > 0) return false;
+    const len = Math.hypot(dx, dz) || 1;
+    this.diveDir = { x: dx / len, z: dz / len };
+    this.diveKind = 'slide';
+    this.dive = this.diveTotal = 0.6;
+    this.vel.x += this.diveDir.x * 7.5;
+    this.vel.z += this.diveDir.z * 7.5;
+    this.facing = Math.atan2(this.diveDir.x, this.diveDir.z);
+    this.charge = 0;
+    return true;
   }
 
   // Keeper dive: a sideways burst with the body stretched out. No steering
@@ -30,7 +46,8 @@ export class Player {
     if (this.dive > 0 || this.diveRecover > 0 || this.down > 0) return false;
     const len = Math.hypot(dx, dz) || 1;
     this.diveDir = { x: dx / len, z: dz / len };
-    this.dive = this.diveTotal;
+    this.diveKind = 'dive';
+    this.dive = this.diveTotal = 0.55;
     this.vel.x += this.diveDir.x * power;
     this.vel.z += this.diveDir.z * power;
     this.charge = 0;
@@ -55,6 +72,8 @@ export class Player {
   knockDown(dirX, dirZ, speed) {
     if (this.down > 0 || this.knockCooldown > 0) return;
     this.knockCooldown = 6;
+    this.dive = 0;
+    this.diveRecover = 0;
     this.down = this.downTotal = RAGDOLL_TIME;
     const shove = Math.min(9, speed * 0.42);
     this.vel.x += dirX * shove;

@@ -18,10 +18,10 @@ function installListeners() {
   addEventListener('blur', () => pressed.clear());
 }
 
-export const P1_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', kick: 'Space' };
-export const P1_ALT_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', kick: 'KeyX' };
-export const P1_X_KICK = { kick: 'KeyX' };
-export const P2_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', kick: 'Enter' };
+export const P1_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', kick: 'Space', slide: 'ShiftLeft' };
+export const P1_ALT_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', kick: 'KeyX', slide: 'KeyC' };
+export const P1_X_KICK = { kick: 'KeyX', slide: 'KeyC' };
+export const P2_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', kick: 'Enter', slide: 'ShiftRight' };
 
 // Accepts one key map or several; movement is the union and any map's kick
 // key fires (so 1P can play WASD+Space or arrows+X interchangeably).
@@ -32,14 +32,15 @@ export class KeyboardController {
   }
 
   update() {
-    let right = 0, up = 0, kick = false;
+    let right = 0, up = 0, kick = false, slide = false;
     for (const k of this.maps) {
       right += (pressed.has(k.right) ? 1 : 0) - (pressed.has(k.left) ? 1 : 0);
       up += (pressed.has(k.up) ? 1 : 0) - (pressed.has(k.down) ? 1 : 0);
       kick = kick || pressed.has(k.kick);
+      slide = slide || pressed.has(k.slide);
     }
     right = Math.max(-1, Math.min(1, right));
     up = Math.max(-1, Math.min(1, up));
-    return { x: -up, z: -right, kick };
+    return { x: -up, z: -right, kick, slide };
   }
 }

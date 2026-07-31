@@ -133,6 +133,12 @@ export class Game {
         player.kickAnim = Math.max(0, player.kickAnim - dt * 4);
         continue;
       }
+      // slide tackle on key edge, along current intent (or facing when idle)
+      if (c.slide && !st.slideHeld) {
+        const ix = c.x || Math.sin(player.facing), iz = c.z || Math.cos(player.facing);
+        player.startSlide(ix, iz);
+      }
+      st.slideHeld = !!c.slide;
       if (c.kick && !st.held) { st.held = true; st.t = now; }
       if (st.held) player.charge = Math.min((now - st.t) / KICK_CHARGE_TIME, 1);
       if (!c.kick && st.held) {
