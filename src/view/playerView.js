@@ -75,7 +75,9 @@ export class PlayerView {
       const pitch = -flat * (Math.PI / 2) * 1.04;
       const hop = Math.sin(Math.min(t / 0.3, 1) * Math.PI) * 0.3 * (1 - t);
       const flail = Math.sin(t * 26) * 0.45 * (1 - t);
-      this.group.position.set(p.pos.x, hop, p.pos.z);
+      // the group pivots at the feet, so lying flat would sink the torso
+      // halfway into the grass — lift by the body radius while horizontal
+      this.group.position.set(p.pos.x, hop + flat * 0.3, p.pos.z);
       this.group.rotation.set(pitch, p.facing + p.tumbleSpin * flat, flail * 0.4, 'YXZ');
       this.legs[0].rotation.x = flail + flat * 0.5;
       this.legs[1].rotation.x = -flail + flat * 0.7;
