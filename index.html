@@ -3,44 +3,74 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>Goal Net — Şut Oyunu</title>
+  <title>Goal Net — 3D Haxball</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
   <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0f1e;
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1226;
       font-family: 'Segoe UI', system-ui, sans-serif; touch-action: none;
       -webkit-user-select: none; user-select: none; }
     #app { position: fixed; inset: 0; }
     canvas { display: block; }
     .hud { position: fixed; z-index: 10; color: #fff; pointer-events: none; }
-    #score { top: 14px; left: 50%; transform: translateX(-50%);
-      font-size: 22px; font-weight: 700; letter-spacing: 1px;
-      background: rgba(8, 14, 30, .55); padding: 8px 22px; border-radius: 999px;
-      backdrop-filter: blur(6px); }
-    #score b { color: #7CFC8E; }
-    #modes { top: 14px; right: 14px; pointer-events: auto; display: flex; gap: 8px; }
-    #modes button { border: 1px solid rgba(255,255,255,.25); color: #cfd8ff;
-      background: rgba(8, 14, 30, .55); padding: 8px 14px; border-radius: 10px;
-      font-size: 14px; cursor: pointer; backdrop-filter: blur(6px); }
-    #modes button.active { background: #2456e6; color: #fff; border-color: #2456e6; }
-    #msg { top: 34%; left: 50%; transform: translate(-50%, -50%) scale(.6);
+    #scoreboard { top: 12px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 14px;
+      background: rgba(8, 14, 30, .6); padding: 8px 20px; border-radius: 14px;
+      backdrop-filter: blur(6px); font-weight: 800; font-size: 22px; }
+    .teamdot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+    #timer { font-size: 15px; font-weight: 600; color: #cfd8ff; min-width: 44px; text-align: center; }
+    #msg { top: 32%; left: 50%; transform: translate(-50%, -50%) scale(.6);
       font-size: 64px; font-weight: 900; letter-spacing: 3px; opacity: 0;
       text-shadow: 0 4px 24px rgba(0,0,0,.6); transition: all .18s ease-out; }
     #msg.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-    #msg.gol { color: #7CFC8E; } #msg.direk { color: #ffd257; } #msg.kacti { color: #ff7d7d; }
-    #hint { bottom: 18px; left: 50%; transform: translateX(-50%);
-      font-size: 14px; color: rgba(255,255,255,.75);
-      background: rgba(8, 14, 30, .45); padding: 7px 16px; border-radius: 999px; }
+    #msg.gol { color: #7CFC8E; } #msg.direk { color: #ffd257; }
+    #msg.kacti { color: #ff9d7d; } #msg.hazir { color: #cfd8ff; font-size: 44px; }
+    .overlay { position: fixed; inset: 0; z-index: 20; display: flex;
+      flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(6, 10, 22, .72); backdrop-filter: blur(8px); color: #fff; }
+    .overlay.hidden { display: none; }
+    .overlay h1 { font-size: 52px; margin: 0 0 6px; letter-spacing: 2px; }
+    .overlay h2 { font-size: 40px; margin: 0 0 8px; }
+    .overlay p.sub { color: #9fb0d8; margin: 0 0 28px; }
+    .overlay button { border: 0; color: #fff; background: #2456e6;
+      padding: 14px 34px; border-radius: 12px; font-size: 19px; font-weight: 700;
+      cursor: pointer; margin: 6px; }
+    .overlay button:hover { background: #3868f8; }
+    .controls { margin-top: 30px; display: flex; gap: 40px; color: #9fb0d8; font-size: 14px; }
+    .controls b { color: #fff; }
+    #endScore { font-size: 30px; font-weight: 800; margin-bottom: 20px; }
   </style>
 </head>
 <body>
   <div id="app"></div>
-  <div class="hud" id="score">Gol <b>0</b> / Şut 0</div>
-  <div class="hud" id="modes">
-    <button id="btnPenalty" class="active">Penaltı</button>
-    <button id="btnFreekick">Serbest Vuruş</button>
+
+  <div class="hud" id="scoreboard">
+    <span class="teamdot" style="background:#e23b3b"></span>
+    <span id="scoreRed">0</span>
+    <span id="timer">3:00</span>
+    <span id="scoreBlue">0</span>
+    <span class="teamdot" style="background:#3b6de2"></span>
   </div>
   <div class="hud" id="msg"></div>
-  <div class="hud" id="hint">Topu sürükleyip bırak — eğri çizersen falso atarsın</div>
+
+  <div class="overlay" id="menu">
+    <h1>⚽ GOAL NET</h1>
+    <p class="sub">3D Haxball — gerçek file fiziğiyle</p>
+    <div>
+      <button id="btn1p">1 Oyuncu (Bota karşı)</button>
+      <button id="btn2p">2 Oyuncu (Yerel)</button>
+    </div>
+    <div class="controls">
+      <div><b>Kırmızı:</b> WASD hareket · Boşluk şut<br>(basılı tut = güçlü + yüksek)</div>
+      <div><b>Mavi:</b> Yön tuşları · Enter şut</div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="end">
+    <h2 id="endTitle">Kazanan!</h2>
+    <div id="endScore">0 — 0</div>
+    <button id="btnAgain">Tekrar Oyna</button>
+  </div>
+
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

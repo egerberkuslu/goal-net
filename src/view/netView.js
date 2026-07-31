@@ -3,19 +3,18 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
-// Renders every collidable cord (struct + stitch) as world-unit fat lines,
-// updating the interleaved buffer in place each frame.
+// Renders every collidable cord of every net as world-unit fat lines in one
+// draw call, updating the interleaved buffer in place each frame.
 export class NetView {
-  constructor(net, scene) {
-    this.net = net;
-    this.groups = net.collidable;
-    this.segCount = this.groups.reduce((s, g) => s + g.n, 0);
+  constructor(nets, scene) {
+    this.entries = nets.flatMap((net) => net.collidable.map((g) => ({ net, g })));
+    this.segCount = this.entries.reduce((s, e) => s + e.g.n, 0);
     this.array = new Float32Array(this.segCount * 6);
 
     this.fill();
     const geometry = new LineSegmentsGeometry();
     geometry.setPositions(this.array);
-    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.2, -0.8), 8);
+    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.2, 0), 30);
     this.material = new LineMaterial({
       color: 0xf2f2ef,
       linewidth: 0.013,
@@ -28,9 +27,9 @@ export class NetView {
   }
 
   fill() {
-    const { pos } = this.net;
     let o = 0;
-    for (const g of this.groups) {
+    for (const { net, g } of this.entries) {
+      const { pos } = net;
       const { ids, n } = g;
       for (let c = 0; c < n; c++) {
         const a = ids[c * 2] * 3, b = ids[c * 2 + 1] * 3;

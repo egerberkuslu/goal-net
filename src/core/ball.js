@@ -1,15 +1,25 @@
 import {
   BALL_R, BALL_M, BALL_A, GRAV, RHO_AIR, CD_BALL,
+  REST_GROUND, REST_POST, REST_WALL, REST_PLAYER,
 } from './constants.js';
+
+const REST = {
+  ground: REST_GROUND,
+  post: REST_POST,
+  crossbar: REST_POST,
+  wall: REST_WALL,
+  player: REST_PLAYER,
+};
 
 export class Ball {
   constructor() {
-    this.pos = { x: 0, y: BALL_R, z: 11 };
-    this.prev = { x: 0, y: BALL_R, z: 11 };
+    this.pos = { x: 0, y: BALL_R, z: 0 };
+    this.prev = { x: 0, y: BALL_R, z: 0 };
     this.vel = { x: 0, y: 0, z: 0 };
     this.omega = { x: 0, y: 0, z: 0 }; // rad/s, world space
     this.grounded = true;
-    this.contacts = []; // static contacts collected this substep
+    // static/moving contacts collected this substep: {nx,ny,nz,type,cvx,cvz}
+    this.contacts = [];
   }
 
   place(x, z) {
@@ -18,12 +28,6 @@ export class Ball {
     this.vel = { x: 0, y: 0, z: 0 };
     this.omega = { x: 0, y: 0, z: 0 };
     this.grounded = true;
-  }
-
-  shoot(vel, omega) {
-    this.vel = { ...vel };
-    this.omega = { ...omega };
-    this.grounded = false;
   }
 
   accel() {
@@ -62,7 +66,7 @@ export class Ball {
     this.omega.x *= sd; this.omega.y *= sd; this.omega.z *= sd;
   }
 
-  updateVelocity(h, restGround, restPost) {
+  updateVelocity(h) {
     const { pos, prev, vel, omega } = this;
     const inv = 1 / h;
     vel.x = (pos.x - prev.x) * inv;
@@ -71,13 +75,13 @@ export class Ball {
 
     this.grounded = false;
     for (const c of this.contacts) {
-      const vn = vel.x * c.nx + vel.y * c.ny + vel.z * c.nz;
+      const cvx = c.cvx || 0, cvz = c.cvz || 0;
+      const vn = (vel.x - cvx) * c.nx + vel.y * c.ny + (vel.z - cvz) * c.nz;
       if (vn < 0) {
-        const e = c.type === 'ground' ? restGround : restPost;
-        const j = -(1 + e) * vn;
+        const j = -(1 + (REST[c.type] ?? 0.6)) * vn;
         vel.x += j * c.nx; vel.y += j * c.ny; vel.z += j * c.nz;
-        if (c.type === 'ground') {
-          // tangential friction + a spin-induced kick on the bounce
+        // impact friction + spin kick only on real bounces, not resting contact
+        if (c.type === 'ground' && vn < -0.8) {
           vel.x = vel.x * 0.82 + (omega.z * c.ny - omega.y * c.nz) * BALL_R * 0.25;
           vel.z = vel.z * 0.82 + (omega.y * c.nx - omega.x * c.ny) * BALL_R * 0.25;
           omega.x *= 0.75; omega.y *= 0.75; omega.z *= 0.75;
@@ -87,7 +91,7 @@ export class Ball {
     }
     if (this.grounded && Math.abs(vel.y) < 0.4) {
       vel.y = Math.max(vel.y, 0);
-      const f = Math.max(0, 1 - 2.2 * h); // rolling resistance
+      const f = Math.max(0, 1 - 0.6 * h); // rolling resistance on grass
       vel.x *= f; vel.z *= f;
     }
   }

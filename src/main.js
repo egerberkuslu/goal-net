@@ -1,27 +1,33 @@
-import { World } from './core/physics.js';
+import { World } from './core/world.js';
 import { DT } from './core/constants.js';
 import { createScene } from './view/scene.js';
 import { NetView } from './view/netView.js';
 import { BallView } from './view/ballView.js';
-import { TrajectoryPreview } from './view/trajectory.js';
+import { PlayerView } from './view/playerView.js';
 import { Game } from './game/game.js';
 
 const { renderer, scene, camera } = createScene(document.getElementById('app'));
 
 const world = new World();
-const netView = new NetView(world.net, scene);
-const ballView = new BallView(world.ball, scene);
-const trajectory = new TrajectoryPreview(scene);
-
-const game = new Game(world, camera, trajectory, {
-  score: document.getElementById('score'),
+const game = new Game(world, camera, {
+  scoreRed: document.getElementById('scoreRed'),
+  scoreBlue: document.getElementById('scoreBlue'),
+  timer: document.getElementById('timer'),
   msg: document.getElementById('msg'),
-  btnPenalty: document.getElementById('btnPenalty'),
-  btnFreekick: document.getElementById('btnFreekick'),
-  canvas: renderer.domElement,
+  menu: document.getElementById('menu'),
+  end: document.getElementById('end'),
+  endTitle: document.getElementById('endTitle'),
+  endScore: document.getElementById('endScore'),
+  btn1p: document.getElementById('btn1p'),
+  btn2p: document.getElementById('btn2p'),
+  btnAgain: document.getElementById('btnAgain'),
 });
 
-let last = performance.now();
+const netView = new NetView(world.nets, scene);
+const ballView = new BallView(world.ball, scene);
+const playerViews = world.players.map((p) => new PlayerView(p, scene));
+
+let last = performance.now() / 1000;
 let accumulator = 0;
 
 function frame(nowMs) {
@@ -30,10 +36,11 @@ function frame(nowMs) {
   const dt = Math.min(now - last, 0.05);
   last = now;
 
-  accumulator += dt * game.timeScale;
+  // slow motion scales the step size, not the step rate, so it stays smooth
+  accumulator += dt;
   let steps = 0;
   while (accumulator >= DT && steps < 4) {
-    world.step(DT);
+    world.step(DT * game.timeScale);
     accumulator -= DT;
     steps++;
   }
@@ -41,6 +48,7 @@ function frame(nowMs) {
   game.update(dt, now);
   netView.update();
   ballView.update(dt * game.timeScale);
+  for (const pv of playerViews) pv.update(dt);
   renderer.render(scene, camera);
 }
 requestAnimationFrame(frame);

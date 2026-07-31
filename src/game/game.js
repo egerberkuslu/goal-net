@@ -1,140 +1,169 @@
-import { GOAL_W, GOAL_H, BALL_R } from '../core/constants.js';
-import { DragInput, shotFromParams } from './input.js';
+import {
+  KICK_CHARGE_TIME, PITCH_HALF_L, MATCH_TIME, MATCH_GOALS,
+} from '../core/constants.js';
+import { KeyboardController, P1_KEYS, P2_KEYS } from './input.js';
+import { BotController, KeeperController } from '../core/ai.js';
 
-const HALF_W = GOAL_W / 2;
+const TEAM_NAMES = ['KIRMIZI', 'MAVİ'];
 
 export class Game {
-  constructor(world, camera, trajectory, dom) {
+  constructor(world, camera, dom) {
     this.world = world;
     this.camera = camera;
-    this.trajectory = trajectory;
-    this.dom = dom; // { score, msg, btnPenalty, btnFreekick, canvas }
-    this.mode = 'penalty';
-    this.goals = 0;
-    this.shots = 0;
-    this.state = 'ready'; // ready | flying | done
+    this.dom = dom;
+    this.state = 'menu';
     this.timeScale = 1;
-    this.slowUntil = 0;
-    this.resetAt = 0;
-    this.flightTime = 0;
-    this.prevZ = 0;
+    this.score = [0, 0];
+    this.timeLeft = MATCH_TIME;
     this.msgTimer = null;
+    this.outTimer = 0;
+    this.camZ = 0;
 
-    this.input = new DragInput(dom.canvas, {
-      isReady: () => this.state === 'ready',
-      onDrag: (p) => {
-        if (!p || this.state !== 'ready') { this.trajectory.hide(); return; }
-        const { vel, omega } = shotFromParams(p, world.ball.pos);
-        this.trajectory.show(world.ball.pos, vel, omega);
-      },
-      onRelease: (p) => {
-        this.trajectory.hide();
-        if (this.state !== 'ready') return;
-        const { vel, omega } = shotFromParams(p, world.ball.pos);
-        world.shoot(vel, omega);
-        this.state = 'flying';
-        this.flightTime = 0;
-        this.prevZ = world.ball.pos.z;
-        this.shots++;
-        this.updateScore();
-      },
-    });
+    this.playerRed = world.addPlayer(0);
+    this.playerBlue = world.addPlayer(1);
+    this.keeperRed = world.addPlayer(0, 'keeper');
+    this.keeperBlue = world.addPlayer(1, 'keeper');
+    this.chargeState = new Map(); // player -> {held, t}
 
-    dom.btnPenalty.addEventListener('click', () => this.setMode('penalty'));
-    dom.btnFreekick.addEventListener('click', () => this.setMode('freekick'));
-    this.placeBall();
+    dom.btn1p.addEventListener('click', () => this.startMatch('1p'));
+    dom.btn2p.addEventListener('click', () => this.startMatch('2p'));
+    dom.btnAgain.addEventListener('click', () => this.startMatch(this.mode));
+    this.layoutKickoff();
   }
 
-  setMode(mode) {
+  startMatch(mode) {
     this.mode = mode;
-    this.dom.btnPenalty.classList.toggle('active', mode === 'penalty');
-    this.dom.btnFreekick.classList.toggle('active', mode === 'freekick');
-    this.placeBall();
+    this.controllers = new Map([
+      [this.playerRed, new KeyboardController(P1_KEYS)],
+      [this.playerBlue, mode === '2p'
+        ? new KeyboardController(P2_KEYS)
+        : new BotController(this.world, this.playerBlue)],
+      [this.keeperRed, new KeeperController(this.world, this.keeperRed)],
+      [this.keeperBlue, new KeeperController(this.world, this.keeperBlue)],
+    ]);
+    this.score = [0, 0];
+    this.timeLeft = MATCH_TIME;
+    this.dom.menu.classList.add('hidden');
+    this.dom.end.classList.add('hidden');
+    this.updateScoreboard();
+    this.kickoff();
   }
 
-  placeBall() {
-    let x = 0, z = 11;
-    if (this.mode === 'freekick') {
-      x = (Math.random() * 2 - 1) * 9;
-      z = 14 + Math.random() * 8;
-    }
-    this.world.placeBall(x, z);
-    this.state = 'ready';
+  layoutKickoff() {
+    this.playerRed.reset(0, -5);
+    this.playerBlue.reset(0, 5);
+    this.keeperRed.reset(0, -(PITCH_HALF_L - 0.9));
+    this.keeperBlue.reset(0, PITCH_HALF_L - 0.9);
+    this.world.placeBall(0, 0);
+    this.chargeState.clear();
+  }
+
+  kickoff() {
+    this.layoutKickoff();
     this.timeScale = 1;
-    this.positionCamera();
+    this.state = 'kickoff';
+    this.kickoffAt = performance.now() / 1000 + 1.1;
+    this.showMessage('Hazır…', 'hazir', 1000);
   }
 
-  positionCamera() {
-    const b = this.world.ball.pos;
-    const dx = 0 - b.x, dz = 0 - b.z;
-    const len = Math.hypot(dx, dz) || 1;
-    this.camera.position.set(b.x - (dx / len) * 4.4, 1.9, b.z - (dz / len) * 4.4);
-    this.lookTarget = { x: b.x * 0.35, y: 1.35, z: 0 };
-    this.camera.lookAt(this.lookTarget.x, this.lookTarget.y, this.lookTarget.z);
-  }
-
-  showMessage(text, cls) {
+  showMessage(text, cls, ms = 1600) {
     const m = this.dom.msg;
     m.textContent = text;
     m.className = `hud show ${cls}`;
     clearTimeout(this.msgTimer);
-    this.msgTimer = setTimeout(() => { m.className = 'hud'; }, 1600);
+    this.msgTimer = setTimeout(() => { m.className = 'hud'; }, ms);
   }
 
-  updateScore() {
-    this.dom.score.innerHTML = `Gol <b>${this.goals}</b> / Şut ${this.shots}`;
+  updateScoreboard() {
+    this.dom.scoreRed.textContent = this.score[0];
+    this.dom.scoreBlue.textContent = this.score[1];
+    const t = Math.max(0, Math.ceil(this.timeLeft));
+    this.dom.timer.textContent =
+      `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
   }
 
-  finish(scored, now) {
-    if (this.state !== 'flying') return;
-    this.state = 'done';
-    if (scored) {
-      this.goals++;
-      this.updateScore();
-      this.showMessage('GOOOL!', 'gol');
-      this.timeScale = 0.3;
-      this.slowUntil = now + 1.4;
-      this.resetAt = now + 2.8;
-    } else {
-      this.showMessage('Kaçtı!', 'kacti');
-      this.resetAt = now + 1.6;
+  applyControls(dt, now) {
+    for (const [player, ctrl] of this.controllers) {
+      const c = ctrl.update(dt);
+      player.input.x = c.x; player.input.z = c.z;
+
+      let st = this.chargeState.get(player);
+      if (!st) { st = { held: false, t: 0 }; this.chargeState.set(player, st); }
+      if (c.kick && !st.held) { st.held = true; st.t = now; }
+      if (st.held) player.charge = Math.min((now - st.t) / KICK_CHARGE_TIME, 1);
+      if (!c.kick && st.held) {
+        st.held = false;
+        const kicked = this.world.tryKick(player, player.charge);
+        if (kicked) player.kickAnim = 1;
+        player.charge = 0;
+      }
+      player.kickAnim = Math.max(0, player.kickAnim - dt * 4);
     }
+  }
+
+  endMatch() {
+    this.state = 'end';
+    const [r, b] = this.score;
+    this.dom.endTitle.textContent =
+      r === b ? 'Berabere!' : `${TEAM_NAMES[r > b ? 0 : 1]} kazandı!`;
+    this.dom.endScore.textContent = `${r} — ${b}`;
+    this.dom.end.classList.remove('hidden');
+  }
+
+  onGoal(scorer, now) {
+    this.score[scorer]++;
+    this.updateScoreboard();
+    this.showMessage('GOOOL!', 'gol', 2200);
+    this.timeScale = 0.28;
+    this.slowUntil = now + 1.3;
+    this.state = 'goal';
+    this.goalResetAt = now + 2.8;
   }
 
   update(dt, now) {
-    if (this.state === 'flying') {
-      this.flightTime += dt;
-      const b = this.world.ball.pos;
+    const playing = this.state === 'play';
 
-      for (const e of this.world.drainEvents()) {
-        if (e.type === 'post') this.showMessage('Direk!', 'direk');
-        if (e.type === 'crossbar') this.showMessage('Üst direk!', 'direk');
-      }
+    if (this.state === 'kickoff' && now > this.kickoffAt) this.state = 'play';
+    if (this.state === 'play' || this.state === 'kickoff') this.applyControls(dt, now);
 
-      // goal: centre crossed the line inside the frame
-      if (this.prevZ > 0 && b.z <= 0) {
-        const t = this.prevZ / (this.prevZ - b.z);
-        const xc = b.x, yc = b.y; // dt is small; crossing interp barely matters
-        if (Math.abs(xc) < HALF_W - BALL_R * 0.2 && yc < GOAL_H - BALL_R * 0.2 && t >= 0) {
-          this.finish(true, now);
+    for (const e of this.world.drainEvents()) {
+      if (e.type === 'goal' && playing) this.onGoal(e.scorer, now);
+      else if (e.type === 'post' && playing) this.showMessage('Direk!', 'direk', 900);
+      else if (e.type === 'crossbar' && playing) this.showMessage('Üst direk!', 'direk', 900);
+    }
+
+    if (playing) {
+      this.timeLeft -= dt;
+      this.updateScoreboard();
+      if (this.timeLeft <= 0) { this.endMatch(); return; }
+
+      // failsafe: the arena is fully enclosed, but if the ball ever glitches
+      // out of bounds, quietly drop it back at the centre
+      const bp = this.world.ball.pos;
+      if ((Math.abs(bp.z) > PITCH_HALF_L + 2.2 || Math.abs(bp.x) > 12) &&
+          !this.world.scoringLocked) {
+        this.outTimer += dt;
+        if (this.outTimer > 1.5) {
+          this.outTimer = 0;
+          this.world.placeBall(0, 0);
         }
+      } else {
+        this.outTimer = 0;
       }
-      this.prevZ = b.z;
-
-      const speed = this.world.ball.speed();
-      const missed = b.z < -2.6 || Math.abs(b.x) > 26 || b.z > 34 ||
-        (this.flightTime > 1 && speed < 0.35) || this.flightTime > 8;
-      if (this.state === 'flying' && missed) this.finish(false, now);
-
-      // camera gently tracks the ball in flight
-      this.lookTarget.x += (b.x * 0.5 - this.lookTarget.x) * dt * 2.5;
-      this.lookTarget.y += ((b.y * 0.4 + 1.0) - this.lookTarget.y) * dt * 2.5;
-      this.camera.lookAt(this.lookTarget.x, this.lookTarget.y, this.lookTarget.z);
     }
 
-    if (this.state === 'done') {
+    if (this.state === 'goal') {
       if (this.timeScale < 1 && now > this.slowUntil) this.timeScale = 1;
-      if (now > this.resetAt) this.placeBall();
+      if (now > this.goalResetAt) {
+        if (this.score[0] >= MATCH_GOALS || this.score[1] >= MATCH_GOALS) this.endMatch();
+        else this.kickoff();
+      }
     }
+
+    // camera: side-on, glides along z with the ball
+    const b = this.world.ball.pos;
+    this.camZ += (b.z * 0.28 - this.camZ) * Math.min(1, dt * 3);
+    this.camera.position.set(28, 23, this.camZ);
+    this.camera.lookAt(0, 0.4, this.camZ * 1.2);
   }
 }

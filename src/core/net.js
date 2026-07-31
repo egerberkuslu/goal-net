@@ -31,7 +31,12 @@ function buildProfile() {
 }
 
 export class Net {
-  constructor() {
+  // Built at the origin (goal line z=0, mouth facing +z, net draping to -z),
+  // then transformed: worldZ = goalZ + sign * localZ. sign=-1 mirrors the net
+  // so its mouth faces -z (the far goal).
+  constructor({ goalZ = 0, sign = 1 } = {}) {
+    this.goalZ = goalZ;
+    this.sign = sign;
     const positions = [];
     const invMass = [];
     const addNode = (x, y, z, w) => {
@@ -137,6 +142,9 @@ export class Net {
     }
 
     const N = positions.length / 3;
+    for (let i = 0; i < N; i++) {
+      positions[i * 3 + 2] = goalZ + sign * positions[i * 3 + 2];
+    }
     this.count = N;
     this.pos = new Float32Array(positions);
     this.prev = new Float32Array(positions);
