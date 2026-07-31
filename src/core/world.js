@@ -157,9 +157,12 @@ export class World {
   // Dribble assist: while a player runs with the ball at their feet, gently
   // spring it toward a spot just ahead of them so it does not skitter away.
   // Only the nearest carrier gets the pull, and only at controllable speeds.
+  // The pull follows where the player STEERS, not where they are drifting, so
+  // a curve keeps the ball ahead of the turn while an about-turn lets go of it
+  // instead of hauling it backwards.
   dribbleAssist(h) {
     const b = this.ball;
-    if (b.pos.y > 0.5) return;
+    if (b.pos.y > 0.5) { this.carrier = null; return; }
     let best = null, bestD = 1.4;
     for (const p of this.players) {
       if (p.down > 0 || p.dive > 0) continue;
@@ -167,15 +170,44 @@ export class World {
       const d = Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z);
       if (d < bestD) { bestD = d; best = p; }
     }
-    if (!best) return;
+    if (!best) { this.carrier = null; return; }
     const p = best;
     const relX = b.vel.x - p.vel.x, relZ = b.vel.z - p.vel.z;
-    if (Math.hypot(relX, relZ) > 4.5) return; // a kicked ball is not dribbled
+    const relSp = Math.hypot(relX, relZ);
+    // a ball has to settle at the feet before it is carried; once it is, the
+    // grip survives the higher relative speeds a turn creates
+    const held = this.carrier === p;
+    if (relSp > (held ? 10.5 : 4.5)) { this.carrier = null; return; }
     const sp = Math.hypot(p.vel.x, p.vel.z);
-    const dirX = p.vel.x / sp, dirZ = p.vel.z / sp;
-    const tx = p.pos.x + dirX * 0.62, tz = p.pos.z + dirZ * 0.62;
-    b.vel.x += ((tx - b.pos.x) * 6 + (p.vel.x - b.vel.x) * 2.5) * h;
-    b.vel.z += ((tz - b.pos.z) * 6 + (p.vel.z - b.vel.z) * 2.5) * h;
+    const vx = p.vel.x / sp, vz = p.vel.z / sp;          // heading
+    const inv = bestD > 1e-4 ? 1 / bestD : 0;
+    const nx = (b.pos.x - p.pos.x) * inv, nz = (b.pos.z - p.pos.z) * inv;
+    if (relX * nx + relZ * nz > 4.5) { this.carrier = null; return; } // squirting away
+    let ix = p.input.x, iz = p.input.z;
+    const il = Math.hypot(ix, iz);
+    if (il > 1e-4) { ix /= il; iz /= il; } else { ix = vx; iz = vz; }
+    // grip fades out as the intent turns against the run, and as the ball
+    // falls behind the direction being asked for
+    const turn = ix * vx + iz * vz;   // 1 = straight on, -1 = about-turn
+    const ahead = ix * nx + iz * nz;  // 1 = ball in front of the new heading
+    const grip = Math.max(0, Math.min(1, (turn + 0.15) / 0.5))
+               * Math.max(0, Math.min(1, (ahead + 0.8) / 0.5));
+    if (grip <= 0) {
+      // let go: bleed the carried momentum so the loose ball is left behind
+      // near the turn instead of rocketing off down the pitch
+      if (held && relSp < 4.5) {
+        const f = Math.exp(-3.5 * h);
+        b.vel.x *= f; b.vel.z *= f;
+      }
+      return;
+    }
+    this.carrier = p;
+    let cx = vx * 0.35 + ix * 0.65, cz = vz * 0.35 + iz * 0.65;
+    const cl = Math.hypot(cx, cz) || 1;
+    cx /= cl; cz /= cl;
+    const tx = p.pos.x + cx * 0.62, tz = p.pos.z + cz * 0.62;
+    b.vel.x += ((tx - b.pos.x) * 20 + (p.vel.x - b.vel.x) * 8) * grip * h;
+    b.vel.z += ((tz - b.pos.z) * 20 + (p.vel.z - b.vel.z) * 8) * grip * h;
     b.lastTouch = p.team;
   }
 
