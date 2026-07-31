@@ -1,6 +1,12 @@
 import { PeerNet, NET_ERR } from './peer.js';
-import { MSG, sanitizeName } from './protocol.js';
+import { MSG, sanitizeName, sanitizeChat, DEFAULT_TEAM_COLORS } from './protocol.js';
 import { LobbyUI, DEFAULT_SETTINGS } from './lobbyUI.js';
+import { ChatUI } from './chatUI.js';
+import {
+  HOST_ID, autoTeam, canStart, setReady, clearReady, rosterFromPlayers,
+  fieldPlayers, spectators, isBotId, nameKey,
+  rememberDeparted, takeDeparted, forgetDeparted, pruneDeparted, chatAllowed,
+} from './lobbyState.js';
 import { makeConfig } from '../core/config.js';
 import { KeyboardController, P1_KEYS, P1_ALT_KEYS } from '../game/input.js';
 import { BotController, KeeperController } from '../core/ai.js';
@@ -11,8 +17,13 @@ const SNAP_INTERVAL = 1 / 20;
 const INPUT_INTERVAL = 1 / 30;
 const ANNOUNCE_INTERVAL = 10000;
 const ROOMS_POLL_INTERVAL = 4000;
-const HOST_ID = 'host';
 const MAX_PLAYERS = 6;
+const MAX_SPECTATORS = 8;
+/** Guest-side reconnect budget after an unexpected drop mid-match. */
+const RECONNECT_TRIES = 3;
+const RECONNECT_GAP_MS = 2000;
+/** How long a guest waits for the resume `start` before falling back to the lobby. */
+const RESUME_GRACE_MS = 4000;
 const ROOMS_URL = `${location.protocol}//${location.hostname}:5200`;
 
 // Held by the guest side: replays the last input received from a peer.
@@ -105,6 +116,12 @@ class GuestMatch {
       else if (e.type === 'throwin') { this.showMessage('Taç!', 'kacti', 1000); this.onSnapEvent?.(e); }
       else if (e.type === 'goalkick') { this.showMessage('Kale vuruşu!', 'kacti', 1000); this.onSnapEvent?.(e); }
       else if (e.type === 'corner') { this.showMessage('Korner!', 'direk', 1000); this.onSnapEvent?.(e); }
+      // contract §3: the rules layer represents match phases as plain events
+      else if (e.type === 'foul') { this.showMessage('Faul!', 'kacti', 1200); this.onSnapEvent?.(e); }
+      else if (e.type === 'penalty') { this.showMessage('Penaltı!', 'direk', 1600); this.onSnapEvent?.(e); }
+      else if (e.type === 'freekick') { this.showMessage('Serbest vuruş!', 'kacti', 1200); this.onSnapEvent?.(e); }
+      else if (e.type === 'half') { this.showMessage('Devre Arası', 'hazir', 1800); this.onSnapEvent?.(e); }
+      else if (e.type === 'golden') { this.showMessage('Altın Gol!', 'gol', 2000); this.onSnapEvent?.(e); }
       else if (e.type === 'kick' || e.type === 'ragdoll') this.onSnapEvent?.(e);
     }
     if (prevState !== 'kickoff' && snap.state === 'kickoff') this.showMessage('Hazır…', 'hazir', 1000);
@@ -163,20 +180,59 @@ export class MpSession {
     this.announceTimer = null;
     this.roomsTimer = null;
 
+    // host: peer connection id <-> roster slot id, so a guest that reconnects
+    // with a fresh peer id keeps the slot (and the world player) it had before
+    this.slotOf = new Map();   // connection id -> slot id
+    this.connOf = new Map();   // slot id -> connection id
+    this.departed = new Map(); // name key -> {id, name, team, spectator, at}
+    this.bannedNames = new Set();
+    this.chatBuckets = new Map();
+    this.startRoster = null;
+
+    // guest: reconnect bookkeeping
+    this.spectating = false;
+    this.retry = 0;
+    this.resuming = false;
+    this.hadMatch = false;
+    this.reconnectTimer = null;
+    this.resumeTimer = null;
+
     this.ui = new LobbyUI({
       onCreate: (name) => this.hostRoom(name),
       onJoin: (code, name) => this.joinRoom(code, name),
+      onSpectate: (code, name) => this.joinRoom(code, name, { spectate: true }),
       onTeamSwitch: (team) => this.requestTeam(team),
       onSettingsChange: (settings) => this.changeSettings(settings),
+      onColor: (side, color) => this.changeColor(side, color),
       onStart: () => this.hostStartMatch(),
       onKick: (id) => this.removePeer(id, 'kick'),
       onBan: (id) => this.removePeer(id, 'ban'),
       onLeave: () => this.leave(),
       onAddBot: (team) => this.addBot(team),
+      onReady: (ready) => this.setOwnReady(ready),
     });
+    this.chat = new ChatUI({
+      onSend: (text) => this.sendChat(text),
+      isInMatch: () => this.active && this.inMatch,
+      canChat: () => this.active,
+    });
+    this.ui.attachChat(this.chat.panel);
     this.botCounter = 0;
     this.roomsEl = document.getElementById('mpRooms');
     this.startRoomsPolling();
+  }
+
+  /** @returns {object|null} my own lobby entry, host or guest */
+  get me() {
+    const id = this.role === 'host' ? HOST_ID : this.myId;
+    return this.players.find((p) => p.id === id) ?? null;
+  }
+
+  /** Host: address a slot through whichever connection currently holds it. */
+  sendTo(slotId, msg) {
+    if (!this.net) return false;
+    const conn = this.connOf.get(slotId) ?? slotId;
+    return this.net.send(conn, msg);
   }
 
   // ---------- host ----------
@@ -190,11 +246,17 @@ export class MpSession {
       onOpen: (code) => {
         this.code = code;
         this.active = true;
-        this.players = [{ id: HOST_ID, name: this.myName, team: 0, isHost: true }];
+        this.players = [{
+          id: HOST_ID, name: this.myName, team: 0, isHost: true,
+          ready: true, spectator: false,
+        }];
         this.ui.setRoomCode(code);
         this.broadcastLobby();
         this.announce();
-        this.announceTimer = setInterval(() => this.announce(), ANNOUNCE_INTERVAL);
+        this.announceTimer = setInterval(() => {
+          this.pruneAbsent();
+          this.announce();
+        }, ANNOUNCE_INTERVAL);
       },
       onPeerJoin: () => {},
       onPeerLeave: (id) => this.onGuestLeft(id),
@@ -205,33 +267,153 @@ export class MpSession {
     this.net.host();
   }
 
-  onHostMessage(id, msg) {
-    if (msg.t === MSG.HELLO) {
-      if (this.players.some((p) => p.id === id)) return;
-      if (this.players.length >= MAX_PLAYERS) { this.net.kick(id); return; }
-      const reds = this.players.filter((p) => p.team === 0).length;
-      const blues = this.players.filter((p) => p.team === 1).length;
-      this.players.push({
-        id, name: sanitizeName(msg.name), team: blues < reds ? 1 : 0, isHost: false,
-      });
-      this.broadcastLobby();
-      this.announce();
-    } else if (msg.t === MSG.TEAM) {
+  onHostMessage(connId, msg) {
+    if (msg.t === MSG.HELLO) { this.onHello(connId, msg); return; }
+    // every later message is addressed by slot, not by connection
+    const id = this.slotOf.get(connId) ?? connId;
+    if (msg.t === MSG.TEAM) {
       const p = this.players.find((p) => p.id === id);
-      if (p && !this.inMatch) { p.team = msg.team; this.broadcastLobby(); }
+      if (p && !p.spectator && !this.inMatch) { p.team = msg.team; this.broadcastLobby(); }
+    } else if (msg.t === MSG.READY) {
+      if (this.inMatch) return;
+      const before = this.players;
+      this.players = setReady(this.players, id, msg.ready);
+      if (this.players !== before) this.broadcastLobby();
+    } else if (msg.t === MSG.CHAT) {
+      this.relayChat(id, msg.text);
     } else if (msg.t === MSG.INPUT) {
       this.remotes.get(id)?.set(msg);
     }
   }
 
-  onGuestLeft(id) {
-    const gone = this.players.find((p) => p.id === id);
+  /**
+   * A peer introduced itself. Either it is a brand new player/spectator, or it
+   * is somebody who dropped less than a minute ago and gets its slot back.
+   */
+  onHello(connId, msg) {
+    if (this.slotOf.has(connId) || this.players.some((p) => p.id === connId)) return;
+    const now = Date.now();
+    pruneDeparted(this.departed, now);
+    const name = sanitizeName(msg.name);
+    if (this.bannedNames.has(nameKey(name))) { this.net.ban(connId); return; }
+
+    const back = takeDeparted(this.departed, name, now);
+    if (back) { this.restoreGuest(connId, back, name); return; }
+
+    if (msg.spectate) {
+      if (spectators(this.players).length >= MAX_SPECTATORS) { this.net.kick(connId); return; }
+      this.players.push({
+        id: connId, name, team: 0, isHost: false, ready: true, spectator: true,
+      });
+    } else {
+      if (fieldPlayers(this.players).length >= MAX_PLAYERS) { this.net.kick(connId); return; }
+      this.players.push({
+        id: connId, name, team: autoTeam(this.players), isHost: false,
+        ready: false, spectator: false,
+      });
+    }
+    this.chat.system(`${name} katıldı`);
+    this.broadcastLobby();
+    this.announce();
+  }
+
+  /** Put a returning peer back on the slot it left, mid-match included. */
+  restoreGuest(connId, slot, name) {
+    this.slotOf.set(connId, slot.id);
+    this.connOf.set(slot.id, connId);
+    const existing = this.players.find((p) => p.id === slot.id);
+    if (existing) {
+      existing.absent = false;
+      existing.name = name;
+    } else {
+      this.players.push({
+        id: slot.id, name, team: slot.team, isHost: false,
+        ready: false, spectator: slot.spectator,
+      });
+    }
+    this.chat.system(`${name} yeniden bağlandı`);
+    this.broadcastLobby();
+    this.announce();
+    if (this.inMatch) this.resumeGuest(slot.id, name);
+  }
+
+  /**
+   * Mid-match, a dropped player keeps its slot only while the reconnect window
+   * is open. Once that lapses the entry goes, freeing the room slot; the body on
+   * the pitch simply stands still for the rest of the match.
+   */
+  pruneAbsent(now = Date.now()) {
+    if (this.role !== 'host') return;
+    pruneDeparted(this.departed, now);
+    const before = this.players.length;
+    this.players = this.players.filter((p) => !p.absent || this.departed.has(nameKey(p.name)));
+    if (this.players.length !== before) this.broadcastLobby();
+  }
+
+  /** Hand a reconnected guest the running match again; snaps already broadcast. */
+  resumeGuest(slotId, name) {
+    if (!this.startRoster) return;
+    const entry = this.players.find((p) => p.id === slotId);
+    if (entry && !entry.spectator && !this.remotes.has(slotId)) {
+      const player = this.app?.game.byId.get(slotId);
+      if (player) {
+        const rc = new RemoteController();
+        this.remotes.set(slotId, rc);
+        this.app.game.controllers?.set(player, rc);
+      }
+    }
+    this.sendTo(slotId, { t: MSG.START, settings: this.settings, roster: this.startRoster });
+    this.app?.game.showMessage?.(`${name} döndü`, 'hazir', 1400);
+  }
+
+  /** Host validates, throttles and rebroadcasts one chat line under a real name. */
+  relayChat(id, rawText) {
+    const text = sanitizeChat(rawText);
+    if (!text) return;
+    if (!chatAllowed(this.chatBuckets, id, Date.now())) return;
+    const from = this.players.find((p) => p.id === id)?.name ?? sanitizeName('');
+    const line = { t: MSG.CHAT, from, text };
+    this.net.broadcast(line);
+    this.chat.push({ from, text, own: id === HOST_ID });
+  }
+
+  /** Local send path, shared by the lobby panel, the T overlay and keys 1-4. */
+  sendChat(text) {
+    const clean = sanitizeChat(text);
+    if (!clean || !this.active) return;
+    if (this.role === 'host') this.relayChat(HOST_ID, clean);
+    else this.net?.send(this.hostPeerId, { t: MSG.CHAT, text: clean });
+  }
+
+  /** Guest presses "Hazır"; the host just flips its own flag. */
+  setOwnReady(ready) {
+    if (this.role === 'host') return;
+    this.net?.send(this.hostPeerId, { t: MSG.READY, ready: !!ready });
+  }
+
+  /**
+   * A connection dropped. Mid-match the slot is kept alive (greyed out) so the
+   * same player can walk back into it; in the lobby the entry simply goes away.
+   * Either way the slot is remembered for RECONNECT_MS.
+   */
+  onGuestLeft(connId) {
+    const slotId = this.slotOf.get(connId) ?? connId;
+    const gone = this.players.find((p) => p.id === slotId);
+    this.slotOf.delete(connId);
+    this.connOf.delete(slotId);
     if (!gone) return;
-    this.players = this.players.filter((p) => p.id !== id);
-    if (this.inMatch) {
-      const player = this.app?.game.byId.get(id);
+
+    rememberDeparted(this.departed, gone, Date.now());
+    if (this.inMatch && !gone.spectator) {
+      gone.absent = true;
+      gone.ready = false;
+      const player = this.app?.game.byId.get(slotId);
       if (player) { player.input.x = 0; player.input.z = 0; }
-      this.app?.game.showMessage(`${gone.name} ayrıldı`, 'kacti', 1400);
+      this.remotes.get(slotId)?.set({ x: 0, z: 0, kick: false, slide: false });
+      this.app?.game.showMessage(`${gone.name} bağlantısı koptu`, 'kacti', 1400);
+    } else {
+      this.players = this.players.filter((p) => p.id !== slotId);
+      this.chat.system(`${gone.name} ayrıldı`);
     }
     this.broadcastLobby();
     this.announce();
@@ -239,13 +421,14 @@ export class MpSession {
 
   addBot(team) {
     if (this.role !== 'host' || this.inMatch) return;
-    if (this.players.length >= MAX_PLAYERS) {
+    if (fieldPlayers(this.players).length >= MAX_PLAYERS) {
       this.ui.showError('Oda dolu.');
       return;
     }
     this.botCounter++;
     this.players.push({
       id: `bot${this.botCounter}`, name: `Bot ${this.botCounter}`, team, isHost: false,
+      ready: true, spectator: false,
     });
     this.broadcastLobby();
     this.announce();
@@ -253,13 +436,31 @@ export class MpSession {
 
   removePeer(id, how) {
     if (this.role !== 'host' || id === HOST_ID) return;
-    if (String(id).startsWith('bot')) {
+    const gone = this.players.find((p) => p.id === id);
+    if (isBotId(id)) {
       this.players = this.players.filter((p) => p.id !== id);
       this.broadcastLobby();
       return;
     }
-    if (how === 'ban') this.net.ban(id); else this.net.kick(id);
-    this.onGuestLeft(id);
+    const conn = this.connOf.get(id) ?? id;
+    // a moderated peer never reclaims its slot, and a ban also blocks the name
+    if (gone) forgetDeparted(this.departed, gone.name);
+    if (how === 'ban') {
+      if (gone) this.bannedNames.add(nameKey(gone.name));
+      this.net.ban(conn);
+    } else {
+      this.net.kick(conn);
+    }
+    this.slotOf.delete(conn);
+    this.connOf.delete(id);
+    this.players = this.players.filter((p) => p.id !== id);
+    this.remotes.delete(id);
+    if (this.inMatch) {
+      const player = this.app?.game.byId.get(id);
+      if (player) { player.input.x = 0; player.input.z = 0; }
+    }
+    this.broadcastLobby();
+    this.announce();
   }
 
   requestTeam(team) {
@@ -277,13 +478,22 @@ export class MpSession {
     this.broadcastLobby();
   }
 
+  /** Host picks one shirt colour; validation against the palette is on the wire. */
+  changeColor(side, color) {
+    if (this.role !== 'host' || (side !== 0 && side !== 1)) return;
+    const colors = [...(this.settings.teamColors ?? DEFAULT_TEAM_COLORS)];
+    colors[side] = color;
+    this.settings = { ...this.settings, teamColors: colors };
+    this.broadcastLobby();
+  }
+
   broadcastLobby() {
     const lobby = {
       t: MSG.LOBBY, you: '', players: this.players, settings: this.settings,
     };
     for (const p of this.players) {
-      if (p.id === HOST_ID) continue;
-      this.net.send(p.id, { ...lobby, you: p.id });
+      if (p.id === HOST_ID || isBotId(p.id) || p.absent) continue;
+      this.sendTo(p.id, { ...lobby, you: p.id });
     }
     this.showOwnLobby();
   }
@@ -298,31 +508,30 @@ export class MpSession {
     });
   }
 
+  /** Roster entries carry the display name so guests can label the players. */
   rosterFromLobby() {
-    const roster = this.players.map((p) => ({ id: p.id, team: p.team, role: 'field' }));
-    if (this.settings.keepers) {
-      roster.push({ id: 'kr', team: 0, role: 'keeper' }, { id: 'kb', team: 1, role: 'keeper' });
-    }
-    return roster;
+    return rosterFromPlayers(this.players, this.settings);
   }
 
   hostStartMatch() {
-    if (this.role !== 'host' || this.players.length < 2) return;
+    if (this.role !== 'host' || !canStart(this.players)) return;
     const config = makeConfig(this.settings);
     const roster = this.rosterFromLobby();
-    this.net.broadcast({ t: MSG.START, settings: this.settings });
-    // guests derive the same roster from the last lobby broadcast
+    this.startRoster = roster;
+    // the roster travels with `start`, so guests never re-derive it
+    this.net.broadcast({ t: MSG.START, settings: this.settings, roster });
 
     this.app = this.hooks.buildMatch(config, roster, { mp: 'host' });
     const { game, world } = this.app;
     const controllers = new Map();
     this.remotes.clear();
     for (const p of this.players) {
+      if (p.spectator) continue;
       const player = game.byId.get(p.id);
       if (!player) continue;
       if (p.id === HOST_ID) {
         controllers.set(player, new KeyboardController([P1_KEYS, P1_ALT_KEYS]));
-      } else if (String(p.id).startsWith('bot')) {
+      } else if (isBotId(p.id)) {
         controllers.set(player, new BotController(world, player));
       } else {
         const rc = new RemoteController();
@@ -333,11 +542,15 @@ export class MpSession {
     for (const k of game.keepers) controllers.set(k, new KeeperController(world, k));
 
     const prevHook = game.onWorldEvent;
-    const shared = new Set(['post', 'crossbar', 'throwin', 'goalkick', 'corner', 'kick', 'ragdoll']);
+    const shared = new Set([
+      'post', 'crossbar', 'throwin', 'goalkick', 'corner', 'kick', 'ragdoll',
+      'foul', 'freekick', 'half', 'golden', // contract §3
+    ]);
     game.onWorldEvent = (e, playing) => {
       prevHook?.(e, playing);
       if (!playing) return;
       if (e.type === 'goal') this.pendingEvents.push({ type: 'goal', scorer: e.scorer });
+      else if (e.type === 'penalty') this.pendingEvents.push({ type: 'penalty', team: e.team });
       else if (shared.has(e.type)) this.pendingEvents.push({ type: e.type });
     };
     game.onMatchEnd = () => {
@@ -346,22 +559,34 @@ export class MpSession {
     };
     game.beginMatch(controllers, 'mp-host');
     this.inMatch = true;
+    this.hadMatch = true;
+    this.chat.setInMatch(true);
     this.ui.hide();
   }
 
   // ---------- guest ----------
 
-  joinRoom(code, name) {
-    this.teardownNet();
+  /**
+   * @param {string} code room code
+   * @param {string} name display name (also the reconnect identity)
+   * @param {{spectate?:boolean, resume?:boolean}} [opts]
+   */
+  joinRoom(code, name, opts = {}) {
+    const resume = opts.resume === true;
+    this.teardownNet({ keepReconnect: resume });
     this.myName = sanitizeName(name);
     this.role = 'guest';
-    this.ui.showConnecting('Odaya bağlanılıyor…');
+    this.spectating = opts.spectate === true;
+    if (!resume) { this.retry = 0; this.resuming = false; }
+    this.ui.showConnecting(resume ? 'Yeniden bağlanılıyor…' : 'Odaya bağlanılıyor…');
     this.net = new PeerNet({
       onOpen: () => {},
       onPeerJoin: (hostId) => {
         this.hostPeerId = hostId;
         this.active = true;
-        this.net.send(hostId, { t: MSG.HELLO, name: this.myName });
+        this.net.send(hostId, {
+          t: MSG.HELLO, name: this.myName, spectate: this.spectating,
+        });
       },
       onPeerLeave: () => this.onHostGone(),
       onMessage: (id, msg) => this.onGuestMessage(msg),
@@ -377,23 +602,38 @@ export class MpSession {
       this.myId = msg.you;
       this.players = msg.players;
       this.settings = msg.settings;
+      this.spectating = this.me?.spectator === true;
+      this.retry = 0; // a lobby message proves the link is healthy again
       this.ui.setRoomCode(this.code);
-      if (!this.inMatch) this.showOwnLobby();
+      // while resuming, the host's `start` follows immediately: do not flash the lobby
+      if (!this.inMatch && !this.resuming) this.showOwnLobby();
+      else if (this.resuming) this.#armResumeFallback();
     } else if (msg.t === MSG.START) {
+      this.#clearResume();
       this.settings = msg.settings;
+      const roster = msg.roster?.length ? msg.roster : this.rosterFromLobby();
+      // a spectator is simply absent from the roster: no player, no input
+      this.spectating = !roster.some((e) => e.id === this.myId);
       const config = makeConfig(this.settings);
-      this.app = this.hooks.buildMatch(config, this.rosterFromLobby(), {
+      this.app = this.hooks.buildMatch(config, roster, {
         mp: 'guest', myId: this.myId,
       });
-      this.guestKeyboard = new KeyboardController([P1_KEYS, P1_ALT_KEYS]);
+      this.guestKeyboard = this.spectating
+        ? null
+        : new KeyboardController([P1_KEYS, P1_ALT_KEYS]);
       this.dom.btnAgain.textContent = 'Lobiye Dön';
       this.inMatch = true;
+      this.hadMatch = true;
+      this.chat.setInMatch(true);
       this.ui.hide();
     } else if (msg.t === MSG.SNAP) {
       if (this.inMatch && this.app?.game.applySnap) {
         this.app.game.applySnap(msg, performance.now() / 1000);
       }
+    } else if (msg.t === MSG.CHAT) {
+      this.chat.push({ from: msg.from, text: msg.text, own: msg.from === this.myName });
     } else if (msg.t === MSG.KICKED) {
+      this.retry = RECONNECT_TRIES; // moderated out: never retry
       this.exitToMenu(msg.reason === 'ban'
         ? 'Odadan banlandın.' : 'Odadan atıldın.');
     } else if (msg.t === MSG.END) {
@@ -403,12 +643,53 @@ export class MpSession {
 
   onHostGone() {
     if (!this.active) return;
-    this.exitToMenu('Oda sahibi ayrıldı, oda kapandı.');
+    const wasResuming = this.resuming;
+    if (this.role === 'guest' && (this.inMatch || wasResuming) && this.retry < RECONNECT_TRIES) {
+      this.scheduleReconnect();
+      return;
+    }
+    this.exitToMenu(wasResuming
+      ? 'Bağlantı yeniden kurulamadı.'
+      : 'Oda sahibi ayrıldı, oda kapandı.');
+  }
+
+  /** Guest: try the same room again, up to RECONNECT_TRIES times, 2s apart. */
+  scheduleReconnect() {
+    const code = this.code;
+    const name = this.myName;
+    const spectate = this.spectating;
+    this.retry++;
+    this.resuming = true;
+    clearTimeout(this.reconnectTimer);
+    this.ui.showConnecting(`Yeniden bağlanılıyor… (${this.retry}/${RECONNECT_TRIES})`);
+    this.reconnectTimer = setTimeout(() => {
+      this.joinRoom(code, name, { spectate, resume: true });
+    }, RECONNECT_GAP_MS);
+  }
+
+  /** If the host never sends the resume `start`, fall back to the normal lobby. */
+  #armResumeFallback() {
+    clearTimeout(this.resumeTimer);
+    this.resumeTimer = setTimeout(() => {
+      this.resuming = false;
+      if (!this.inMatch) this.showOwnLobby();
+    }, RESUME_GRACE_MS);
+  }
+
+  #clearResume() {
+    clearTimeout(this.resumeTimer);
+    clearTimeout(this.reconnectTimer);
+    this.resumeTimer = null;
+    this.reconnectTimer = null;
+    this.resuming = false;
+    this.retry = 0;
   }
 
   // ---------- shared ----------
 
   onNetError(err) {
+    // a failed retry is not a user-facing error yet: burn a try and go again
+    if (this.resuming && this.retry < RECONNECT_TRIES) { this.scheduleReconnect(); return; }
     if (err?.code === NET_ERR.ROOM_NOT_FOUND) this.ui.showError('Oda bulunamadı. Kodu kontrol et.');
     else if (err?.code === NET_ERR.INVALID_CODE) this.ui.showError('Geçersiz oda kodu.');
     else this.ui.showError('Bağlantı hatası. Tekrar dene.');
@@ -416,8 +697,10 @@ export class MpSession {
   }
 
   exitToMenu(message) {
+    const hadMatch = this.inMatch || this.hadMatch;
+    this.#clearResume();
     this.teardownNet();
-    if (this.inMatch) this.hooks.backToLocal();
+    if (hadMatch) this.hooks.backToLocal();
     this.inMatch = false;
     this.ui.showMenu();
     if (message) {
@@ -428,22 +711,38 @@ export class MpSession {
 
   leave() {
     if (this.role === 'host') this.unannounce();
+    this.#clearResume();
+    const hadMatch = this.inMatch || this.hadMatch;
     this.teardownNet();
-    if (this.inMatch) { this.hooks.backToLocal(); this.inMatch = false; }
+    if (hadMatch) { this.hooks.backToLocal(); this.inMatch = false; }
   }
 
   backToLobbyAfterMatch() {
     this.inMatch = false;
+    this.hadMatch = false;
+    this.chat.setInMatch(false);
     this.dom.btnAgain.textContent = 'Tekrar Oyna';
     this.dom.end.classList.add('hidden');
     this.pendingEvents.length = 0;
-    if (this.role === 'host') this.broadcastLobby();
-    else this.showOwnLobby();
+    this.startRoster = null;
+    if (this.role === 'host') {
+      // fresh match, fresh confirmations; anyone who stayed away is gone for good
+      this.players = clearReady(this.players.filter((p) => !p.absent));
+      this.broadcastLobby();
+    } else {
+      this.showOwnLobby();
+    }
   }
 
-  teardownNet() {
+  teardownNet({ keepReconnect = false } = {}) {
     clearInterval(this.announceTimer);
     this.announceTimer = null;
+    if (!keepReconnect) {
+      this.#clearResume();
+      this.hadMatch = false;
+      this.chat.clear();
+    }
+    this.chat.setInMatch(false);
     if (this.role === 'host') this.unannounce();
     this.net?.close();
     this.net = null;
@@ -452,8 +751,17 @@ export class MpSession {
     this.inMatch = false;
     this.players = [];
     this.remotes.clear();
+    this.slotOf.clear();
+    this.connOf.clear();
+    this.chatBuckets.clear();
     this.pendingEvents.length = 0;
-    this.code = '';
+    this.startRoster = null;
+    if (!keepReconnect) {
+      this.departed.clear();
+      this.bannedNames.clear();
+      this.spectating = false;
+      this.code = '';
+    }
   }
 
   // Called from the main loop every frame while a network match runs.
@@ -465,7 +773,7 @@ export class MpSession {
         this.snapAcc = 0;
         this.net.broadcast(this.makeSnap());
       }
-    } else {
+    } else if (!this.spectating) {
       this.inputAcc += dt;
       if (this.inputAcc >= INPUT_INTERVAL && this.guestKeyboard) {
         this.inputAcc = 0;
@@ -517,7 +825,7 @@ export class MpSession {
         body: JSON.stringify({
           code: this.code,
           name: `${this.myName} odası`,
-          players: this.players.length,
+          players: fieldPlayers(this.players).length,
           maxPlayers: MAX_PLAYERS,
         }),
       });
