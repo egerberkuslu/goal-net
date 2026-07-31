@@ -1,6 +1,20 @@
 import { setInputBasis } from '../game/input.js';
 
 const MODE_KEY = 'goalnet-cam';
+
+// Impact shake: e^(-5t) is under 1% of the initial strength after 1 s and
+// inaudible by 1.5 s, so a burst of goals never accumulates into seasickness.
+const SHAKE_DECAY = 5;
+const SHAKE_MAX = 0.8;
+const SHAKE_CUTOFF = 1e-4;
+
+// Sum of three incommensurate sines per axis: smooth like value noise, no
+// table, and no two axes ever line up into a straight-line jolt.
+function jitter(t, seed) {
+  return Math.sin(t * 13.1 + seed) * 0.6
+    + Math.sin(t * 23.7 + seed * 2.3) * 0.3
+    + Math.sin(t * 41.3 + seed * 4.1) * 0.1;
+}
 export const CAM_MODES = [
   { id: 'yayin', label: 'Kamera: Yayın' },
   { id: 'capraz', label: 'Kamera: Çapraz' },
@@ -19,6 +33,17 @@ export class CameraRig {
     this.camZ = 0;
     this.goalT = 0; // seconds inside the goal cinematic (drives the push-in)
     this.cam = { x: 28, y: 24.5, z: 0, lx: 2.6, ly: 0.2, lz: 0 };
+    this.shakeAmp = 0;  // current impact energy, decays exponentially
+    this.shakeT = 0;    // own clock so the jitter is frame-rate independent
+    this.shakeOffset = { x: 0, y: 0, z: 0 };
+  }
+
+  // Impact kick for the camera. Strength is roughly metres of peak travel:
+  // 0.5 for a goal, 0.25 for the woodwork, 0.15 for a body hitting the turf.
+  // Shakes never stack past the strongest one in flight.
+  shake(strength) {
+    const s = Number.isFinite(strength) ? Math.abs(strength) : 0;
+    if (s > this.shakeAmp) this.shakeAmp = Math.min(s, SHAKE_MAX);
   }
 
   get mode() { return CAM_MODES[this.modeIndex].id; }
@@ -75,7 +100,25 @@ export class CameraRig {
       : (this.mode === 'fpv' ? 6.5 : 3.2)));
     const c = this.cam;
     for (const key of ['x', 'y', 'z', 'lx', 'ly', 'lz']) c[key] += (t[key] - c[key]) * k;
-    this.camera.position.set(c.x, c.y, c.z);
+
+    // Impact jitter rides on top of the solved position only. The look-at
+    // target and the basis below stay on the unshaken values, so a shake never
+    // twitches the controls or the aim.
+    const o = this.shakeOffset;
+    if (this.shakeAmp > SHAKE_CUTOFF) {
+      this.shakeT += dt;
+      this.shakeAmp *= Math.exp(-SHAKE_DECAY * dt);
+      if (this.shakeAmp <= SHAKE_CUTOFF) this.shakeAmp = 0;
+      const a = this.shakeAmp;
+      o.x = jitter(this.shakeT, 0.0) * a;
+      o.y = jitter(this.shakeT, 1.7) * a * 0.7;
+      o.z = jitter(this.shakeT, 3.4) * a;
+    } else if (o.x !== 0 || o.y !== 0 || o.z !== 0) {
+      this.shakeAmp = 0;
+      o.x = o.y = o.z = 0;
+    }
+
+    this.camera.position.set(c.x + o.x, c.y + o.y, c.z + o.z);
     this.camera.lookAt(c.lx, c.ly, c.lz);
 
     // keep keyboard directions matched to what is on screen: project the
