@@ -84,6 +84,7 @@ export class Game {
     this.golden = false;
     this.setPiece = null;
     this.frozenUntil = 0;
+    this.kickoffTeam = null; // opening kickoff is free
     this.world.sideSwap = false; // first half: red attacks +z
     this.applyAttackSigns();
     this.stats.reset();
@@ -128,6 +129,13 @@ export class Game {
     this.timeScale = 1;
     this.state = 'kickoff';
     this.kickoffAt = performance.now() / 1000 + 1.1;
+    // after a goal the CONCEDING team restarts: the scorers cannot touch the
+    // ball and are held outside the centre circle until the first touch
+    if (this.kickoffTeam != null) {
+      this.world.restartTeam = this.kickoffTeam;
+      this.restartClearAt = performance.now() / 1000 + 6;
+      this.kickoffTeam = null;
+    }
     this.showMessage('Hazır…', 'hazir', 1000);
   }
 
@@ -368,6 +376,7 @@ export class Game {
   onGoal(scorer, now) {
     // scorers celebrate, the conceding side hangs their heads (kickoff resets)
     for (const p of this.world.players) p.celebrate = p.team === scorer ? 1 : -1;
+    this.kickoffTeam = 1 - scorer; // real football: the conceding team restarts
     this.score[scorer]++;
     this.stats.onGoal(scorer);
     this.setPiece = null;
