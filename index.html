@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Goal Net</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1226;
+      font-family: 'Segoe UI', system-ui, sans-serif; touch-action: none;
+      -webkit-user-select: none; user-select: none; }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+    .hud { position: fixed; z-index: 10; color: #fff; pointer-events: none; }
+    #scoreboard { top: 12px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 14px;
+      background: rgba(8, 14, 30, .6); padding: 8px 20px; border-radius: 14px;
+      backdrop-filter: blur(6px); font-weight: 800; font-size: 22px; }
+    .teamdot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+    #timer { font-size: 15px; font-weight: 600; color: #cfd8ff; min-width: 44px; text-align: center; }
+    #msg { top: 32%; left: 50%; transform: translate(-50%, -50%) scale(.6);
+      font-size: 64px; font-weight: 900; letter-spacing: 3px; opacity: 0;
+      text-shadow: 0 4px 24px rgba(0,0,0,.6); transition: all .18s ease-out; }
+    #msg.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    #msg.gol { color: #7CFC8E; } #msg.direk { color: #ffd257; }
+    #msg.kacti { color: #ff9d7d; } #msg.hazir { color: #cfd8ff; font-size: 44px; }
+    .overlay { position: fixed; inset: 0; z-index: 20; display: flex;
+      flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(6, 10, 22, .72); backdrop-filter: blur(8px); color: #fff; }
+    .overlay.hidden { display: none; }
+    .overlay h1 { font-size: 52px; margin: 0 0 6px; letter-spacing: 2px; }
+    .overlay h2 { font-size: 40px; margin: 0 0 8px; }
+    .overlay p.sub { color: #9fb0d8; margin: 0 0 28px; }
+    .overlay button { border: 0; color: #fff; background: #2456e6;
+      padding: 14px 34px; border-radius: 12px; font-size: 19px; font-weight: 700;
+      cursor: pointer; margin: 6px; }
+    .overlay button:hover { background: #3868f8; }
+    .controls { margin-top: 30px; display: flex; gap: 40px; color: #9fb0d8; font-size: 14px; }
+    .controls b { color: #fff; }
+    #endScore { font-size: 30px; font-weight: 800; margin-bottom: 20px; }
+
+    /* ---------- multiplayer lobby ---------- */
+    #mpEntry, #mpConnecting, #mpLobby { overflow-y: auto; padding: 24px 12px; }
+    .overlay button.mp-ghost { background: rgba(255, 255, 255, .1); }
+    .overlay button.mp-ghost:hover { background: rgba(255, 255, 255, .2); }
+    .overlay button.mp-small { padding: 8px 16px; font-size: 15px; border-radius: 10px; }
+    .overlay button:disabled { background: #2b3556; color: #8b97bd; cursor: not-allowed; }
+    .mp-panel { display: flex; flex-direction: column; gap: 8px; min-width: 300px;
+      background: rgba(8, 14, 30, .55); border: 1px solid rgba(120, 150, 220, .18);
+      padding: 22px 26px; border-radius: 16px; }
+    .mp-panel button { margin: 4px 0 0; }
+    .mp-label { color: #9fb0d8; font-size: 13px; font-weight: 700; letter-spacing: .6px; }
+    .mp-input { border: 1px solid rgba(120, 150, 220, .28); background: rgba(4, 8, 20, .6);
+      color: #fff; font: inherit; font-size: 18px; padding: 11px 14px;
+      border-radius: 10px; outline: none; }
+    .mp-input:focus { border-color: #3868f8; }
+    .mp-input.mp-code { font-family: 'Consolas', ui-monospace, 'Courier New', monospace;
+      letter-spacing: 8px; text-align: center; font-weight: 800; text-transform: uppercase; }
+    .mp-or { color: #7f8ec0; font-size: 13px; text-align: center; margin: 10px 0 2px;
+      letter-spacing: 2px; }
+    .mp-error-slot { display: flex; justify-content: center; }
+    #mpError { display: none; color: #ffb4ae; background: rgba(180, 40, 40, .2);
+      border: 1px solid rgba(255, 110, 100, .38); border-radius: 10px;
+      padding: 9px 18px; margin: 14px 0 0; max-width: 460px;
+      font-size: 14px; font-weight: 600; text-align: center; }
+    #mpError.show { display: block; }
+    .mp-roomrow { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+    .mp-roomlabel { color: #9fb0d8; font-size: 13px; font-weight: 700; letter-spacing: .6px; }
+    .mp-roomcode { font-family: 'Consolas', ui-monospace, 'Courier New', monospace;
+      font-size: 40px; font-weight: 800; letter-spacing: 10px; color: #ffd257; }
+    .mp-teams { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+    .mp-team { min-width: 250px; padding: 12px 14px 14px; border-radius: 14px;
+      background: rgba(8, 14, 30, .55); border-top: 3px solid transparent; }
+    .mp-team-red { border-top-color: #e23b3b; }
+    .mp-team-blue { border-top-color: #3b6de2; }
+    .mp-team h3 { margin: 2px 0 10px; font-size: 16px; letter-spacing: 1.5px; }
+    .mp-playerlist { list-style: none; margin: 0; padding: 0;
+      display: flex; flex-direction: column; gap: 6px; min-height: 44px; }
+    .mp-player { display: flex; align-items: center; gap: 8px; font-size: 15px;
+      background: rgba(255, 255, 255, .06); padding: 7px 10px; border-radius: 9px; }
+    .mp-player.is-you { background: rgba(60, 110, 250, .26); }
+    .mp-pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mp-tag { color: #9fb0d8; font-size: 12px; font-weight: 700; }
+    .mp-empty { color: #7f8ec0; font-size: 13px; font-style: italic; padding: 7px 10px; }
+    .overlay .mp-player button { margin: 0; padding: 3px 10px; font-size: 12px;
+      font-weight: 700; border-radius: 7px; background: rgba(255, 255, 255, .12); }
+    .overlay .mp-player button:hover { background: #c0392b; }
+    .mp-settings { display: grid; grid-template-columns: auto auto; align-items: center;
+      gap: 10px 16px; margin: 18px 0 4px; padding: 14px 20px; border-radius: 14px;
+      background: rgba(8, 14, 30, .5); }
+    .mp-settings.readonly { opacity: .8; }
+    .mp-setlabel { color: #9fb0d8; font-size: 14px; font-weight: 700; }
+    .mp-seg { display: flex; gap: 6px; flex-wrap: wrap; }
+    .overlay .mp-seg button { margin: 0; padding: 7px 14px; font-size: 14px;
+      font-weight: 700; border-radius: 9px; background: rgba(255, 255, 255, .08); }
+    .overlay .mp-seg button:hover:not(:disabled) { background: rgba(255, 255, 255, .2); }
+    .overlay .mp-seg button.on,
+    .overlay .mp-seg button.on:disabled { background: #2456e6; color: #fff; }
+    .mp-hint { color: #7f8ec0; font-size: 12px; margin: 8px 0 0; }
+    .mp-actions { margin-top: 16px; }
+    .mp-room { display: flex; align-items: center; gap: 8px; font-size: 14px;
+      background: rgba(255, 255, 255, .06); padding: 6px 10px; border-radius: 9px; }
+    .overlay .mp-room button { margin: 0; padding: 4px 12px; font-size: 12px;
+      font-weight: 700; border-radius: 7px; }
+  </style>
+  <script type="module" crossorigin src="/goal-net/assets/index-D3bJ5rd1.js"></script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div class="hud" id="scoreboard">
+    <span class="teamdot" style="background:#e23b3b"></span>
+    <span id="scoreRed">0</span>
+    <span id="timer">3:00</span>
+    <span id="scoreBlue">0</span>
+    <span class="teamdot" style="background:#3b6de2"></span>
+  </div>
+  <div class="hud" id="msg"></div>
+
+  <div class="overlay" id="menu">
+    <h1>⚽ GOAL NET</h1>
+    <div>
+      <button id="btn1p">1 Oyuncu (Bota karşı)</button>
+      <button id="btn2p">2 Oyuncu (Yerel)</button>
+      <button id="btnMp">Çok Oyunculu</button>
+      <button id="btnTrain" class="mp-ghost">Antrenman</button>
+    </div>
+    <div class="controls">
+      <div><b>Kırmızı:</b> WASD veya Yön tuşları · Boşluk / X şut · Sol Shift / C kayma<br>(basılı tut = güçlü + yüksek; kesik çizgi nereye gideceğini gösterir)</div>
+      <div><b>Mavi (2P):</b> Yön tuşları · Enter şut · Sağ Shift kayma<br><b>V:</b> kamera açısı (Yayın / Çapraz / Oyuncu)</div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="mpEntry">
+    <h2>Çok Oyunculu</h2>
+    <p class="sub">Oda kur, arkadaşlarına kodu gönder — ya da bir kodla katıl</p>
+    <div class="mp-panel">
+      <label class="mp-label" for="mpName">Oyuncu adın</label>
+      <input id="mpName" class="mp-input" type="text" maxlength="20"
+             placeholder="Adın" autocomplete="off" spellcheck="false" />
+      <button id="mpCreate">Oda Kur</button>
+      <div class="mp-or">— veya —</div>
+      <label class="mp-label" for="mpCode">Oda kodu</label>
+      <input id="mpCode" class="mp-input mp-code" type="text" maxlength="6"
+             placeholder="ABC123" autocomplete="off" spellcheck="false" />
+      <button id="mpJoin" class="mp-ghost">Katıl</button>
+      <div class="mp-or">— açık odalar —</div>
+      <ul id="mpRooms" class="mp-playerlist"></ul>
+    </div>
+    <div class="mp-error-slot"><div id="mpError"></div></div>
+    <button id="mpBack" class="mp-ghost">Geri</button>
+  </div>
+
+  <div class="overlay hidden" id="mpConnecting">
+    <h2>Bağlanıyor…</h2>
+    <p class="sub" id="mpConnectingMsg">Sunucuya bağlanılıyor</p>
+    <div class="mp-error-slot"></div>
+    <button id="mpCancel" class="mp-ghost">Vazgeç</button>
+  </div>
+
+  <div class="overlay hidden" id="mpLobby">
+    <h2>Lobi</h2>
+    <div class="mp-roomrow">
+      <span class="mp-roomlabel">ODA KODU</span>
+      <span class="mp-roomcode" id="mpRoomCode">------</span>
+      <button class="mp-small mp-ghost" id="mpCopy">Kopyala</button>
+    </div>
+
+    <div class="mp-teams">
+      <div class="mp-team mp-team-red">
+        <h3>KIRMIZI</h3>
+        <ul class="mp-playerlist" id="mpTeamRed"></ul>
+        <button class="mp-small mp-ghost" id="mpAddBotRed">+ Bot</button>
+      </div>
+      <div class="mp-team mp-team-blue">
+        <h3>MAVİ</h3>
+        <ul class="mp-playerlist" id="mpTeamBlue"></ul>
+        <button class="mp-small mp-ghost" id="mpAddBotBlue">+ Bot</button>
+      </div>
+    </div>
+
+    <button id="mpSwitch" class="mp-small mp-ghost">Takım Değiştir</button>
+
+    <div class="mp-settings" id="mpSettings">
+      <span class="mp-setlabel">Süre</span>
+      <span class="mp-seg">
+        <button data-setting="matchTime" data-value="60">1 dk</button>
+        <button data-setting="matchTime" data-value="180">3 dk</button>
+        <button data-setting="matchTime" data-value="300">5 dk</button>
+      </span>
+      <span class="mp-setlabel">Gol limiti</span>
+      <span class="mp-seg">
+        <button data-setting="goalLimit" data-value="3">3</button>
+        <button data-setting="goalLimit" data-value="5">5</button>
+        <button data-setting="goalLimit" data-value="10">10</button>
+        <button data-setting="goalLimit" data-value="0">Sınırsız</button>
+      </span>
+      <span class="mp-setlabel">Kale</span>
+      <span class="mp-seg">
+        <button data-setting="goalScale" data-value="0.8">Küçük</button>
+        <button data-setting="goalScale" data-value="1">Normal</button>
+        <button data-setting="goalScale" data-value="1.3">Büyük</button>
+      </span>
+      <span class="mp-setlabel">Kaleci</span>
+      <span class="mp-seg">
+        <button data-setting="keepers" data-value="true">Açık</button>
+        <button data-setting="keepers" data-value="false">Kapalı</button>
+      </span>
+    </div>
+    <p class="mp-hint" id="mpSettingsHint">Ayarları oda sahibi belirler.</p>
+
+    <div class="mp-error-slot"></div>
+
+    <div class="mp-actions">
+      <button id="mpStart">Başlat</button>
+      <button id="mpLeave" class="mp-ghost">Ayrıl</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="pause">
+    <h2>Duraklatıldı</h2>
+    <p class="sub" id="pauseHint">ESC ile devam</p>
+    <div class="mp-settings" id="pauseSettings">
+      <span class="mp-setlabel">Kamera</span>
+      <span class="mp-seg" id="pauseCam"></span>
+      <span class="mp-setlabel">Ses</span>
+      <span class="mp-seg">
+        <input id="pauseVol" type="range" min="0" max="100" step="5"
+               style="width:180px; accent-color:#2456e6;" />
+        <span id="pauseVolVal" class="mp-tag" style="min-width:36px"></span>
+      </span>
+    </div>
+    <div class="mp-settings" id="pauseKeys" style="grid-template-columns:auto auto auto auto;"></div>
+    <p class="mp-hint">Tuş değiştirmek için kutuya tıkla, sonra yeni tuşa bas.</p>
+    <div class="mp-actions">
+      <button id="pauseResume">Devam Et</button>
+      <button id="pauseExit" class="mp-ghost">Ana Menü</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="end">
+    <h2 id="endTitle">Kazanan!</h2>
+    <div id="endScore">0 — 0</div>
+    <button id="btnAgain">Tekrar Oyna</button>
+  </div>
+
+</body>
+</html>
