@@ -139,9 +139,9 @@ export function createHostSession(options = {}) {
   const appliedSeq = new Uint32Array(playerCount);
   for (let i = 0; i < playerCount; i++) {
     queues.push([]);
-    lastInput.push({ moveXFx: 0, moveZFx: 0, kick: 0 });
+    lastInput.push({ moveXFx: 0, moveZFx: 0, kick: 0, buttons: 0 });
   }
-  let localInput = { moveXFx: 0, moveZFx: 0, kick: 0 };
+  let localInput = { moveXFx: 0, moveZFx: 0, kick: 0, buttons: 0 };
 
   const history = new Map(); // tick -> Int32Array state as it was broadcast
   const checksums = new Map(); // tick -> int32 checksum
@@ -200,7 +200,7 @@ export function createHostSession(options = {}) {
     peers.delete(peerId);
     byPlayer.delete(peer.playerId);
     queues[peer.playerId].length = 0;
-    lastInput[peer.playerId] = { moveXFx: 0, moveZFx: 0, kick: 0 };
+    lastInput[peer.playerId] = { moveXFx: 0, moveZFx: 0, kick: 0, buttons: 0 };
     return true;
   }
 
@@ -314,7 +314,10 @@ export function createHostSession(options = {}) {
           stats.botCalls++;
           const raw = botPolicy({ world, tick: world.buf[HDR_TICK], playerIndex: i });
           const q = quantiseInput(raw);
-          inputs[i] = { moveXFx: q.mx, moveZFx: q.mz, kick: q.kick };
+          // `buttons` already carries the kick bit, so a policy that only kicks
+          // produces exactly the mask it always produced; anything else it asks
+          // for now survives instead of being silently dropped here.
+          inputs[i] = { moveXFx: q.mx, moveZFx: q.mz, kick: q.kick, buttons: q.buttons };
         }
         continue;
       }
@@ -433,7 +436,9 @@ export function createHostSession(options = {}) {
     update,
     setLocalInput(input) {
       const q = quantiseInput(input);
-      localInput = { moveXFx: q.mx, moveZFx: q.mz, kick: q.kick };
+      // Same widening as the bot path: the host's own player may charge, slide
+      // and use the keeper's hands, which a kick-only field could not express.
+      localInput = { moveXFx: q.mx, moveZFx: q.mz, kick: q.kick, buttons: q.buttons };
     },
     get tick() {
       return world.buf[HDR_TICK];
