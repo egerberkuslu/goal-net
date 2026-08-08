@@ -1,14 +1,14 @@
 # PROGRESS — Canlı Durum (koordinatör her hedefte günceller)
 
 Son güncelleme: 2026-08-08
-Aktif faz: 1.1 (netcode) → sonra 1.2
-Sıradaki hedef: Matris #5 (host-authoritative netcode: snapshot+interp+prediction)
+Aktif faz: 1.2 (oynanış seti + kaleci + modlar + lobi)
+Sıradaki hedef: Matris #7-#11 (saf fizik dribbling, şarj, falso, tackle, kaleci)
 
 | Faz | Durum | Tag | Not |
 |---|---|---|---|
 | K | ☑ | — | SETUP.md yazıldı; Blender HUMAN-QUEUE'da, iş durdurmuyor |
 | 0 | ☑ | faz0-stable | INVENTORY.md; testler kırılganlıktan arındırıldı (21/21) |
-| 1.1 | ⏳ | — | #3 ☑ monorepo, #4 ☑ determinizm (Node+Chromium), #6 ☑ docker/coturn, #5 sırada |
+| 1.1 | ☑ | faz1.1-netcode | #3 monorepo, #4 determinizm (Node+Chromium bit-özdeş), #5 netcode paketi, #6 docker/coturn |
 | 1.2 | ☐ | — | |
 | 1.3 | ☐ | — | |
 | 1.4 | ☐ | — | |
@@ -36,6 +36,13 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-08-08 (3): Faz 1.1 KAPANDI. `packages/net`: host-otorite oturum
+  (60 Hz sim, peer-başı delta baseline'ı, input limitleri, bot hook'u),
+  istemci oturumu (100 ms interpolasyon, tahmin + uzlaştırma) ve ikili wire
+  protokolü. Gate: %12 kayıp + %8 sırasızlık + jitter altında 173/173 snapshot
+  host checksum'u ile eşleşti, kararlı halde desync 0, geri sıçrama yok.
+  Bant genişliği 4 oyuncu için ~4.1 KB/s/peer (16 KB tavanının çok altında).
+  2-sekme canlı entegrasyonu Faz 1.2'de istemciye bağlanacak.
 - 2026-08-08 (2): Faz 1.1'in üç satırı kapandı. Monorepo: istemci
   `packages/client`'a taşındı (vite workspace config, testler+tarayıcı yeşil).
   Deterministik çekirdek `packages/core` (Q16.16, 58 kontrol); ikinci motor

@@ -22,7 +22,8 @@
     "serve": "node packages/server/src/index.mjs",
     "test:server": "node packages/server/test/run.mjs",
     "test:turn": "node packages/server/test/relay.mjs",
-    "test:core": "node packages/core/test/run.mjs"
+    "test:core": "node packages/core/test/run.mjs",
+    "test:net": "node packages/net/test/run.mjs"
   },
   "dependencies": {
     "peerjs": "^1.5.0",
