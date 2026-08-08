@@ -17,7 +17,7 @@ Sıradaki hedef: kalan matris satırları #14-#19, #21-#25, #38-#41, #42-#45
 | 1.7a | ☑ | faz1.7a-rules | #26-#29; settingsHash ayrı (constantsHash "aynı build?", settingsHash "aynı oda?") |
 | 1.7b | ☑ | faz1.7b-replay | #30-#32; input-kayıtlı konteyner, keyframe seek 0.97ms, kısa-ID paylaşımı |
 | 1.7c | ☑ | faz1.7c-social | #33-#37; izleyici maliyeti sabit, isim filtresi homoglyph-dayanıklı |
-| 1.7d | ☐ | — | |
+| 1.7d | ☑ | faz1.7d-present | #38-#41; anlatım hattı sessiz kliplerle uçtan uca, 58 kayıt insanda |
 | 2 | ⏳ | — | #42 parity ☑, #45 plan ☑; #43 MAPPO eğitimi ve #44 ONNX deploy kaldı |
 
 ## Bloklar
@@ -36,6 +36,21 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-08-08 (12): Faz 1.7d (#38-#41) KAPANDI. Anlatım: 29 replik × TR/EN,
+  öncelik/kesme/cooldown + 12 sn tekrar penceresi, tansiyona bağlı yoğunluk;
+  runtime TTS yok, klipler manifest üzerinden. Ses henüz yok — hat doğru
+  süreli sessiz placeholder'larla uçtan uca çalışıyor, 58 kaydın listesi
+  (metinleri ve süreleriyle) HUMAN-QUEUE'ya yazıldı. Tansiyon formülü
+  bileşen ağırlıkları tam 1'e toplanacak şekilde yazılmış; koordinatör
+  bağımsız denedi: maç başı 0-0 → 0.28, son dakika 0-0 → 0.77, son dakika
+  0-4 → 0.42, kale önünde → 0.96, altın gol tabanı 0.85. (İlk denemede alan
+  adını yanlış verip "altın gol çalışmıyor" sanmıştım; kaynağa bakınca hata
+  bendeydi.) xG-lite beş özellikli lojistik, katsayılar kaynakta ve ekranda
+  açık; MVP ağırlıkları xG'nin gerçek golü asla geçemeyeceği şekilde ayarlı.
+  Stadyum: 12 varyant, oda kodundan deterministik seçiliyor (tel trafiği yok),
+  yağmur tam +1 draw call. Ajan `hostSession`'a olay gözlemcisi eklemek
+  zorunda kaldı: çekirdeğin olay listesi tüketilip atılıyordu, kozmetik katman
+  kurtarışı/müdahaleyi göremiyordu.
 - 2026-08-08 (11): Faz 1.6 (#21-#25) KAPANDI — arena'ya atmosfer katmanı:
   VAT seyirci (1387 kişi, tek draw call, 5 klip), kozmetik XPBD file (topu
   yutuyor, post-correction'la top asla ağın arkasına geçmiyor), bayrak cloth,
