@@ -67,13 +67,21 @@ Fizik uygunluğu aynı gate'te: terminal hız 2.40019 (analitik 2.40057, kilitli
 +2), top damping > oyuncu damping, duvar sekmesi bCoef × gelen hız,
 disk-disk ayrılma hızı bCoef × yaklaşma hızı.
 
-## Kalan doğrulama
+## İkinci motor doğrulaması (koordinatör, 2026-08-08)
 
-Kabul kriteri "2 farklı cihaz" diyor; burada iki farklı **process** ve
-BigInt referansı doğrulandı, ikinci motor (tarayıcı / SpiderMonkey) koşusu
-tester'a kalıyor. Pratikte tek satır: aynı ESM'i içe aktarıp
-`constantsHash` ve zincir digest'ini yazdır, `fd1b55e2` / `cce47120`
-bekleniyor. Farklı çıkarsa bu ADR yeniden açılır.
+Kabul kriterinin "2 farklı cihaz/tarayıcı" ayağı kapatıldı: aynı 3000
+tick'lik senaryo hem Node 20 (V8, sunucu tarafı) hem de Chromium'da
+(tarayıcı, vite üzerinden ESM import) koşturuldu —
+`packages/client/enginecheck.html` sayfası ile:
+
+| Motor | constantsHash | zincir digest |
+|---|---|---|
+| Node 20 | `fd1b55e2` | `2132210153` |
+| Chromium (Playwright) | `fd1b55e2` | `2132210153` |
+
+Bit-özdeş. Kalan tek boşluk farklı bir JS motoru ailesi (SpiderMonkey /
+JavaScriptCore, yani Firefox/Safari) — MANUAL-TESTS'e yazıldı; aynı sayfa
+o tarayıcılarda açılıp `window.__parity` okunacak.
 
 ## Sonuçlar
 

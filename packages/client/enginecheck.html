@@ -1,0 +1,21 @@
+<!doctype html><meta charset="utf-8"><title>core engine parity</title>
+<script type="module">
+import { createWorld, step, checksum, constantsHash, quantiseInput, fnv1aString }
+  from '../core/src/index.js';
+// same scenario shape as the node gate: 4 players, scripted steering, 3000 ticks
+const DIRS = [[0,0],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]];
+const w = createWorld({ playerCount: 4 });
+let chain = '';
+for (let t = 0; t < 3000; t++) {
+  const inputs = [];
+  for (let p = 0; p < 4; p++) {
+    const code = (t * 7 + p * 13 + ((t / 17) | 0)) % 9;
+    const [mx, mz] = DIRS[code];
+    inputs.push(quantiseInput({ moveX: mx, moveZ: mz, kick: (t + p) % 23 === 0 }));
+  }
+  step(w, inputs);
+  chain += checksum(w);
+}
+document.title = 'done';
+window.__parity = { constantsHash, digest: fnv1aString(chain), ticks: 3000 };
+</script>

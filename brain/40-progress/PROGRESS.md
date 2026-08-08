@@ -1,14 +1,14 @@
 # PROGRESS — Canlı Durum (koordinatör her hedefte günceller)
 
 Son güncelleme: 2026-08-08
-Aktif faz: 1.1 (monorepo + determinizm + netcode)
-Sıradaki hedef: Matris #3 (monorepo) ve #4 (determinizm/ADR-0003)
+Aktif faz: 1.1 (netcode) → sonra 1.2
+Sıradaki hedef: Matris #5 (host-authoritative netcode: snapshot+interp+prediction)
 
 | Faz | Durum | Tag | Not |
 |---|---|---|---|
 | K | ☑ | — | SETUP.md yazıldı; Blender HUMAN-QUEUE'da, iş durdurmuyor |
 | 0 | ☑ | faz0-stable | INVENTORY.md; testler kırılganlıktan arındırıldı (21/21) |
-| 1.1 | ☐ | — | |
+| 1.1 | ⏳ | — | #3 ☑ monorepo, #4 ☑ determinizm (Node+Chromium), #6 ☑ docker/coturn, #5 sırada |
 | 1.2 | ☐ | — | |
 | 1.3 | ☐ | — | |
 | 1.4 | ☐ | — | |
@@ -36,6 +36,13 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-08-08 (2): Faz 1.1'in üç satırı kapandı. Monorepo: istemci
+  `packages/client`'a taşındı (vite workspace config, testler+tarayıcı yeşil).
+  Deterministik çekirdek `packages/core` (Q16.16, 58 kontrol); ikinci motor
+  doğrulaması koordinatörce yapıldı → Node ve Chromium bit-özdeş
+  (`fd1b55e2` / digest `2132210153`), ADR-0003 accepted. Docker: web+coturn
+  ayağa kalkıyor, gerçek RFC 5766 Allocate testi geçiyor (53+6 kontrol).
+  Sırada #5 netcode.
 - 2026-08-08: Otonom döngü başladı. Faz K bitti (SETUP.md). Faz 0 koordinatör
   tarafından yürütüldü (delege edilen ajan kullanıcı tarafından durduruldu):
   INVENTORY.md yazıldı, iki kırılgan test iddiası ölçüme dayalı biçimde

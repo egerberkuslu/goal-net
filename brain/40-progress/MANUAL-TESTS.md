@@ -5,6 +5,12 @@ sonda toplu koşar)
 ## P2P gerçek ağ
 - [ ] Farklı ağlardaki 2 cihazla oda kur/katıl (TURN zorlaması dahil)
 
+## Determinizm — üçüncü motor ailesi
+- [ ] `npx vite --port 5199` çalışırken Firefox (SpiderMonkey) ve varsa Safari
+      (JavaScriptCore) ile `http://localhost:5199/enginecheck.html` aç,
+      konsolda `window.__parity` yaz. Beklenen: `constantsHash "fd1b55e2"`,
+      `digest 2132210153` (Node ve Chromium ile birebir aynı).
+
 ## Oynanış hissi
 - [ ] Dribbling 10m = 5-8 dokunuş hissi
 - [ ] Tackle risk/ödül dengesi
