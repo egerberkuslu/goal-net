@@ -65,6 +65,8 @@ import {
   tierOf,
 } from '../src/index.js';
 
+import { attachSocial } from '../../client/src/arena/social/index.js';
+
 let failures = 0;
 function check(name, ok, detail = '') {
   if (ok) console.log(`PASS  ${name}`);
@@ -680,11 +682,13 @@ section('#37 quick chat, emotes and mute');
 section('wire — "GNSC" validation');
 
 {
-  const buf = encodeChat({ kind: CHAT_KIND.PHRASE, id: 3, seq: 7 });
+  const buf = encodeChat({ kind: CHAT_KIND.PHRASE, id: 3, from: 5, seq: 7 });
   const msg = decodeSocial(buf);
   check('a chat frame round-trips',
-    msg.kind === CHAT_KIND.PHRASE && msg.id === 3 && msg.seq === 7 && buf.byteLength === 20,
-    `${buf.byteLength} B`);
+    msg.kind === CHAT_KIND.PHRASE && msg.id === 3 && msg.seq === 7 && msg.from === 5
+    && buf.byteLength === 24, `${buf.byteLength} B`);
+  check('an unstamped chat frame carries from = -1',
+    decodeSocial(encodeChat({ kind: 0, id: 0 })).from === -1);
   check('a social frame is recognised without touching the arena demux',
     isSocialFrame(buf) === true && isSocialFrame(new ArrayBuffer(4)) === false);
   const spec = decodeSocial(encodeSpectate({ want: true, seq: 1 }));
@@ -720,14 +724,162 @@ section('wire — "GNSC" validation');
   check('a chat frame of the wrong length is refused',
     codeOf(() => decodeSocial(hostile([0x474e5343, (1 << 16) | 1, 0, 0]))) === 'length');
   check('an out-of-table phrase id is refused at the boundary',
-    codeOf(() => decodeSocial(hostile([0x474e5343, (1 << 16) | 1, 0, 0, QUICK_PHRASES.length]))) === 'chat-range');
+    codeOf(() => decodeSocial(hostile([0x474e5343, (1 << 16) | 1, 0, 0, QUICK_PHRASES.length, -1]))) === 'chat-range');
   check('a negative emote id is refused',
-    codeOf(() => decodeSocial(hostile([0x474e5343, (1 << 16) | 1, 0, 1, -1]))) === 'chat-range');
+    codeOf(() => decodeSocial(hostile([0x474e5343, (1 << 16) | 1, 0, 1, -1, -1]))) === 'chat-range');
+  check('a from slot outside the roster is refused',
+    codeOf(() => decodeSocial(hostile([0x474e5343, (1 << 16) | 1, 0, 0, 0, 999]))) === 'chat-range'
+    && codeOf(() => encodeChat({ kind: 0, id: 0, from: 99 })) === 'encode-range');
   check('a nonsense spectate flag is refused',
     codeOf(() => decodeSocial(hostile([0x474e5343, (1 << 16) | 2, 0, 42]))) === 'spectate-range');
   check('every phrase and emote in the table decodes',
     QUICK_PHRASES.every((_, i) => decodeSocial(encodeChat({ kind: 0, id: i })).id === i)
     && EMOTES.every((_, i) => decodeSocial(encodeChat({ kind: 1, id: i })).id === i));
+}
+
+// ============================================================ arena wiring
+
+section('arena wiring — attachSocial over a loopback bus');
+
+{
+  let clock = 0;
+  const nodes = new Map();
+  const bus = {
+    transportFor(id, hostId) {
+      return {
+        hostId,
+        code: 'TEST01',
+        peers: () => [...nodes.keys()].filter((k) => k !== id),
+        sendRaw(to, buf) { const f = nodes.get(to); if (f) f(id, buf); return !!f; },
+        broadcastRaw(buf) {
+          let n = 0;
+          for (const [k, f] of nodes) if (k !== id) { f(id, buf); n++; }
+          return n;
+        },
+      };
+    },
+  };
+  const storage = () => {
+    const map = new Map();
+    return {
+      getItem: (k) => (map.has(k) ? map.get(k) : null),
+      setItem: (k, v) => map.set(k, String(v)),
+      removeItem: (k) => map.delete(k),
+    };
+  };
+
+  const hostSeen = [];
+  const guestSeen = [];
+  const acks = [];
+  const host = attachSocial({
+    transport: bus.transportFor('host', null),
+    isHost: () => true,
+    selfId: () => 'host',
+    mount: null,
+    now: () => clock,
+    storage: storage(),
+    onMessage: (m) => hostSeen.push(m),
+  });
+  const guest = attachSocial({
+    transport: bus.transportFor('g1', 'host'),
+    isHost: () => false,
+    selfId: () => 'g1',
+    mount: null,
+    now: () => clock,
+    storage: storage(),
+    onMessage: (m) => guestSeen.push(m),
+    onSpectateAck: (a) => acks.push(a),
+  });
+  nodes.set('host', (from, buf) => host.handleFrame(from, buf));
+  nodes.set('g1', (from, buf) => guest.handleFrame(from, buf));
+  const roster = [{ id: 'host', name: 'Ege', slot: 0 }, { id: 'g1', name: 'Berk', slot: 1 }];
+  host.setRoster(roster);
+  guest.setRoster(roster);
+
+  check('no DOM is required to run the wiring', host.ui === null && guest.ui === null);
+
+  const first = guest.sendPhrase(1);
+  check('a guest phrase reaches the host and comes back to the room',
+    first.ok && hostSeen.length === 1 && guestSeen.length === 1
+    && guestSeen[0].text === QUICK_PHRASES[1], JSON.stringify(guestSeen[0] || first));
+  check('the echo is attributed to the guest, not to a slot number',
+    guestSeen[0].fromId === 'g1' && guestSeen[0].own === true);
+
+  clock = 100;
+  const second = guest.sendPhrase(2);
+  check('the guest\'s own guard keeps the wire quiet during a cooldown',
+    !second.ok && second.reason === 'cooldown', JSON.stringify(second));
+
+  // a patched client that ignores its own guard still meets the host's
+  clock = 200;
+  const before = host.stats.rejected.guard;
+  host.handleFrame('g1', encodeChat({ kind: 0, id: 3, from: 1, seq: 99 }));
+  check('the host guard is the one that counts',
+    host.stats.rejected.guard === before + 1, `${host.stats.rejected.guard}`);
+
+  // a spoofed `from` is overwritten by the host
+  clock = 5000;
+  guestSeen.length = 0;
+  host.handleFrame('g1', encodeChat({ kind: 0, id: 4, from: 0, seq: 100 }));
+  check('a spoofed from slot is restamped by the host',
+    guestSeen.length === 1 && guestSeen[0].fromId === 'g1', JSON.stringify(guestSeen[0]));
+
+  // mute is receiver-local: the host stops seeing the guest, the guest is
+  // unaffected and never learns about it
+  clock = 20000;
+  host.mutes.mute('g1');
+  const hostBefore = hostSeen.length;
+  const guestBefore = guestSeen.length;
+  guest.sendPhrase(5);
+  check('a mute silences the sender for the muter alone',
+    hostSeen.length === hostBefore && guestSeen.length === guestBefore + 1
+    && host.stats.muted === 1);
+  check('the mute never travels: the guest sees no sign of it',
+    guest.mutes.list().length === 0);
+  host.mutes.unmute('g1');
+
+  // spectator handshake
+  clock = 30000;
+  guest.requestSpectate(true);
+  check('a spectate request is granted and acknowledged',
+    guest.isSpectating() === true && acks.length === 1 && acks[0].granted === true,
+    JSON.stringify(acks[0]));
+  check('the host seated the spectator', host.desk.count() === 1 && host.desk.has('g1'));
+  guest.requestSpectate(false);
+  for (let i = 0; i < host.desk.options.maxSpectators; i++) host.desk.admit(`bulk${i}`, clock);
+  clock = 31000;
+  guest.requestSpectate(true);
+  check('a full gallery refuses with a Turkish reason',
+    guest.isSpectating() === false && acks[acks.length - 1].granted === false
+    && acks[acks.length - 1].text.length > 0, JSON.stringify(acks[acks.length - 1]));
+
+  // hostile frames
+  const bad = new ArrayBuffer(24);
+  const bv = new DataView(bad);
+  bv.setInt32(0, 0x474e5343, true);
+  bv.setInt32(4, (1 << 16) | 1, true);
+  bv.setInt32(16, 9999, true);
+  const decodeBefore = host.stats.rejected.decode;
+  const handled = host.handleFrame('g1', bad);
+  check('a malformed social frame is consumed, counted and never rendered',
+    handled === true && host.stats.rejected.decode === decodeBefore + 1);
+  check('a foreign frame is left for the arena demux',
+    host.handleFrame('g1', new ArrayBuffer(20)) === false);
+
+  // profile: name and clan tag through the same filter as everything else
+  const p = host.profile;
+  check('the profile refuses a blocked name', p.setName('S1K').ok === false);
+  check('the profile accepts a legitimate Turkish name',
+    p.setName('Şikayetçi').ok === true && p.name === 'Şikayetçi');
+  check('the profile accepts a clan tag and formats the display name',
+    p.setTag('gnt', 0).ok === true && p.display() === '[GNT] Şikayetçi', p.display());
+  check('the tag cooldown blocks a second change inside the week',
+    p.setTag('abc', 1000).reason === 'cooldown');
+  check('the same tag inside the cooldown is a no-op, not a refusal',
+    p.setTag('gnt', 1000).ok === true);
+  check('the profile carries a rating chip with a tier',
+    p.chip(0).display === RATING_DEFAULTS.displayOffset && p.chip(0).tierName.length > 0,
+    JSON.stringify(p.chip(0)));
 }
 
 // ==================================================================== tables

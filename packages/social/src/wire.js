@@ -21,9 +21,15 @@
 //   1  (SOCIAL_VERSION << 16) | type
 //   2  seq                     uint32, monotone per sender
 //
-// CHAT      (peer <-> host)                       5 words / 20 B
+// CHAT      (peer <-> host)                       6 words / 24 B
 //   3  kind                    0 = phrase, 1 = emote
 //   4  id                      index into QUICK_PHRASES / EMOTES
+//   5  from                    roster slot of the speaker, -1 when unset
+//
+// `from` is stamped by the HOST on rebroadcast and is ignored on the way in: a
+// peer cannot put words in someone else's mouth, because the host overwrites
+// the field with the slot it handed that peer itself. The receiver needs it
+// because mute is receiver-local and has to key on somebody.
 //
 // SPECTATE  (peer -> host)                        4 words / 16 B
 //   3  flags                   bit0 = want spectate, clear = leave spectating
@@ -42,7 +48,9 @@ export const SOC_SPECTATE = 2;
 export const SOC_SPECTATE_ACK = 3;
 
 export const SOCIAL_HEADER_WORDS = 3;
-export const CHAT_BYTES = (SOCIAL_HEADER_WORDS + 2) * 4;
+export const CHAT_BYTES = (SOCIAL_HEADER_WORDS + 3) * 4;
+/** Widest roster slot a `from` field may name. The arena caps at 12. */
+export const MAX_CHAT_SLOT = 32;
 export const SPECTATE_BYTES = (SOCIAL_HEADER_WORDS + 1) * 4;
 export const SPECTATE_ACK_BYTES = (SOCIAL_HEADER_WORDS + 2) * 4;
 /** Nothing here is ever chunked, so the ceiling is generous on purpose. */
@@ -101,17 +109,22 @@ export function isSocialFrame(data) {
 
 // ------------------------------------------------------------------ encoders
 
-export function encodeChat({ kind, id, seq = 0 }) {
+export function encodeChat({ kind, id, from = -1, seq = 0 }) {
   requireInt(kind, 'kind');
   requireInt(id, 'id');
+  requireInt(from, 'from');
   if (!isKnownMessage(kind, id)) {
     throw new SocialProtocolError('encode-range', `no such message ${kind}:${id}`);
+  }
+  if (from < -1 || from >= MAX_CHAT_SLOT) {
+    throw new SocialProtocolError('encode-range', `from slot ${from} out of range`);
   }
   const buf = new ArrayBuffer(CHAT_BYTES);
   const view = new DataView(buf);
   writeHeader(view, SOC_CHAT, seq);
   view.setInt32(12, kind, true);
   view.setInt32(16, id, true);
+  view.setInt32(20, from, true);
   return buf;
 }
 
@@ -184,7 +197,11 @@ export function decodeSocial(data, { maxMessageBytes = MAX_SOCIAL_BYTES } = {}) 
     if (!isKnownMessage(kind, id)) {
       throw new SocialProtocolError('chat-range', `no such message ${kind}:${id}`);
     }
-    return { type, seq, kind, id };
+    const from = view.getInt32(20, true);
+    if (from < -1 || from >= MAX_CHAT_SLOT) {
+      throw new SocialProtocolError('chat-range', `from slot ${from} out of range`);
+    }
+    return { type, seq, kind, id, from };
   }
 
   if (type === SOC_SPECTATE) {

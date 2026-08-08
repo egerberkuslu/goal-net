@@ -29,6 +29,9 @@ import {
   humansFor, lobbyIssues, removePlayer, setReady,
 } from './lobbyState.js';
 import { normalizeCode, sanitizeName } from '../mp/protocol.js';
+// Social layer (feature matrix #33-#37). Everything it owns lives under
+// ./social/; this file only builds it and hands it frames it did not recognise.
+import { attachSocial } from './social/index.js';
 
 const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
@@ -76,6 +79,7 @@ const hud = {
 const held = installArenaKeys();
 let backend = params.get('net') === 'local' ? 'local' : 'peer';
 let transport = null;
+let social = null; // attachSocial() — quick chat, spectators, clan tags, rating
 let role = null; // 'host' | 'guest'
 let myId = HOST_ID;
 let lobby = createLobby(params.get('name') || 'Oyuncu', settingsFromParams());
@@ -121,6 +125,8 @@ function fail(el, text) {
 // ---------------------------------------------------------------- lobby UI
 
 function renderLobby() {
+  // the social layer keys mute and chat authorship off the roster slot
+  social?.setRoster(lobby.players.map((p, i) => ({ id: p.id, name: p.name, slot: i })));
   dom.roomCode.textContent = transport?.code || '------';
   const mode = MODES[lobby.settings.mode];
   for (const team of [0, 1]) {
@@ -197,7 +203,7 @@ function broadcastLobby() {
 // -------------------------------------------------------------- transport
 
 function makeTransport() {
-  return createTransport({
+  const made = createTransport({
     backend,
     onOpen: () => {
       show(dom.lobby);
@@ -209,6 +215,7 @@ function makeTransport() {
       broadcastLobby();
     },
     onPeerLeave: (id) => {
+      social?.peerLeft(id);
       if (role !== 'host') return;
       lobby.players = removePlayer(lobby.players, id);
       match?.peerLeft(id);
@@ -219,6 +226,13 @@ function makeTransport() {
     onError: (err) => fail(role ? dom.lobbyError : dom.entryError, errorText(err)),
     onClosed: () => {},
   });
+  social?.dispose();
+  social = attachSocial({
+    transport: made,
+    isHost: () => role === 'host',
+    selfId: () => myId,
+  });
+  return made;
 }
 
 function errorText(err) {
@@ -238,7 +252,12 @@ function onFrame(peerId, data) {
     match?.receive(peerId, data);
     return;
   }
-  if (kind !== 'lobby') return;
+  // "GNSC" frames belong to the social layer; anything else unknown is dropped
+  // exactly as before.
+  if (kind !== 'lobby') {
+    social?.handleFrame(peerId, data);
+    return;
+  }
   const msg = decodeLobby(data);
   if (!msg) return;
 

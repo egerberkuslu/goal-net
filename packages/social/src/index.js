@@ -77,6 +77,7 @@ export {
 
 export {
   CHAT_BYTES,
+  MAX_CHAT_SLOT,
   MAX_SOCIAL_BYTES,
   SOCIAL_MAGIC,
   SOCIAL_VERSION,
