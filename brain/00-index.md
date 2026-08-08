@@ -72,10 +72,10 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 39 | Tansiyon sistemi | 1.7d | Skor+süre → tek değer → crowd/anlatıcı yoğunluğu; kozmetik | ☐ |
 | 40 | Stadyum varyantları (gece/gündüz, hava, temalar) | 1.7d | Baked ışık varyantları; GPU partikül; mobilde otomatik kısılır | ☐ |
 | 41 | İstatistik ekranı + MVP (xG-lite) | 1.7d | Maç sonu ekranı; şeffaf formül | ☐ |
-| 42 | NumPy port + parity | 2 | JS replay Python'da adım adım özdeş (checksum) | ☐ |
+| 42 | NumPy port + parity | 2 | JS replay Python'da adım adım özdeş (checksum) | ☑ (5 senaryo, toleranssız) |
 | 43 | MAPPO self-play eğitimi (1v1→3v3) | 2 | Scripted botu >%70 yenen politika | ☐ |
 | 44 | ONNX deploy + kolay/orta/zor | 2 | INT8+WASM, worker'da; zorluklar ayırt edilir hisseder | ☐ |
-| 45 | Akademik deney planı | 2 | Deney tasarımı + makale iskeleti ADR/not olarak | ☐ |
+| 45 | Akademik deney planı | 2 | Deney tasarımı + makale iskeleti ADR/not olarak | ☑ (deney-plani.md) |
 
 ## v2 havuzu (YAPILMAZ)
 Turnuva bracket, kozmetik mağaza, zıplama/kafa vuruşu, host migration,

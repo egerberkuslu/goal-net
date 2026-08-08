@@ -18,7 +18,7 @@ Sıradaki hedef: kalan matris satırları #14-#19, #21-#25, #38-#41, #42-#45
 | 1.7b | ☑ | faz1.7b-replay | #30-#32; input-kayıtlı konteyner, keyframe seek 0.97ms, kısa-ID paylaşımı |
 | 1.7c | ☑ | faz1.7c-social | #33-#37; izleyici maliyeti sabit, isim filtresi homoglyph-dayanıklı |
 | 1.7d | ☐ | — | |
-| 2 | ☐ | — | |
+| 2 | ⏳ | — | #42 parity ☑, #45 plan ☑; #43 MAPPO eğitimi ve #44 ONNX deploy kaldı |
 
 ## Bloklar
 (yok)
@@ -36,6 +36,19 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-08-08 (10): Faz 2'nin ilk satırları (#42 parity, #45 deney planı) KAPANDI.
+  `python/` altında çekirdeğin NumPy portu: 5 senaryoda (Faz 1.2 senaryosu +
+  altın gol/mercy/skor limiti/tam süre) tick-tick checksum zinciri JS ile
+  bit-özdeş, TOLERANS YOK; constantsHash Python'da yeniden hesaplanıp
+  `7f502ae2` çıktı. Koordinatör testin yalanlanabilirliğini bizzat sınadı:
+  simülasyon adımındaki PLAYER_DAMPING'i bir LSB bozunca "FIRST DIVERGENCE at
+  tick 38 / PARITY FAILED", geri alınca yeşil. (İlk denemede yanlış satırı —
+  tavsiye fonksiyonunu — bozmuştum, o yüzden testi haksız yere suçlamadım.)
+  Portta iki gerçek tuzak belgelendi: `MappingProxyType` `isinstance(dict)`
+  kontrolünden geçmiyor (sessizce varsayılan ayarlara düşürüyordu) ve JS
+  `Math.round` `floor(x+0.5)` değil. Ayrıca gym-tarzı eğitim ortamı ve
+  `deney-plani.md` (S1-S4 araştırma soruları, 8 ablation, 5 seed, 3060'ta
+  ~3 hafta bütçe, figür figür makale iskeleti).
 - 2026-08-08 (9): Faz 1.7c (#33-#37) KAPANDI — `packages/social`: Plackett-Luce
   OpenSkill (80 maçta 4v4 mu farkı 9.53, 1v1 kontrolü 2.69 — takım sonucu dörde
   bölündüğü için yavaş olması beklenen davranış), 8 maçlık placement (×1.72
