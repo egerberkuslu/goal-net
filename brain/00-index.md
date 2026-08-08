@@ -42,8 +42,8 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 9 | Falso (skaler spin) | 1.2 | Core'da tek parametre; deterministik; görsel Magnus ayrı | ☑ |
 | 10 | Slide tackle | 1.2 | Aktif+recovery pencereleri; takım arkadaşına etkisiz; başarı oranı %40-55 bandında | ☑ (%47.2) |
 | 11 | Kaleci: maç başı seçim + tutma + degaj + 4 yön dalış | 1.2 | Rol lobide seçilir, maç boyu sabit; tutma ~200 tick; dalış whiff → ~60 tick kilit; dalış sonucu host onaylı | ☑ (core tarafı; lobi UI #13'te) |
-| 12 | Modlar: insan vs bot, 3v3, kalecili 4v4 | 1.2 | Her mod baştan sona oynanabilir | ☐ |
-| 13 | Lobi + oda + zorluk seçimi UI | 1.2 | Oda kur/katıl/başlat akışı çalışır | ☐ |
+| 12 | Modlar: insan vs bot, 3v3, kalecili 4v4 | 1.2 | Her mod baştan sona oynanabilir | ☑ (/arena.html) |
+| 13 | Lobi + oda + zorluk seçimi UI | 1.2 | Oda kur/katıl/başlat akışı çalışır | ☑ |
 | 14 | 8 yönlü locomotion + prosedürel katmanlar | 1.3 | Blend tree + aim/lean/foot-IK/tap; tek klip koşu yok | ☐ |
 | 15 | Kaleci animasyon seti | 1.3 | Bekleme, yan adım, 4 dalış+kalkış, tutma, degaj | ☐ |
 | 16 | Vuruş varyantları + kutlamalar (3-5) | 1.3 | State machine'de geçişler temiz | ☐ |
@@ -60,9 +60,9 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 27 | Mercy rule | 1.7a | Oda ayarı; 4 gol farkta maç biter (açılıp kapanabilir) | ☑ |
 | 28 | Saha boyutu preset'leri (K/O/B) | 1.7a | Core harita parametresi; oyuncular arası fark yok | ☑ (27/36/45 m; botlar preset-duyarlı) |
 | 29 | Özel oda ayarları senkronu | 1.7a | Süre/skor/saha/golden goal/mercy host-canonical, lobide görünür | ☑ (core API; lobi UI #13'te) |
-| 30 | Tam maç replay (input kaydı) | 1.7b | Kayıt→oynatma desync'siz; constantsHash uyuşmazsa açık ret | ☐ |
-| 31 | Replay paylaşımı | 1.7b | Deflate+base64 link veya kısa ID; açılır oynar | ☐ |
-| 32 | "En iyi 3 an" otomatik klipler | 1.7b | Gol/save/direk heuristikleri tick aralığı üretir | ☐ |
+| 30 | Tam maç replay (input kaydı) | 1.7b | Kayıt→oynatma desync'siz; constantsHash uyuşmazsa açık ret | ☑ |
+| 31 | Replay paylaşımı | 1.7b | Deflate+base64 link veya kısa ID; açılır oynar | ☑ (kısa ID önerilir) |
+| 32 | "En iyi 3 an" otomatik klipler | 1.7b | Gol/save/direk heuristikleri tick aralığı üretir | ☑ |
 | 33 | Rating: OpenSkill + placement + decay | 1.7c | Takım maçı sonrası mu/sigma güncellenir; 5-10 placement | ☐ |
 | 34 | Sezon (soft reset + rozet) | 1.7c | Sezon kapanışında sıkıştırma reseti çalışır | ☐ |
 | 35 | İzleyici modu | 1.7c | Input'suz katılım; 4+ izleyicide host yükü ölçülü/sınırlı | ☐ |

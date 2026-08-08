@@ -15,7 +15,7 @@ Sıradaki hedef: #30-#32 replay (ajanda), sonra 1.3/1.4/1.6/1.7c/1.7d/2
 | 1.5 | ☑ | faz1.5-bots | #20 observe→action; scripted 3 kademe + ONNX aynı arayüz (enjekte runtime) |
 | 1.6 | ☐ | — | |
 | 1.7a | ☑ | faz1.7a-rules | #26-#29; settingsHash ayrı (constantsHash "aynı build?", settingsHash "aynı oda?") |
-| 1.7b | ☐ | — | |
+| 1.7b | ☑ | faz1.7b-replay | #30-#32; input-kayıtlı konteyner, keyframe seek 0.97ms, kısa-ID paylaşımı |
 | 1.7c | ☐ | — | |
 | 1.7d | ☐ | — | |
 | 2 | ☐ | — | |
@@ -46,8 +46,21 @@ DOKUNULMAZ — sadece envantere yazılır):
   gözlem normalizasyonu artık `pitchFor(world)` ile presete göre ölçekleniyor —
   üç preset'te de aynı normalize değer okunuyor. (Bu iş sırasında köşegeni
   yarım hesaplayıp botları golsüz bıraktım; testler yakaladı, düzeltildi.)
+- 2026-08-08 (8): Faz 1.7b (#30-#32) KAPANDI — `packages/replay`: input-kayıtlı
+  konteyner (varint delta + RLE), 10 sn keyframe ile ortalama 0.97 ms seek,
+  3 dk 4 oyunculu maç 120 kB sıkışıyor. Paylaşım için kısa-ID öneriliyor
+  (base64 URL 164k karakter olacaktı; `toUrl()` uzun olanı sessizce kesmek
+  yerine reddediyor). En iyi 3 an: gol 100 / kurtarış 70 / direk 50 / uzak şut
+  30, son dakikada ×1.5, çakışan pencereler eleniyor. Çekirdek direk olayı
+  yaymadığı için kaydedici bunu topun radyal hızının işaret değiştirmesinden
+  türetiyor (constantsHash'e dokunmamak için). Koordinatör iki ADR'nin aynı
+  numarayı (0005) aldığını fark edip arena olanını 0007'ye taşıdı.
+  Koordinatör arena'yı tarayıcıda bağımsız doğruladı: 4v4 kalecili maç,
+  tick 1750, 7 bot politikası, konsol temiz. Gözlem: botlar topun etrafında
+  kümeleniyor (pozisyon alma zayıf) — Faz 2 MARL'ın çözeceği bir konu,
+  MANUAL-TESTS'e his notu olarak eklendi.
 - 2026-08-08 (7): #12 ve #13 için deterministik istemci `/arena.html` olarak
-  ayrı giriş noktasında yazıldı (ADR-0005); yayındaki oyun `/` adresinde
+  ayrı giriş noktasında yazıldı (ADR-0007); yayındaki oyun `/` adresinde
   değişmedi, görüntü katmanı ve PeerJS taşıması fork edilmeden kullanıldı.
   Modlar 1v1/2v2/3v3 (kalecisiz) ve 4v4 (takım başına tam bir kaleci, lobide
   seçilir, maç boyu sabit); boş slotlar seçilen zorlukta bota gidiyor, botlar

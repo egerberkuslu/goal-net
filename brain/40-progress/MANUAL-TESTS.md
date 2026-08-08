@@ -46,6 +46,11 @@ Aşağıdakiler gerçek ağ, gerçek GPU ya da gerçek el istediği için elde k
       konsolda `window.__parity` yaz. Beklenen: `constantsHash "fd1b55e2"`,
       `digest 2132210153` (Node ve Chromium ile birebir aynı).
 
+## Bot pozisyon alma (his)
+- [ ] `/arena.html` 4v4: botlar topun etrafında kümeleniyor mu, saha tutuyor
+      mu? Koordinatör gözlemi (2026-08-08): kümelenme belirgin. Scripted
+      politikanın sınırı; Faz 2'de MARL politikası bunu öğrenmeli.
+
 ## Oynanış hissi
 - [ ] Dribbling 10m = 5-8 dokunuş hissi
 - [ ] Tackle risk/ödül dengesi

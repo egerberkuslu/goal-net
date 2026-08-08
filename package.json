@@ -17,6 +17,7 @@
     "test:rules": "node scripts/rules-test.mjs",
     "test:fx": "node scripts/fx-test.mjs",
     "test:replay": "node scripts/replay-test.mjs",
+    "test:replaypkg": "node packages/replay/test/run.mjs",
     "check:dist": "node deploy/check-dist.mjs",
     "rooms": "node server/room-list.mjs",
     "serve": "node packages/server/src/index.mjs",

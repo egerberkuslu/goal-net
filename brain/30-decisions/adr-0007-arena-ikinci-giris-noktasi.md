@@ -1,5 +1,5 @@
 ---
-title: "ADR-0005 Deterministik istemci ayrı giriş noktasında (arena.html) ve tek ölçek sabitiyle"
+title: "ADR-0007 Deterministik istemci ayrı giriş noktasında (arena.html) ve tek ölçek sabitiyle"
 type: adr
 status: accepted
 date: 2026-08-08
