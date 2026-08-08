@@ -8,3 +8,6 @@ dist/
 # Secrets and local TLS material, never commit these.
 .env
 docker/coturn/certs/
+
+# otonom kurulum arşivi
+haxball3d-brain.zip

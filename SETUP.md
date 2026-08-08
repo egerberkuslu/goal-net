@@ -15,14 +15,16 @@ Son doğrulama: 2026-08-08 · Makine: RTX 3060 12GB, Linux 6.17
 | pip | `pip --version` | ✅ 26.0.1 |
 | gltfpack | `npx gltfpack` | ✅ devDependency olarak kuruldu |
 | gltf-transform | `npx gltf-transform --version` | ✅ devDependency (`@gltf-transform/cli`) |
-| Blender + MCP | `blender --version` | ⛔ KURULU DEĞİL → HUMAN-QUEUE (sudo gerekir) |
+| Blender | `blender --version` | ✅ 4.0.2 (2026-08-08, kullanıcı onayıyla apt ile kuruldu) |
 
 ## Notlar
 - gltf araçları repo devDependency'si olarak kuruldu (global kurulum ve
   OS onayı gerekmedi). Asset boru hattı `npx` üzerinden çağırır.
-- Blender kurulumu `sudo apt install blender` veya snap ister → OS onayı
-  gerektiği için HUMAN-QUEUE'ya yazıldı. Blender'sız ilerlenebilir:
-  asset işleri (Faz 1.4/1.6) placeholder/prosedürel geometriyle başlar.
+- Blender 4.0.2 kuruldu (kullanıcı sudo şifresini verdi, `apt-get install
+  blender`). Asset boru hattı Blender'sız da çalışacak şekilde prosedürel
+  kuruldu; Blender artık retarget/mocap işleri için kullanılabilir.
+  Blender MCP sunucusu BAĞLI DEĞİL — headless `blender --background --python`
+  ile script çalıştırmak yeterli, MCP ihtiyacı çıkarsa ayrıca kurulur.
 - Mevcut test altyapısı: `npm run test:sim|rules|mp|fx|replay|input|crowd`
   (7 headless paket, node ile koşar; ağ gerekmez).
 - Dev sunucu: `npx vite --port 5199 --host` · Oda listesi: `npm run rooms`.

@@ -2,9 +2,9 @@
 
 - [ ] Mixamo animasyon paketi indirme (Adobe hesabı gerekir) —
       asset-artist liste verecek, indirilen dosya yolları buraya yazılacak
-- [ ] Blender kurulumu (Faz 1.3/1.4 asset işleri için): `sudo apt install blender`
-      veya `sudo snap install blender --classic` — sudo gerektirdiği için devops
-      kuramadı. Kurulunca `blender --version` çıktısını buraya not düş.
+- [x] Blender kurulumu — TAMAM (2026-08-08): Blender 4.0.2, kullanıcı sudo
+      şifresini verdi, `apt-get install blender` ile kuruldu. Headless kullanım:
+      `blender --background --python <script.py>`.
 
 ## Maç anlatımı kliplerinin kaydı (matris #38, Faz 1.7d)
 
