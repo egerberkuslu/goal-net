@@ -1,0 +1,14 @@
+{
+  "name": "@goalnet/net",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Transport-agnostic host-authoritative netcode: input -> host -> 20-30 Hz delta snapshots, interpolation, prediction and reconciliation over @goalnet/core.",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node test/run.mjs"
+  }
+}
