@@ -51,11 +51,11 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 18 | Stadyum + dekor asset'leri | 1.4 | Sahne <150k üçgen; GLB Draco+KTX2 | ☐ |
 | 19 | Performans bütçesi | 1.4 | Draw call mobil <50 / masaüstü <100; 60 FPS orta donanım | ☐ |
 | 20 | Bot arayüzü soyutlama | 1.5 | Scripted ve ONNX bot aynı observe→action interface'i | ☑ |
-| 21 | Seyirci (instanced + VAT) | 1.6 | Tek-birkaç draw call; idle/dalga/gol coşkusu | ☐ |
-| 22 | Top toplayıcı çocuk sahneleri | 1.6 | Top dışarı → kozmetik sahne; core sadece T sn restart | ☐ |
-| 23 | Kale ağı + bayrak Verlet cloth | 1.6 | Top ağı dalgalandırır; top ağdan geçmez (post-correction) | ☐ |
-| 24 | Forma sistemi (atlas + renk mask + numara) | 1.6 | Takım rengi/desen/numara runtime değişir | ☐ |
-| 25 | Tezahürat + temel sesler | 1.6 | iOS autoplay resume dahil çalışır | ☐ |
+| 21 | Seyirci (instanced + VAT) | 1.6 | Tek-birkaç draw call; idle/dalga/gol coşkusu | ☑ (1387 seyirci, 1 draw call) |
+| 22 | Top toplayıcı çocuk sahneleri | 1.6 | Top dışarı → kozmetik sahne; core sadece T sn restart | ☑ |
+| 23 | Kale ağı + bayrak Verlet cloth | 1.6 | Top ağı dalgalandırır; top ağdan geçmez (post-correction) | ☑ |
+| 24 | Forma sistemi (atlas + renk mask + numara) | 1.6 | Takım rengi/desen/numara runtime değişir | ☑ (100 değişimde 0 tahsis) |
+| 25 | Tezahürat + temel sesler | 1.6 | iOS autoplay resume dahil çalışır | ☑ |
 | 26 | Golden goal | 1.7a | Oda ayarından açılır; beraberlikte ilk gol bitirir | ☑ |
 | 27 | Mercy rule | 1.7a | Oda ayarı; 4 gol farkta maç biter (açılıp kapanabilir) | ☑ |
 | 28 | Saha boyutu preset'leri (K/O/B) | 1.7a | Core harita parametresi; oyuncular arası fark yok | ☑ (27/36/45 m; botlar preset-duyarlı) |

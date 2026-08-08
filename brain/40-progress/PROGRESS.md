@@ -13,7 +13,7 @@ Sıradaki hedef: kalan matris satırları #14-#19, #21-#25, #38-#41, #42-#45
 | 1.3 | ☐ | — | |
 | 1.4 | ☐ | — | |
 | 1.5 | ☑ | faz1.5-bots | #20 observe→action; scripted 3 kademe + ONNX aynı arayüz (enjekte runtime) |
-| 1.6 | ☐ | — | |
+| 1.6 | ☑ | faz1.6-atmos | #21-#25; +5 draw call / +67k üçgen; draw call bütçesi #19a devredildi |
 | 1.7a | ☑ | faz1.7a-rules | #26-#29; settingsHash ayrı (constantsHash "aynı build?", settingsHash "aynı oda?") |
 | 1.7b | ☑ | faz1.7b-replay | #30-#32; input-kayıtlı konteyner, keyframe seek 0.97ms, kısa-ID paylaşımı |
 | 1.7c | ☑ | faz1.7c-social | #33-#37; izleyici maliyeti sabit, isim filtresi homoglyph-dayanıklı |
@@ -36,6 +36,19 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-08-08 (11): Faz 1.6 (#21-#25) KAPANDI — arena'ya atmosfer katmanı:
+  VAT seyirci (1387 kişi, tek draw call, 5 klip), kozmetik XPBD file (topu
+  yutuyor, post-correction'la top asla ağın arkasına geçmiyor), bayrak cloth,
+  top toplayıcı sahnesi, forma sistemi (atlas + renk maskesi + numara; 100
+  değişimde sıfır materyal tahsisi) ve iOS autoplay kapısı olan ses katmanı.
+  Ölçüm: atmosfer +5 draw call / +67k üçgen (yüksek kademe), üçgen bütçesi
+  (<150k) tutuyor. DÜRÜST TESPİT: draw call bütçesi (<100 masaüstü) tutmuyor
+  ama sebep atmosfer değil — arena sahnesi zaten 108-111 call'da, çünkü stadyum
+  ~28 ayrı kutu ve her oyuncu 7 ayrı mesh. Bu #19'un işi, o satır hâlâ açık.
+  Ajan üç gerçek hata yakaladı: kozmetik top sürtünmeyi alt-adım başına
+  uyguluyordu (çizgiyi 11 cm geçip duruyordu), post-correction'dan SONRA
+  çalışan iki fonksiyon ipleri topun içine geri itiyordu, ve bayrak
+  geometrisinde normal yoktu (siyah render).
 - 2026-08-08 (10): Faz 2'nin ilk satırları (#42 parity, #45 deney planı) KAPANDI.
   `python/` altında çekirdeğin NumPy portu: 5 senaryoda (Faz 1.2 senaryosu +
   altın gol/mercy/skor limiti/tam süre) tick-tick checksum zinciri JS ile
