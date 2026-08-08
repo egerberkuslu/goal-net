@@ -14,12 +14,12 @@
 // 3-minute 4-player match:
 //
 //   cadence   keyframes   bytes (496 B each)   worst-case seek
-//    300 t       37           18.4 kB            299 steps
-//    600 t       19            9.4 kB            599 steps
-//   1800 t        7            3.5 kB           1799 steps
+//    300 t       36           17.9 kB            299 steps
+//    600 t       18            8.9 kB            599 steps
+//   1800 t        6            3.0 kB           1799 steps
 //
 // 600 was picked because 599 steps of a 4-player world is well under a frame on
-// anything that can render the match at all (measured in the test: ~0.5 ms), so
+// anything that can render the match at all (measured in the test: ~1 ms), so
 // a coarser cadence would trade bytes for nothing a user can feel, while a
 // finer one doubles the index for a seek nobody perceives as faster.
 //

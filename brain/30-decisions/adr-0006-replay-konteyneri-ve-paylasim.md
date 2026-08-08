@@ -65,11 +65,11 @@ bot maçları için tutmuyor ve bu kabul edildi (bot maçı zaten host'ta yenide
 
 | aralık | keyframe | boyut | en kötü seek |
 |---|---|---|---|
-| 300 t | 37 | 18.4 kB | 299 adım |
-| **600 t** | **19** | **9.4 kB** | **599 adım** |
-| 1800 t | 7 | 3.5 kB | 1799 adım |
+| 300 t | 36 | 17.9 kB | 299 adım |
+| **600 t** | **18** | **8.9 kB** | **599 adım** |
+| 1800 t | 6 | 3.0 kB | 1799 adım |
 
-600 seçildi çünkü 599 adım ölçülen ~1.4 ms — bir frame'in çok altında, yani
+600 seçildi çünkü 599 adım ölçülen ~1 ms — bir frame'in çok altında, yani
 daha sık keyframe kullanıcının hissedeceği bir şey satın almıyor. Keyframe'ler
 input'lardan yeniden üretilebilir olduğu için paylaşım yolunda atılır;
 `player.js` ileri oynarken indeksi kendisi doldurur, maliyeti ilk geri
