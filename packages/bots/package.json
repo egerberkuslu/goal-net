@@ -1,0 +1,14 @@
+{
+  "name": "@goalnet/bots",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "One observe -> action interface for scripted and ONNX bots over @goalnet/core. No runtime dependencies: the ONNX runtime is injected.",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node test/run.mjs"
+  }
+}
