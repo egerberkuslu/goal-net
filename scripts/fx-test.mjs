@@ -5,8 +5,8 @@
 //   node scripts/fx-test.mjs      (or: npm run test:fx)
 
 import * as THREE from 'three';
-import { Fx } from '../src/view/fx.js';
-import { CameraRig } from '../src/view/cameraRig.js';
+import { Fx } from '../packages/client/src/view/fx.js';
+import { CameraRig } from '../packages/client/src/view/cameraRig.js';
 
 let failures = 0;
 function check(name, ok, detail = '') {

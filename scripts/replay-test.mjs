@@ -2,9 +2,9 @@
 // the ring stays bounded and allocation-free, playback drives the world
 // through the puppet hook, the nets keep simulating around the scripted
 // ball, and stopping hands the live state back untouched.
-import { World } from '../src/core/world-entry.js';
-import { ReplayRecorder } from '../src/game/replay.js';
-import { DT } from '../src/core/constants.js';
+import { World } from '../packages/client/src/core/world-entry.js';
+import { ReplayRecorder } from '../packages/client/src/game/replay.js';
+import { DT } from '../packages/client/src/core/constants.js';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {

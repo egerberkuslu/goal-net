@@ -6,13 +6,13 @@ import {
   MSG, validate, packSnap, sanitizeName, sanitizeChat, normalizeCode, randomCode,
   isValidCode, MAX_NAME, MAX_PLAYERS, MAX_ROSTER, MAX_CHAT, DEFAULT_NAME,
   TEAM_PALETTE, DEFAULT_TEAM_COLORS,
-} from '../src/mp/protocol.js';
+} from '../packages/client/src/mp/protocol.js';
 import {
   HOST_ID, RECONNECT_MS, CHAT_MIN_GAP_MS, CHAT_BURST, CHAT_WINDOW_MS,
   autoTeam, readyOf, allReady, canStart, setReady, clearReady,
   rosterFromPlayers, fieldPlayers, spectators, isBotId, nameKey,
   rememberDeparted, takeDeparted, forgetDeparted, pruneDeparted, chatAllowed,
-} from '../src/mp/lobbyState.js';
+} from '../packages/client/src/mp/lobbyState.js';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {

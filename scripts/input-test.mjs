@@ -12,7 +12,7 @@ import {
   keyboardIntent, setGamepadSource, setKeyDown, clearKeys,
   isTouchDevice, ensureTouchControls, getTouchControls, destroyTouchControls,
   GAMEPAD_DEADZONE, PAD_BUTTONS,
-} from '../src/game/input.js';
+} from '../packages/client/src/game/input.js';
 
 let failures = 0;
 function check(name, ok, detail = '') {
@@ -288,7 +288,7 @@ const usePads = (...pads) => setGamepadSource(() => pads);
 
 // ------------------------------------------------------ 8) name sanitizing ---
 const { sanitizeName, deriveKeeperColor, teamPalette, shade, DEFAULT_TEAM_COLORS, PlayerView } =
-  await import('../src/view/playerView.js');
+  await import('../packages/client/src/view/playerView.js');
 {
   check('name: undefined -> no tag', sanitizeName(undefined) === '');
   check('name: non-string -> no tag', sanitizeName(42) === '');

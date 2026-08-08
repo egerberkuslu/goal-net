@@ -1,9 +1,9 @@
 // Headless validation of the match rules layer: fouls and their restarts,
 // two halves with a change of ends, sudden death, and the statistics counters.
-import { World, BotController, KeeperController, makeConfig } from '../src/core/world-entry.js';
-import { Game } from '../src/game/game.js';
-import { MatchStats } from '../src/game/stats.js';
-import { DT, PITCH_HALF_L, PENALTY_SPOT_INSET, GOLDEN_MAX } from '../src/core/constants.js';
+import { World, BotController, KeeperController, makeConfig } from '../packages/client/src/core/world-entry.js';
+import { Game } from '../packages/client/src/game/game.js';
+import { MatchStats } from '../packages/client/src/game/stats.js';
+import { DT, PITCH_HALF_L, PENALTY_SPOT_INSET, GOLDEN_MAX } from '../packages/client/src/core/constants.js';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {

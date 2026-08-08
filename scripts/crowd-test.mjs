@@ -5,7 +5,7 @@
 //   node scripts/crowd-test.mjs      (or: npm run test:crowd)
 
 import * as THREE from 'three';
-import { CrowdView } from '../src/view/crowdView.js';
+import { CrowdView } from '../packages/client/src/view/crowdView.js';
 
 let failures = 0;
 function check(name, ok, detail = '') {

@@ -1,0 +1,11 @@
+{
+  "name": "@goalnet/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Three.js renderer, UI shell and network client. Game loop lives outside any framework.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  }
+}

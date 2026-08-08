@@ -1,7 +1,7 @@
 // Headless validation of the arena world: goals register, nets don't tunnel,
 // walls contain the ball, kicks and player collisions behave, perf budget holds.
-import { World, KeeperController, makeConfig } from '../src/core/world-entry.js';
-import { DT, PITCH_HALF_L, WALL_X, NET_BOT_DEPTH, BALL_R } from '../src/core/constants.js';
+import { World, KeeperController, makeConfig } from '../packages/client/src/core/world-entry.js';
+import { DT, PITCH_HALF_L, WALL_X, NET_BOT_DEPTH, BALL_R } from '../packages/client/src/core/constants.js';
 
 // Deterministic harness: the bots jitter their targets and ragdolls pick a
 // random tumble, so an unseeded run can drift a keeper a few centimetres and
