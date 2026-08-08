@@ -37,11 +37,11 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 4 | Determinizm | 1.1 | Aynı input → 2 farklı cihazda bit-özdeş checksum (ADR-0003) | ☑ (Node+Chromium bit-özdeş) |
 | 5 | Host-authoritative netcode | 1.1 | 2 sekme: input→host→snapshot 20-30Hz + interp; botlar sadece host'ta | ☑ (paket+gate; 2-sekme entegrasyonu 1.2'de) |
 | 6 | Docker: web + coturn | 1.1 | compose up ile ayağa kalkar; TURN relay testi geçer | ☑ |
-| 7 | Dribbling (saf fizik) | 1.2 | 10m mesafe 5-8 kontrollü dokunuşla; yapışma yok | ☐ |
-| 8 | Şut şarjı | 1.2 | 100-800ms tutma → 0.3x-1x güç eğrisi; input buffer 4-6 tick | ☐ |
-| 9 | Falso (skaler spin) | 1.2 | Core'da tek parametre; deterministik; görsel Magnus ayrı | ☐ |
-| 10 | Slide tackle | 1.2 | Aktif+recovery pencereleri; takım arkadaşına etkisiz; başarı oranı %40-55 bandında | ☐ |
-| 11 | Kaleci: maç başı seçim + tutma + degaj + 4 yön dalış | 1.2 | Rol lobide seçilir, maç boyu sabit; tutma ~200 tick; dalış whiff → ~60 tick kilit; dalış sonucu host onaylı | ☐ |
+| 7 | Dribbling (saf fizik) | 1.2 | 10m mesafe 5-8 kontrollü dokunuşla; yapışma yok | ☑ (6 dokunuş, 0 turnover) |
+| 8 | Şut şarjı | 1.2 | 100-800ms tutma → 0.3x-1x güç eğrisi; input buffer 4-6 tick | ☑ |
+| 9 | Falso (skaler spin) | 1.2 | Core'da tek parametre; deterministik; görsel Magnus ayrı | ☑ |
+| 10 | Slide tackle | 1.2 | Aktif+recovery pencereleri; takım arkadaşına etkisiz; başarı oranı %40-55 bandında | ☑ (%47.2) |
+| 11 | Kaleci: maç başı seçim + tutma + degaj + 4 yön dalış | 1.2 | Rol lobide seçilir, maç boyu sabit; tutma ~200 tick; dalış whiff → ~60 tick kilit; dalış sonucu host onaylı | ☑ (core tarafı; lobi UI #13'te) |
 | 12 | Modlar: insan vs bot, 3v3, kalecili 4v4 | 1.2 | Her mod baştan sona oynanabilir | ☐ |
 | 13 | Lobi + oda + zorluk seçimi UI | 1.2 | Oda kur/katıl/başlat akışı çalışır | ☐ |
 | 14 | 8 yönlü locomotion + prosedürel katmanlar | 1.3 | Blend tree + aim/lean/foot-IK/tap; tek klip koşu yok | ☐ |

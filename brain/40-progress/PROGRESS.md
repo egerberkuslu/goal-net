@@ -36,6 +36,16 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-08-08 (5): Faz 1.2'nin çekirdek satırları (#7-#11) KAPANDI. Ölçümler:
+  dribbling 10 m = 6 dokunuş / 0 turnover (kabul 5-8), şarj eğrisi 0.30x→1.00x
+  (sapma <1e-3), falso ±52 birim saptırıyor ve hız %1.2 içinde kalıyor (boost
+  değil rotasyon), tackle %47.2 temiz kazanım (kabul %40-55) ve takım
+  arkadaşına 0 etki, kaleci tutma 210 tick / ıska kilidi 60 tick / grief
+  koruması çalışıyor. constantsHash `fd1b55e2`→`7f502ae2`, STATE_VERSION 2.
+  Koordinatör iki takip işini kapattı: netcode INPUT mesajı artık 9 butonluk
+  bitmask taşıyor (eski `kick` alanı bit 0 olarak korunuyor, test eklendi) ve
+  physics-constants.md'ye Faz 1.2 sabit bloğu + hash geçmişi işlendi. Bot
+  fixture'ı yeni çekirdekle yeniden üretildi.
 - 2026-08-08 (4): Faz 1.5 (#20) KAPANDI — `packages/bots`: 100 özellikli
   egosentrik observation (takım 1 için 180° döndürme, mirror değil), 18
   ayrık / 7 sürekli aksiyon, scripted politika 3 kademe (ölçülen: tepki

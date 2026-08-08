@@ -743,10 +743,21 @@ section('host input validation');
   const wild = encodeInput({ playerId: 1, seq: 3, tick: 0 });
   new DataView(wild).setInt32(24, FX_ONE * 4, true);
   host.receive('good', wild, 0);
+  // the button word is a bitmask now, so 7 (kick|charge|cancel) is legal and
+  // only bits past the mask are garbage
   const wildKick = encodeInput({ playerId: 1, seq: 4, tick: 0 });
-  new DataView(wildKick).setInt32(32, 7, true);
+  new DataView(wildKick).setInt32(32, 0x1ffff, true);
   host.receive('good', wildKick, 0);
-  check('out-of-range move axes and kick bits are rejected', R.outOfRange === 2, `${R.outOfRange}`);
+  check('out-of-range move axes and button bits are rejected', R.outOfRange === 2, `${R.outOfRange}`);
+
+  const legalMask = encodeInput({ playerId: 1, seq: 5, tick: 0, buttons: 7 });
+  const beforeAccepted = host.stats.accepted;
+  host.receive('good', legalMask, 0);
+  check('a multi-button mask rides the wire intact',
+    host.stats.accepted === beforeAccepted + 1 &&
+    decodeMessage(legalMask).buttons === 7 &&
+    decodeMessage(legalMask).kick === 1,
+    `accepted ${host.stats.accepted - beforeAccepted}`);
 
   // spoofing another slot
   host.receive('good', encodeInput({ playerId: 0, seq: 5, tick: 0 }), 0);

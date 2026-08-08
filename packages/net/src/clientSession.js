@@ -45,8 +45,24 @@ import {
   BALL_BASE,
   FIELD,
   TICK_RATE,
+  BTN,
   fx,
 } from '../../core/src/index.js';
+
+// Named booleans -> the core's button bitmask. Kept here rather than in the
+// protocol so the wire layer never has to know what a button means.
+const BUTTON_BITS = [
+  ['kick', BTN.KICK], ['charge', BTN.CHARGE], ['chargeCancel', BTN.CANCEL],
+  ['tackle', BTN.TACKLE], ['catchBall', BTN.CATCH], ['throwBall', BTN.THROW],
+  ['clearBall', BTN.CLEAR], ['dive', BTN.DIVE], ['touch', BTN.TOUCH],
+];
+
+function packButtons(input, kickBit) {
+  let bits = kickBit ? BTN.KICK : 0;
+  if (!input) return bits;
+  for (const [name, bit] of BUTTON_BITS) if (input[name]) bits |= bit;
+  return bits;
+}
 
 import {
   MSG_SNAPSHOT,
@@ -342,7 +358,12 @@ export function createClientSession(options = {}) {
   function sendInput(input) {
     if (!predicted) return null;
     const q = quantiseInput(input);
-    const wire = { moveXFx: q.mx, moveZFx: q.mz, kick: q.kick };
+    // Every button the core understands rides in one bitmask; `buttons` wins
+    // when given, otherwise the named booleans are packed for the caller.
+    const buttons = input?.buttons !== undefined
+      ? (input.buttons | 0)
+      : packButtons(input, q.kick);
+    const wire = { moveXFx: q.mx, moveZFx: q.mz, kick: q.kick, buttons };
     const tick = predicted.buf[HDR_TICK];
     inputSeq = (inputSeq + 1) >>> 0;
     const buf = encodeInput({
@@ -351,7 +372,7 @@ export function createClientSession(options = {}) {
       tick,
       moveXFx: wire.moveXFx,
       moveZFx: wire.moveZFx,
-      kick: wire.kick,
+      buttons,
       ackTick: authTick,
     });
     pending.push({ seq: inputSeq, tick, input: wire });

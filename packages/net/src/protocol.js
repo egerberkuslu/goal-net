@@ -80,6 +80,11 @@ export const MAX_MESSAGE_BYTES = 16000;
 /** Cap on the playerCount a message may claim. The core itself caps at 12. */
 export const MAX_PROTOCOL_PLAYERS = 32;
 
+// Core owns nine buttons (kick, charge, cancel, tackle, catch, throw, clear,
+// dive, touch). The wire accepts that bitmask with headroom to 16 bits, so a
+// tenth button does not need a protocol version bump.
+export const BUTTON_MASK = 0xffff;
+
 export const HEADER_WORDS = 5;
 export const HELLO_WORDS = HEADER_WORDS + 2;
 export const INPUT_WORDS = HEADER_WORDS + 5;
@@ -164,6 +169,9 @@ export function encodeHello({ playerId, seq = 0, tick = -1, wantFull = true }) {
   return buf;
 }
 
+// The kick word carries the whole button bitmask (core BTN.*). Bit 0 is the
+// kick bit, so a peer that only knows about kicking still speaks the same
+// wire format — the field simply widened under it.
 export function encodeInput({
   playerId,
   seq,
@@ -171,6 +179,7 @@ export function encodeInput({
   moveXFx = 0,
   moveZFx = 0,
   kick = 0,
+  buttons,
   ackTick = -1,
 }) {
   requireInt(playerId, 'playerId');
@@ -189,7 +198,11 @@ export function encodeInput({
   view.setInt32(20, playerId | 0, true);
   view.setInt32(24, moveXFx | 0, true);
   view.setInt32(28, moveZFx | 0, true);
-  view.setInt32(32, kick ? 1 : 0, true);
+  const bits = buttons === undefined ? (kick ? 1 : 0) : (buttons | 0);
+  if (bits < 0 || bits > BUTTON_MASK) {
+    throw new ProtocolError('encode-range', `buttons ${bits} outside the mask`);
+  }
+  view.setInt32(32, bits, true);
   view.setInt32(36, ackTick | 0, true);
   return buf;
 }
@@ -390,8 +403,8 @@ export function decodeMessage(data, { maxMessageBytes = MAX_MESSAGE_BYTES } = {}
         `move axis (${moveXFx}, ${moveZFx}) outside [-${FX_ONE}, ${FX_ONE}]`,
       );
     }
-    if (kick !== 0 && kick !== 1) {
-      throw new ProtocolError('input-range', `kick must be 0 or 1, got ${kick}`);
+    if (kick < 0 || kick > BUTTON_MASK) {
+      throw new ProtocolError('input-range', `buttons ${kick} outside the mask`);
     }
     if (tick < 0) {
       throw new ProtocolError('input-range', `input tick ${tick} is negative`);
@@ -399,7 +412,12 @@ export function decodeMessage(data, { maxMessageBytes = MAX_MESSAGE_BYTES } = {}
     if (ackTick < -1) {
       throw new ProtocolError('input-range', `ackTick ${ackTick} is below -1`);
     }
-    return { type, seq, tick, playerId, moveXFx, moveZFx, kick, ackTick };
+    // `kick` stays in the payload for callers that only care about bit 0;
+    // `buttons` is the same word, unmasked.
+    return {
+      type, seq, tick, playerId, moveXFx, moveZFx,
+      kick: kick & 1, buttons: kick, ackTick,
+    };
   }
 
   if (type === MSG_SNAPSHOT) {

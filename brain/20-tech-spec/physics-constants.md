@@ -28,6 +28,30 @@ newSpeed = damping × oldSpeed. Değişiklik = ADR + constantsHash.
 - Kick ASLA velocity set etmez; her zaman vektörel impulse ekler.
 - Oyuncu terminal hızı ≈ accel·damping/(1−damping) ≈ 2.4 birim/tick.
 
+## Faz 1.2 sabitleri (oynanış seti)
+
+Faz 1.1 tablosu değişmedi; aşağıdakiler ONA EKLENDİ. Gerekçeler, ölçüm
+gridleri ve metre eşlemesi: [ADR-0004](../30-decisions/adr-0004-faz12-oynanis-sabitleri.md).
+
+| Mekanik | Parametre | Değer |
+|---|---|---|
+| Yakın kontrol | `BTN.TOUCH` impulse | 0.35 (tam vuruşun ~%7'si) |
+| Yakın kontrol | dokunuş cooldown | 6 tick |
+| Yakın kontrol | kontrol yarıçapı | playerR + ballR + kickRange = 29 (türetilmiş) |
+| Şut şarjı | süre | 6 → 48 tick (100 → 800 ms) |
+| Şut şarjı | güç eğrisi | 0.3 + 0.7·t^1.5 (t normalize) |
+| Şut şarjı | input buffer | 5 tick |
+| Falso | curve sönümü | 0.97/tick |
+| Falso | aftertouch penceresi | vuruş sonrası kısa pencere, yön inputu curve'e eklenir |
+| Slide tackle | aktif / recovery / cooldown | 12 / 24 / 20 tick |
+| Kaleci | tutma sayacı | 210 tick (~3.5 sn), dolunca zorunlu bırakma |
+| Kaleci | dalış ıskası kilidi | 60 tick |
+| Kaleci | grief kilidi | 180 tick (tutuştan kendi kalesine gol sayılmaz) |
+
+`constantsHash`: `fd1b55e2` → **`7f502ae2`** (yeni anahtarlar + state layout;
+kilitli değerlerin hiçbiri değişmedi). `STATE_VERSION` 1 → 2. Zincir digest'i
+`cce47120` → `5b7752f4`. Eski replay/snapshot'lar bu yüzden açıkça reddedilir.
+
 ## Determinizm
 - Kabul: aynı input dizisi → 2 farklı cihazda bit-özdeş checksum
   (her tick state checksum'u üret, karşılaştır).

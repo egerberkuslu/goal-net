@@ -286,7 +286,14 @@ export function createHostSession(options = {}) {
     q.push({
       seq: msg.seq,
       tick: msg.tick,
-      input: { moveXFx: msg.moveXFx, moveZFx: msg.moveZFx, kick: msg.kick },
+      // the whole button mask reaches the core; kick stays split out so the
+      // rate limiter above and older callers keep working
+      input: {
+        moveXFx: msg.moveXFx,
+        moveZFx: msg.moveZFx,
+        kick: msg.kick,
+        buttons: msg.buttons ?? (msg.kick ? 1 : 0),
+      },
     });
     stats.accepted++;
     return { accepted: true, reason: 'input' };
