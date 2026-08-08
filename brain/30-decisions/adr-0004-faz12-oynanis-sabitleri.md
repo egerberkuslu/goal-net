@@ -110,7 +110,7 @@ Yer pası (`BTN.KICK`) curve'ü sıfırlar ve aftertouch penceresi AÇMAZ; şarj
 
 ## Kanıt
 
-`node packages/core/test/run.mjs` — 118 kontrol, hepsi GEÇTİ.
+`node packages/core/test/run.mjs` — 117 kontrol, hepsi GEÇTİ (Faz 1.1 kapanışında 58 idi).
 `node packages/core/test/tuning.mjs` — ölçüm tablosu.
 
 | Kabul kriteri | Hedef | Ölçüm |
