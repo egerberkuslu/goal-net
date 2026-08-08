@@ -1,0 +1,1123 @@
+{
+  "generatedBy": "python/tools/dump-layout.mjs",
+  "coreVersion": "0.1.0",
+  "stateMagic": 1196311345,
+  "stateVersion": 3,
+  "constantsHash": "7f502ae2",
+  "constantsHashInt": 2135960290,
+  "tickRate": 60,
+  "header": {
+    "HDR_AFTERTOUCH_OWNER": 13,
+    "HDR_AFTERTOUCH_TICKS": 14,
+    "HDR_BALL_CURVE": 12,
+    "HDR_BALL_HOLDER": 10,
+    "HDR_BALL_HOLD_TICKS": 11,
+    "HDR_CONST_HASH": 2,
+    "HDR_DURATION_TICKS": 19,
+    "HDR_END_REASON": 23,
+    "HDR_GRIEF_TEAM": 15,
+    "HDR_GRIEF_TICKS": 16,
+    "HDR_KICKOFF_TEAM": 9,
+    "HDR_LAST_GOAL_TEAM": 7,
+    "HDR_LAST_GOAL_TICK": 8,
+    "HDR_LEN": 32,
+    "HDR_MAGIC": 0,
+    "HDR_MATCH_STATE": 22,
+    "HDR_PITCH": 17,
+    "HDR_PLAYER_COUNT": 4,
+    "HDR_RULE_FLAGS": 21,
+    "HDR_SCORE_0": 5,
+    "HDR_SCORE_1": 6,
+    "HDR_SCORE_LIMIT": 20,
+    "HDR_SETTINGS_HASH": 18,
+    "HDR_TICK": 3,
+    "HDR_VERSION": 1
+  },
+  "ballBase": 32,
+  "ballLen": 4,
+  "playerBase": 36,
+  "playerStride": 22,
+  "field": {
+    "P_X": 0,
+    "P_Z": 1,
+    "P_VX": 2,
+    "P_VZ": 3,
+    "P_TEAM": 4,
+    "P_KICK_ARM": 5,
+    "P_KICK_CD": 6,
+    "P_PREV_BUTTONS": 7,
+    "P_PREV_KICK": 7,
+    "P_ROLE": 8,
+    "P_CHARGE": 9,
+    "P_CHARGE_REL": 10,
+    "P_CHARGE_PWR": 11,
+    "P_TACKLE_ACTIVE": 12,
+    "P_TACKLE_RECOV": 13,
+    "P_TACKLE_CD": 14,
+    "P_DIVE_ACTIVE": 15,
+    "P_DIVE_LOCK": 16,
+    "P_DIVE_DIR": 17,
+    "P_CLEAR_CHARGE": 18,
+    "P_FLAGS": 19,
+    "P_TOUCH_CD": 20
+  },
+  "buttons": {
+    "KICK": 1,
+    "CHARGE": 2,
+    "CANCEL": 4,
+    "TACKLE": 8,
+    "CATCH": 16,
+    "THROW": 32,
+    "CLEAR": 64,
+    "DIVE": 128,
+    "TOUCH": 256
+  },
+  "constants": {
+    "TICK_RATE": 60,
+    "PLAYER_ACCEL": 6554,
+    "PLAYER_KICKING_ACCEL": 4588,
+    "PLAYER_DAMPING": 62915,
+    "PLAYER_RADIUS": 983040,
+    "PLAYER_INV_MASS": 32768,
+    "PLAYER_BCOEF": 32768,
+    "BALL_DAMPING": 64881,
+    "BALL_RADIUS": 655360,
+    "BALL_INV_MASS": 65536,
+    "BALL_BCOEF": 32768,
+    "KICK_IMPULSE": 327680,
+    "KICK_RANGE": 262144,
+    "KICK_LATCH_TICKS": 18,
+    "KICK_COOLDOWN_TICKS": 8,
+    "WALL_BCOEF": 65536,
+    "POST_RADIUS": 524288,
+    "POST_BCOEF": 32768,
+    "PITCH_HALF_X": 13107200,
+    "PITCH_HALF_Z": 27525120,
+    "GOAL_HALF_X": 3604480,
+    "SPAWN_Z": 6553600,
+    "SPAWN_X_STEP": 3932160,
+    "KICKOFF_FREEZE_TICKS": 0,
+    "CONTROL_RADIUS": 1900544,
+    "TOUCH_IMPULSE": 22938,
+    "TOUCH_COOLDOWN_TICKS": 6,
+    "UNITS_PER_METRE": 1529173,
+    "CHARGE_MIN_TICKS": 6,
+    "CHARGE_MAX_TICKS": 48,
+    "CHARGE_BASE": 19661,
+    "CHARGE_SPAN": 45875,
+    "CHARGE_BUFFER_TICKS": 5,
+    "CURVE_ACCEL": 1311,
+    "CURVE_DAMPING": 63570,
+    "CURVE_MAX": 65536,
+    "AFTERTOUCH_TICKS": 20,
+    "AFTERTOUCH_GAIN": 3277,
+    "TACKLE_ACTIVE_TICKS": 12,
+    "TACKLE_RECOVERY_TICKS": 24,
+    "TACKLE_COOLDOWN_TICKS": 20,
+    "TACKLE_REACH": 786432,
+    "TACKLE_IMPULSE": 196608,
+    "TACKLE_BALL_DAMP": 16384,
+    "TACKLE_POKE": 98304,
+    "TACKLE_KNOCK": 131072,
+    "PENALTY_HALF_X": 8388608,
+    "PENALTY_DEPTH": 6881280,
+    "CATCH_REACH": 131072,
+    "CATCH_HOLD_TICKS": 210,
+    "THROW_IMPULSE": 196608,
+    "CLEAR_MIN_IMPULSE": 262144,
+    "CLEAR_MAX_IMPULSE": 589824,
+    "CLEAR_MAX_TICKS": 48,
+    "DIVE_ACTIVE_TICKS": 14,
+    "DIVE_IMPULSE": 327680,
+    "DIVE_REACH": 655360,
+    "DIVE_SAVE_DAMP": 9830,
+    "DIVE_WHIFF_LOCK_TICKS": 60,
+    "GRIEF_LOCK_TICKS": 180,
+    "HOLD_OFFSET": 1638400,
+    "MAX_PLAYERS": 12
+  },
+  "pitchPresets": [
+    null,
+    {
+      "code": 1,
+      "id": "kucuk",
+      "label": "Kucuk",
+      "scaleNum": 3,
+      "scaleDen": 4,
+      "halfX": 9830400,
+      "halfZ": 20643840,
+      "goalHalfX": 2703360,
+      "penaltyHalfX": 6291456,
+      "penaltyDepth": 5160960,
+      "spawnZ": 4915200,
+      "spawnXStep": 2949120,
+      "keeperGuardZ": 19611648
+    },
+    {
+      "code": 2,
+      "id": "orta",
+      "label": "Orta",
+      "scaleNum": 1,
+      "scaleDen": 1,
+      "halfX": 13107200,
+      "halfZ": 27525120,
+      "goalHalfX": 3604480,
+      "penaltyHalfX": 8388608,
+      "penaltyDepth": 6881280,
+      "spawnZ": 6553600,
+      "spawnXStep": 3932160,
+      "keeperGuardZ": 26148864
+    },
+    {
+      "code": 3,
+      "id": "buyuk",
+      "label": "Buyuk",
+      "scaleNum": 5,
+      "scaleDen": 4,
+      "halfX": 16384000,
+      "halfZ": 34406400,
+      "goalHalfX": 4505600,
+      "penaltyHalfX": 10485760,
+      "penaltyDepth": 8601600,
+      "spawnZ": 8192000,
+      "spawnXStep": 4915200,
+      "keeperGuardZ": 32686080
+    }
+  ],
+  "settings": {
+    "default": {
+      "durationSeconds": 180,
+      "scoreLimit": 3,
+      "pitch": "orta",
+      "goldenGoal": false,
+      "mercyRule": true,
+      "keepers": true
+    },
+    "words": 6,
+    "ruleGoldenGoal": 1,
+    "ruleMercy": 2,
+    "ruleKeepers": 4,
+    "mercyGoalDiff": 4,
+    "minDurationSeconds": 0,
+    "maxDurationSeconds": 3600,
+    "minScoreLimit": 0,
+    "maxScoreLimit": 99,
+    "matchRunning": 0,
+    "matchGoldenGoal": 1,
+    "matchFinished": 2,
+    "endNone": 0,
+    "endFullTime": 1,
+    "endScoreLimit": 2,
+    "endMercy": 3,
+    "endGoldenGoal": 4
+  },
+  "observation": {
+    "version": 1,
+    "size": 100,
+    "mateSlots": 5,
+    "oppSlots": 6,
+    "entityStride": 6,
+    "speedPlayer": 2.4005661971329824,
+    "speedBall": 7.400566197132982,
+    "pitchDiag": 930.3762679690406,
+    "pitch": {
+      "HALF_X": 200,
+      "HALF_Z": 420,
+      "GOAL_HALF_X": 55,
+      "PLAYER_RADIUS": 15,
+      "BALL_RADIUS": 10,
+      "POST_RADIUS": 8,
+      "KICK_RANGE": 4,
+      "KICK_IMPULSE": 5,
+      "KICK_COOLDOWN_TICKS": 8,
+      "KICK_LATCH_TICKS": 18,
+      "SPAWN_Z": 100,
+      "TICK_RATE": 60,
+      "MAX_PLAYERS": 12
+    },
+    "spec": [
+      {
+        "index": 0,
+        "name": "self_x",
+        "lo": -1,
+        "hi": 1,
+        "desc": "own x / PITCH_HALF_X, attack frame"
+      },
+      {
+        "index": 1,
+        "name": "self_z",
+        "lo": -1,
+        "hi": 1,
+        "desc": "own z / PITCH_HALF_Z, attack frame (+1 = opponent goal line)"
+      },
+      {
+        "index": 2,
+        "name": "self_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "own vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 3,
+        "name": "self_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "own vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 4,
+        "name": "self_speed",
+        "lo": 0,
+        "hi": 1,
+        "desc": "|own velocity| / SPEED.PLAYER"
+      },
+      {
+        "index": 5,
+        "name": "self_kick_ready",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when the kick cooldown has expired"
+      },
+      {
+        "index": 6,
+        "name": "self_kick_cd",
+        "lo": 0,
+        "hi": 1,
+        "desc": "remaining kick cooldown / KICK_COOLDOWN_TICKS"
+      },
+      {
+        "index": 7,
+        "name": "self_kick_armed",
+        "lo": 0,
+        "hi": 1,
+        "desc": "remaining kick latch / KICK_LATCH_TICKS"
+      },
+      {
+        "index": 8,
+        "name": "self_dist_own_goal",
+        "lo": 0,
+        "hi": 1,
+        "desc": "distance to own goal centre / PITCH_DIAG"
+      },
+      {
+        "index": 9,
+        "name": "self_dist_opp_goal",
+        "lo": 0,
+        "hi": 1,
+        "desc": "distance to opponent goal centre / PITCH_DIAG"
+      },
+      {
+        "index": 10,
+        "name": "ball_x",
+        "lo": -1,
+        "hi": 1,
+        "desc": "ball x / PITCH_HALF_X, attack frame"
+      },
+      {
+        "index": 11,
+        "name": "ball_z",
+        "lo": -1,
+        "hi": 1,
+        "desc": "ball z / PITCH_HALF_Z, attack frame"
+      },
+      {
+        "index": 12,
+        "name": "ball_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "ball vx / SPEED.BALL, attack frame"
+      },
+      {
+        "index": 13,
+        "name": "ball_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "ball vz / SPEED.BALL, attack frame"
+      },
+      {
+        "index": 14,
+        "name": "ball_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "(ball.x - self.x) / (2*PITCH_HALF_X)"
+      },
+      {
+        "index": 15,
+        "name": "ball_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "(ball.z - self.z) / (2*PITCH_HALF_Z)"
+      },
+      {
+        "index": 16,
+        "name": "ball_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance to the ball / PITCH_DIAG"
+      },
+      {
+        "index": 17,
+        "name": "ball_dir_x",
+        "lo": -1,
+        "hi": 1,
+        "desc": "unit vector self -> ball, x component"
+      },
+      {
+        "index": 18,
+        "name": "ball_dir_z",
+        "lo": -1,
+        "hi": 1,
+        "desc": "unit vector self -> ball, z component"
+      },
+      {
+        "index": 19,
+        "name": "ball_closing",
+        "lo": -1,
+        "hi": 1,
+        "desc": "gap closing rate along self->ball / SPEED.BALL (+ = closing)"
+      },
+      {
+        "index": 20,
+        "name": "opp_goal_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "(opponent goal centre x - self.x) / (2*PITCH_HALF_X)"
+      },
+      {
+        "index": 21,
+        "name": "opp_goal_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "(opponent goal centre z - self.z) / (2*PITCH_HALF_Z)"
+      },
+      {
+        "index": 22,
+        "name": "opp_goal_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "distance self -> opponent goal centre / PITCH_DIAG"
+      },
+      {
+        "index": 23,
+        "name": "own_goal_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "(own goal centre x - self.x) / (2*PITCH_HALF_X)"
+      },
+      {
+        "index": 24,
+        "name": "own_goal_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "(own goal centre z - self.z) / (2*PITCH_HALF_Z)"
+      },
+      {
+        "index": 25,
+        "name": "own_goal_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "distance self -> own goal centre / PITCH_DIAG"
+      },
+      {
+        "index": 26,
+        "name": "ball_opp_goal_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "distance ball -> opponent goal centre / PITCH_DIAG"
+      },
+      {
+        "index": 27,
+        "name": "shot_alignment",
+        "lo": -1,
+        "hi": 1,
+        "desc": "dot(unit(self->ball), unit(ball->opponent goal)); +1 = perfectly behind the ball"
+      },
+      {
+        "index": 28,
+        "name": "role_field",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when this bot plays as an outfield player"
+      },
+      {
+        "index": 29,
+        "name": "role_keeper",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when this bot plays as the goalkeeper"
+      },
+      {
+        "index": 30,
+        "name": "possession",
+        "lo": -1,
+        "hi": 1,
+        "desc": "+1 when the player nearest the ball is on our team, -1 otherwise"
+      },
+      {
+        "index": 31,
+        "name": "self_nearest",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when this player is the one nearest the ball"
+      },
+      {
+        "index": 32,
+        "name": "mate_count",
+        "lo": 0,
+        "hi": 1,
+        "desc": "number of present team-mates / MATE_SLOTS"
+      },
+      {
+        "index": 33,
+        "name": "score_diff",
+        "lo": -1,
+        "hi": 1,
+        "desc": "(our goals - their goals) / 5, clamped"
+      },
+      {
+        "index": 34,
+        "name": "mate0_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 0 is occupied"
+      },
+      {
+        "index": 35,
+        "name": "mate0_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 36,
+        "name": "mate0_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 37,
+        "name": "mate0_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 38,
+        "name": "mate0_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 39,
+        "name": "mate0_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 40,
+        "name": "mate1_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 1 is occupied"
+      },
+      {
+        "index": 41,
+        "name": "mate1_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 42,
+        "name": "mate1_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 43,
+        "name": "mate1_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 44,
+        "name": "mate1_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 45,
+        "name": "mate1_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 46,
+        "name": "mate2_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 2 is occupied"
+      },
+      {
+        "index": 47,
+        "name": "mate2_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 48,
+        "name": "mate2_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 49,
+        "name": "mate2_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 50,
+        "name": "mate2_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 51,
+        "name": "mate2_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 52,
+        "name": "mate3_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 3 is occupied"
+      },
+      {
+        "index": 53,
+        "name": "mate3_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 54,
+        "name": "mate3_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 55,
+        "name": "mate3_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 56,
+        "name": "mate3_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 57,
+        "name": "mate3_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 58,
+        "name": "mate4_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 4 is occupied"
+      },
+      {
+        "index": 59,
+        "name": "mate4_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 60,
+        "name": "mate4_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 61,
+        "name": "mate4_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 62,
+        "name": "mate4_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 63,
+        "name": "mate4_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 64,
+        "name": "opp0_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 0 is occupied"
+      },
+      {
+        "index": 65,
+        "name": "opp0_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 66,
+        "name": "opp0_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 67,
+        "name": "opp0_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 68,
+        "name": "opp0_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 69,
+        "name": "opp0_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 70,
+        "name": "opp1_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 1 is occupied"
+      },
+      {
+        "index": 71,
+        "name": "opp1_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 72,
+        "name": "opp1_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 73,
+        "name": "opp1_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 74,
+        "name": "opp1_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 75,
+        "name": "opp1_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 76,
+        "name": "opp2_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 2 is occupied"
+      },
+      {
+        "index": 77,
+        "name": "opp2_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 78,
+        "name": "opp2_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 79,
+        "name": "opp2_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 80,
+        "name": "opp2_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 81,
+        "name": "opp2_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 82,
+        "name": "opp3_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 3 is occupied"
+      },
+      {
+        "index": 83,
+        "name": "opp3_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 84,
+        "name": "opp3_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 85,
+        "name": "opp3_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 86,
+        "name": "opp3_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 87,
+        "name": "opp3_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 88,
+        "name": "opp4_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 4 is occupied"
+      },
+      {
+        "index": 89,
+        "name": "opp4_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 90,
+        "name": "opp4_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 91,
+        "name": "opp4_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 92,
+        "name": "opp4_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 93,
+        "name": "opp4_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 94,
+        "name": "opp5_present",
+        "lo": 0,
+        "hi": 1,
+        "desc": "1 when slot 5 is occupied"
+      },
+      {
+        "index": 95,
+        "name": "opp5_dx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative x / (2*PITCH_HALF_X), attack frame"
+      },
+      {
+        "index": 96,
+        "name": "opp5_dz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "relative z / (2*PITCH_HALF_Z), attack frame"
+      },
+      {
+        "index": 97,
+        "name": "opp5_dist",
+        "lo": 0,
+        "hi": 1,
+        "desc": "centre distance / PITCH_DIAG"
+      },
+      {
+        "index": 98,
+        "name": "opp5_vx",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vx / SPEED.PLAYER, attack frame"
+      },
+      {
+        "index": 99,
+        "name": "opp5_vz",
+        "lo": -1,
+        "hi": 1,
+        "desc": "their vz / SPEED.PLAYER, attack frame"
+      }
+    ]
+  },
+  "action": {
+    "version": 1,
+    "discreteSize": 18,
+    "deadzone": 0.25,
+    "buttons": [
+      "kick",
+      "charge",
+      "slide",
+      "catch",
+      "clear"
+    ],
+    "directions": [
+      {
+        "name": "forward",
+        "x": 0,
+        "z": 1
+      },
+      {
+        "name": "forward-right",
+        "x": 0.7071067811865476,
+        "z": 0.7071067811865476
+      },
+      {
+        "name": "right",
+        "x": 1,
+        "z": 0
+      },
+      {
+        "name": "back-right",
+        "x": 0.7071067811865476,
+        "z": -0.7071067811865476
+      },
+      {
+        "name": "back",
+        "x": 0,
+        "z": -1
+      },
+      {
+        "name": "back-left",
+        "x": -0.7071067811865476,
+        "z": -0.7071067811865476
+      },
+      {
+        "name": "left",
+        "x": -1,
+        "z": 0
+      },
+      {
+        "name": "forward-left",
+        "x": -0.7071067811865476,
+        "z": 0.7071067811865476
+      }
+    ],
+    "discrete": [
+      {
+        "index": 0,
+        "label": "idle",
+        "moveX": 0,
+        "moveZ": 0,
+        "kick": false
+      },
+      {
+        "index": 1,
+        "label": "forward",
+        "moveX": 0,
+        "moveZ": 1,
+        "kick": false
+      },
+      {
+        "index": 2,
+        "label": "forward-right",
+        "moveX": 0.7071067811865476,
+        "moveZ": 0.7071067811865476,
+        "kick": false
+      },
+      {
+        "index": 3,
+        "label": "right",
+        "moveX": 1,
+        "moveZ": 0,
+        "kick": false
+      },
+      {
+        "index": 4,
+        "label": "back-right",
+        "moveX": 0.7071067811865476,
+        "moveZ": -0.7071067811865476,
+        "kick": false
+      },
+      {
+        "index": 5,
+        "label": "back",
+        "moveX": 0,
+        "moveZ": -1,
+        "kick": false
+      },
+      {
+        "index": 6,
+        "label": "back-left",
+        "moveX": -0.7071067811865476,
+        "moveZ": -0.7071067811865476,
+        "kick": false
+      },
+      {
+        "index": 7,
+        "label": "left",
+        "moveX": -1,
+        "moveZ": 0,
+        "kick": false
+      },
+      {
+        "index": 8,
+        "label": "forward-left",
+        "moveX": -0.7071067811865476,
+        "moveZ": 0.7071067811865476,
+        "kick": false
+      },
+      {
+        "index": 9,
+        "label": "kick",
+        "moveX": 0,
+        "moveZ": 0,
+        "kick": true
+      },
+      {
+        "index": 10,
+        "label": "forward+kick",
+        "moveX": 0,
+        "moveZ": 1,
+        "kick": true
+      },
+      {
+        "index": 11,
+        "label": "forward-right+kick",
+        "moveX": 0.7071067811865476,
+        "moveZ": 0.7071067811865476,
+        "kick": true
+      },
+      {
+        "index": 12,
+        "label": "right+kick",
+        "moveX": 1,
+        "moveZ": 0,
+        "kick": true
+      },
+      {
+        "index": 13,
+        "label": "back-right+kick",
+        "moveX": 0.7071067811865476,
+        "moveZ": -0.7071067811865476,
+        "kick": true
+      },
+      {
+        "index": 14,
+        "label": "back+kick",
+        "moveX": 0,
+        "moveZ": -1,
+        "kick": true
+      },
+      {
+        "index": 15,
+        "label": "back-left+kick",
+        "moveX": -0.7071067811865476,
+        "moveZ": -0.7071067811865476,
+        "kick": true
+      },
+      {
+        "index": 16,
+        "label": "left+kick",
+        "moveX": -1,
+        "moveZ": 0,
+        "kick": true
+      },
+      {
+        "index": 17,
+        "label": "forward-left+kick",
+        "moveX": -0.7071067811865476,
+        "moveZ": 0.7071067811865476,
+        "kick": true
+      }
+    ]
+  }
+}
