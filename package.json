@@ -31,7 +31,12 @@
     "test:atmos": "node scripts/atmos-test.mjs",
     "test:arena": "node scripts/arena-test.mjs",
     "test:arena2tab": "node scripts/arena-2tab.mjs",
-    "dev:arena": "vite --port 5301 --strictPort"
+    "test:present": "node scripts/present-test.mjs",
+    "present:clips": "node packages/client/src/arena/present/tools/make-clips.mjs",
+    "present:sheet": "node packages/client/src/arena/present/tools/make-clips.mjs --sheet",
+    "present:shots": "node scripts/present-shots.mjs",
+    "dev:arena": "vite --port 5301 --strictPort",
+    "dev:present": "vite --port 5303 --strictPort"
   },
   "dependencies": {
     "peerjs": "^1.5.0",
