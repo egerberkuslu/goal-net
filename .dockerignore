@@ -1,0 +1,11 @@
+node_modules
+.git
+.claude
+.playwright-mcp
+brain
+docs
+deploy
+*.zip
+*.log
+.env
+docker/coturn/certs

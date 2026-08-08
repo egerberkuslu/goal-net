@@ -4,3 +4,7 @@ dist/
 .playwright-mcp/
 .claude/
 *.png
+
+# Secrets and local TLS material, never commit these.
+.env
+docker/coturn/certs/

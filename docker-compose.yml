@@ -1,0 +1,54 @@
+# Goal Net local stack: the Node web service plus a TURN relay.
+#
+#   cp .env.example .env && openssl rand -hex 32   # paste into TURN_SECRET
+#   npm run build                                  # produces dist/
+#   docker compose up --build
+#
+# Ports: web on 127.0.0.1:5210, coturn on 3478/5349 plus UDP 49152-65535.
+# Nothing here touches 5199 (vite dev server) or 5200 (standalone room list).
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+    environment:
+      PORT: "5210"
+      HOST: "0.0.0.0"
+      DIST_DIR: /app/dist
+      # The secret stays server side; only the derived HMAC reaches a browser.
+      TURN_SECRET: ${TURN_SECRET:?set TURN_SECRET in .env, see .env.example}
+      TURN_REALM: ${TURN_REALM:-goalnet.local}
+      # What the client should dial. Localhost for dev, your public hostname
+      # in production so the turns: URI matches the certificate.
+      TURN_HOST: ${TURN_HOST:-127.0.0.1}
+      TURN_PORT: ${TURN_PORT:-3478}
+      TURN_TLS_PORT: ${TURN_TLS_PORT:-5349}
+      TURN_TTL: ${TURN_TTL:-300}
+      SPA_FALLBACK: ${SPA_FALLBACK:-0}
+    ports:
+      # Loopback only by default; drop the 127.0.0.1 prefix to expose it.
+      - "127.0.0.1:${WEB_PORT:-5210}:5210"
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:4.6
+    # Relay traffic through Docker's NAT is unreliable, and the 16k UDP port
+    # range would take minutes to publish. Host networking is the supported
+    # way to run coturn in a container.
+    network_mode: host
+    entrypoint: ["/etc/coturn/entrypoint.sh"]
+    volumes:
+      - ./docker/coturn:/etc/coturn:ro
+    environment:
+      TURN_SECRET: ${TURN_SECRET:?set TURN_SECRET in .env, see .env.example}
+      TURN_REALM: ${TURN_REALM:-goalnet.local}
+      # 127.0.0.1 keeps the relay private on a dev machine. Production sets
+      # 0.0.0.0 here and puts the public address in TURN_EXTERNAL_IP.
+      TURN_LISTENING_IP: ${TURN_LISTENING_IP:-127.0.0.1}
+      TURN_RELAY_IP: ${TURN_RELAY_IP:-}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-}
+      TURN_MIN_PORT: ${TURN_MIN_PORT:-49152}
+      TURN_MAX_PORT: ${TURN_MAX_PORT:-65535}
+      TURN_TOTAL_QUOTA: ${TURN_TOTAL_QUOTA:-100}
+    restart: unless-stopped
