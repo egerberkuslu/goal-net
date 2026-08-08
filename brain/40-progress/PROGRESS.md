@@ -118,6 +118,20 @@ DOKUNULMAZ — sadece envantere yazılır):
   bitmask taşıyor (eski `kick` alanı bit 0 olarak korunuyor, test eklendi) ve
   physics-constants.md'ye Faz 1.2 sabit bloğu + hash geçmişi işlendi. Bot
   fixture'ı yeni çekirdekle yeniden üretildi.
+- 2026-08-08 (5): Faz 1.7d sunum katmanı (#38-#41) kuruldu —
+  `packages/client/src/arena/present/`. #38 anlatım: 29 replik × TR/EN,
+  öncelik + kesme + replik-başı cooldown + 12 s tekrar penceresi + tansiyona
+  bağlı yoğunluk; runtime TTS YOK, klip manifesti + çalar, placeholder klipler
+  üreteçle (gerçek kayıt HUMAN-QUEUE'da, 58 satırlık fiş yazıldı). #39 tansiyon:
+  skor yakınlığı + saat + saha bölgesi + sahiplik dengesi -> tek skaler,
+  ağırlıklar 1'e toplanıyor, subscribe kancası kalabalık katmanına açık.
+  #40 stadyum: gece/gündüz + açık/yağmur + 3 tema = 12 varyant, oda kodundan
+  deterministik seçim, yağmur tek LineSegments + tek uniform (ölçüldü: +1 draw
+  call, 9000/4500/1620 segment kademe), mobilde otomatik kısılma + manuel
+  override. #41: xG-lite (5 özellikli lojistik, formül brain/20-tech-spec/
+  presentation-formulas.md'de çalışılmış örneklerle) + MVP ağırlıklı toplamı +
+  maç sonu ekranı. Katman core'dan READ-ONLY: tek dokunuş hostSession'a
+  eklenen `onEvents` gözlemcisi. `npm run test:present` 158/158.
 - 2026-08-08 (4): Faz 1.5 (#20) KAPANDI — `packages/bots`: 100 özellikli
   egosentrik observation (takım 1 için 180° döndürme, mirror değil), 18
   ayrık / 7 sürekli aksiyon, scripted politika 3 kademe (ölçülen: tepki
