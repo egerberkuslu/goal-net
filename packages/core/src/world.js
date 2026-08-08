@@ -5,8 +5,10 @@
 //         collisions with bCoef/invMass, kick as an added impulse, goal posts,
 //         goal detection, kickoff reset, per-tick checksum, close-control
 //         support for pure-physics dribbling, shot charge, ball curve with
-//         aftertouch, slide tackles, and the fixed-role keeper (catch, hand
-//         throw, foot clearance, four-way dive, own-goal grief lock).
+//         aftertouch, slide tackles, the fixed-role keeper (catch, hand throw,
+//         foot clearance, four-way dive, own-goal grief lock), the three pitch
+//         presets, and the match-ending rules (full time, score limit, golden
+//         goal, mercy rule).
 //   out : anything with height (aerial ball, jumps, headers), full Magnus and
 //         visual spin, bots, fouls, halves, stats. Those are later phases and
 //         they land on top of this state, not beside it. Aerial motion in
@@ -35,9 +37,21 @@
 //          14  aftertouchTicks    (plain int)
 //          15  griefTeam          (plain int, team whose own goal is void, -1)
 //          16  griefTicks         (plain int)
-//          17..19 reserved
-//   ball   20  x  21 z  22 vx  23 vz
-//   player 24 + i*22: see the P_* table below
+//          17  pitchPreset        (plain int, 1..3 — NEVER 0, see matchRules.js)
+//          18  settingsHash low   (plain int)
+//          19  durationTicks      (plain int, 0 = untimed)
+//          20  scoreLimit         (plain int, 0 = none)
+//          21  ruleFlags          (plain int bitfield: golden goal, mercy, keepers)
+//          22  matchState         (plain int: 0 running, 1 golden goal, 2 finished)
+//          23  endReason          (plain int, see END_* in matchRules.js)
+//          24..31 reserved
+//   ball   32  x  33 z  34 vx  35 vz
+//   player 36 + i*22: see the P_* table below
+//
+// Words 17..23 are the room settings, not physics. They are hashed into
+// settingsHash rather than constantsHash, and deserialize() refuses a snapshot
+// whose settings do not match the ones the caller expects — a big-pitch
+// snapshot applied on a small pitch would place the ball outside the walls.
 
 import {
   FX_ONE,
@@ -55,11 +69,40 @@ import {
 } from './fx.js';
 import { CONSTANTS, constantsHashInt } from './constants.js';
 import { checksumInts } from './checksum.js';
+import {
+  DEFAULT_PITCH,
+  END_FULL_TIME,
+  END_GOLDEN_GOAL,
+  END_MERCY,
+  END_NONE,
+  END_SCORE_LIMIT,
+  MATCH_FINISHED,
+  MATCH_GOLDEN_GOAL,
+  MATCH_RUNNING,
+  MERCY_GOAL_DIFF,
+  PITCH_PRESETS,
+  RULE_GOLDEN_GOAL,
+  RULE_KEEPERS,
+  RULE_MERCY,
+  SettingsError,
+  assertSameSettings,
+  durationTicks,
+  endReasonName,
+  leaderOf,
+  matchPhaseName,
+  normaliseSettings,
+  pitchCodeOf,
+  settingsFlags,
+  settingsFrom,
+  settingsHashInt,
+} from './matchRules.js';
 
 export const STATE_MAGIC = 0x474e4331; // "GNC1"
-// v2 = Phase 1.2 layout (charge, curve, tackle, keeper). A v1 snapshot has a
-// different stride and a different meaning for slot 10, so it is rejected.
-export const STATE_VERSION = 2;
+// v3 = Phase 1.7a layout: the header now carries the room settings (pitch
+// preset, clock, score limit, rule flags, match phase). A v2 snapshot has a
+// shorter header and no notion of which arena it was recorded on, so it is
+// rejected rather than reinterpreted on whatever pitch happens to be loaded.
+export const STATE_VERSION = 3;
 
 export const HDR_MAGIC = 0;
 export const HDR_VERSION = 1;
@@ -78,7 +121,14 @@ export const HDR_AFTERTOUCH_OWNER = 13;
 export const HDR_AFTERTOUCH_TICKS = 14;
 export const HDR_GRIEF_TEAM = 15;
 export const HDR_GRIEF_TICKS = 16;
-export const HDR_LEN = 20;
+export const HDR_PITCH = 17;
+export const HDR_SETTINGS_HASH = 18;
+export const HDR_DURATION_TICKS = 19;
+export const HDR_SCORE_LIMIT = 20;
+export const HDR_RULE_FLAGS = 21;
+export const HDR_MATCH_STATE = 22;
+export const HDR_END_REASON = 23;
+export const HDR_LEN = 32;
 
 export const BALL_BASE = HDR_LEN;
 export const BALL_LEN = 4;
@@ -127,8 +177,27 @@ export const BTN = Object.freeze({
 const BTN_MASK = 511;
 
 const C = CONSTANTS;
-const HALF_SPAWN_STEP = C.SPAWN_X_STEP / 2; // SPAWN_X_STEP is even by construction
 const REACH = C.PLAYER_RADIUS + C.BALL_RADIUS;
+
+/**
+ * The arena this state was built on. Read from the header every time rather
+ * than cached on the world object, so a world handed around as a plain
+ * `{ buf, playerCount }` can never end up simulating on the wrong pitch.
+ *
+ * Code 0 is not a preset: an uninitialised buffer fails here instead of
+ * silently becoming the small pitch.
+ */
+export function pitchOf(world) {
+  const buf = world && world.buf ? world.buf : world;
+  const preset = PITCH_PRESETS[buf[HDR_PITCH]];
+  if (!preset) {
+    throw new SettingsError(
+      'bad-pitch',
+      `state carries pitch preset ${buf[HDR_PITCH]}, which is not one of 1..3`,
+    );
+  }
+  return preset;
+}
 
 export function stateLength(playerCount) {
   return PLAYER_BASE + playerCount * PLAYER_STRIDE;
@@ -148,14 +217,23 @@ function roleOf(spec) {
 
 /**
  * createWorld({ players: [{ team, role }], teams: [0,1,...], roles: [...],
- *               playerCount })
+ *               playerCount, settings })
  *
  * `players` wins if given; otherwise `teams`; otherwise playerCount players are
  * dealt alternately to team 0 and team 1. Roles are fixed here and nowhere else:
  * ADR-0001 says the keeper is chosen at match start and never reassigned, so the
  * core deliberately offers no mid-match setter.
+ *
+ * `settings` is a MatchSettings (see matchRules.js) and is normalised on the way
+ * in, so a raw lobby object straight off the wire is safe to pass. It decides
+ * the arena, the clock, the score limit and the two match-ending rules, and it
+ * is written into the state header so a snapshot is self-describing.
+ *
+ * `settings.keepers === false` strips every keeper role: an off switch that
+ * changes the roles at match start is the only form ADR-0001 allows.
  */
 export function createWorld(config = {}) {
+  const settings = normaliseSettings(config.settings, config.strictSettings ? { strict: true } : {});
   let teams;
   let roles;
   if (Array.isArray(config.players)) {
@@ -179,6 +257,7 @@ export function createWorld(config = {}) {
       `player count ${teams.length} outside 1..${C.MAX_PLAYERS}`,
     );
   }
+  if (!settings.keepers) roles = roles.map(() => 0);
 
   const buf = new Int32Array(stateLength(teams.length));
   buf[HDR_MAGIC] = STATE_MAGIC;
@@ -191,6 +270,13 @@ export function createWorld(config = {}) {
   buf[HDR_LAST_GOAL_TEAM] = -1;
   buf[HDR_LAST_GOAL_TICK] = -1;
   buf[HDR_KICKOFF_TEAM] = 0;
+  buf[HDR_PITCH] = pitchCodeOf(settings.pitch);
+  buf[HDR_SETTINGS_HASH] = settingsHashInt(settings);
+  buf[HDR_DURATION_TICKS] = durationTicks(settings);
+  buf[HDR_SCORE_LIMIT] = settings.scoreLimit;
+  buf[HDR_RULE_FLAGS] = settingsFlags(settings);
+  buf[HDR_MATCH_STATE] = MATCH_RUNNING;
+  buf[HDR_END_REASON] = END_NONE;
 
   for (let i = 0; i < teams.length; i++) {
     buf[playerOffset(i) + P_TEAM] = teams[i];
@@ -204,6 +290,8 @@ export function createWorld(config = {}) {
 /** Ball to the centre spot, players to their side, every timer to zero. */
 export function resetKickoff(world) {
   const { buf } = world;
+  const P = pitchOf(buf);
+  const halfSpawnStep = P.spawnXStep / 2; // spawnXStep is even on every preset
   buf[BALL_BASE] = 0;
   buf[BALL_BASE + 1] = 0;
   buf[BALL_BASE + 2] = 0;
@@ -227,8 +315,8 @@ export function resetKickoff(world) {
     const team = buf[o + P_TEAM];
     const slot = seen[team]++;
     const n = total[team];
-    buf[o + P_X] = (2 * slot - (n - 1)) * HALF_SPAWN_STEP;
-    buf[o + P_Z] = team === 0 ? -C.SPAWN_Z : C.SPAWN_Z;
+    buf[o + P_X] = (2 * slot - (n - 1)) * halfSpawnStep;
+    buf[o + P_Z] = team === 0 ? -P.spawnZ : P.spawnZ;
     buf[o + P_VX] = 0;
     buf[o + P_VZ] = 0;
     buf[o + P_KICK_ARM] = 0;
@@ -432,10 +520,14 @@ function aimDirection(mx, mz, team, out) {
   out[1] = team === 0 ? FX_ONE : -FX_ONE; // team 0 defends -z, attacks +z
 }
 
-/** Is (x, z) inside `team`'s own penalty area? */
-export function inPenaltyArea(x, z, team) {
-  if (fxAbs(x) > C.PENALTY_HALF_X) return false;
-  const edge = C.PITCH_HALF_Z - C.PENALTY_DEPTH;
+/**
+ * Is (x, z) inside `team`'s own penalty area? `pitch` is a preset from
+ * matchRules.js; it defaults to the medium preset so a caller that has no world
+ * in hand still gets the Phase 1.2 geometry it used to get.
+ */
+export function inPenaltyArea(x, z, team, pitch = DEFAULT_PITCH) {
+  if (fxAbs(x) > pitch.penaltyHalfX) return false;
+  const edge = pitch.halfZ - pitch.penaltyDepth;
   return team === 0 ? z <= -edge : z >= edge;
 }
 
@@ -444,11 +536,11 @@ export function inPenaltyArea(x, z, team) {
  * own box; outside it the keeper is an ordinary field player. Host-side truth,
  * so a client cannot claim a catch it was never entitled to.
  */
-export function keeperEmpowered(world, i) {
+export function keeperEmpowered(world, i, pitch = pitchOf(world)) {
   const buf = world.buf;
   const o = playerOffset(i);
   if (buf[o + P_ROLE] !== 1) return false;
-  return inPenaltyArea(buf[o + P_X], buf[o + P_Z], buf[o + P_TEAM]);
+  return inPenaltyArea(buf[o + P_X], buf[o + P_Z], buf[o + P_TEAM], pitch);
 }
 
 // ------------------------------------------------------------ close control
@@ -543,13 +635,25 @@ function clearImpulse(ticks) {
  *
  * Returns the events produced this tick. Order inside the tick is fixed and
  * load-bearing: timers, acceleration, tackle lunge, impulses, tackle hitbox,
- * curve, integrate, collide, hold pin, damp, decay, score.
+ * curve, integrate, collide, hold pin, damp, decay, score, match rules.
+ *
+ * Once the match is finished the world freezes: the clock still advances (the
+ * net layer's delta and ack machinery is indexed by tick and must keep moving)
+ * but nothing else is simulated and no further event is produced. Restarting is
+ * a new world, not a mutation of this one.
  */
 export function step(world, inputs) {
   const { buf } = world;
   const n = world.playerCount;
   const events = [];
   const tick = buf[HDR_TICK];
+  const P = pitchOf(buf);
+
+  if (buf[HDR_MATCH_STATE] === MATCH_FINISHED) {
+    buf[HDR_TICK] = (tick + 1) | 0;
+    return events;
+  }
+
   const dir = [0, 0];
   const aim = [0, 0];
   // touched[i] !== 0 means player i already produced a touch event this tick,
@@ -924,20 +1028,20 @@ export function step(world, inputs) {
   // 9a) players stay inside the rectangle; they never enter a goal mouth
   for (let i = 0; i < n; i++) {
     const o = playerOffset(i);
-    resolveWall(buf, o, C.PLAYER_RADIUS, P_X, C.PITCH_HALF_X, playerWallCoef);
-    resolveWall(buf, o, C.PLAYER_RADIUS, P_Z, C.PITCH_HALF_Z, playerWallCoef);
+    resolveWall(buf, o, C.PLAYER_RADIUS, P_X, P.halfX, playerWallCoef);
+    resolveWall(buf, o, C.PLAYER_RADIUS, P_Z, P.halfZ, playerWallCoef);
   }
 
   if (!stillHeld) {
     // 9b) ball: side walls always, goal lines only outside the mouth
-    resolveWall(buf, BALL_BASE, C.BALL_RADIUS, P_X, C.PITCH_HALF_X, ballWallCoef);
-    if (fxAbs(buf[BALL_BASE]) >= C.GOAL_HALF_X) {
+    resolveWall(buf, BALL_BASE, C.BALL_RADIUS, P_X, P.halfX, ballWallCoef);
+    if (fxAbs(buf[BALL_BASE]) >= P.goalHalfX) {
       resolveWall(
         buf,
         BALL_BASE,
         C.BALL_RADIUS,
         P_Z,
-        C.PITCH_HALF_Z,
+        P.halfZ,
         ballWallCoef,
       );
     }
@@ -945,8 +1049,8 @@ export function step(world, inputs) {
 
   // 9c) the four posts
   for (let s = 0; s < 4; s++) {
-    const px = s & 1 ? C.GOAL_HALF_X : -C.GOAL_HALF_X;
-    const pz = s & 2 ? C.PITCH_HALF_Z : -C.PITCH_HALF_Z;
+    const px = s & 1 ? P.goalHalfX : -P.goalHalfX;
+    const pz = s & 2 ? P.halfZ : -P.halfZ;
     for (let i = 0; i < n; i++) {
       resolvePost(
         buf,
@@ -1108,9 +1212,10 @@ export function step(world, inputs) {
   }
 
   // 13) goals --------------------------------------------------------------
+  let scored = false;
   const bz = buf[BALL_BASE + 1];
-  const line = C.PITCH_HALF_Z + C.BALL_RADIUS;
-  if (fxAbs(buf[BALL_BASE]) < C.GOAL_HALF_X && (bz > line || bz < -line)) {
+  const line = P.halfZ + C.BALL_RADIUS;
+  if (fxAbs(buf[BALL_BASE]) < P.goalHalfX && (bz > line || bz < -line)) {
     // team 0 defends -z and attacks +z
     const scorer = bz > 0 ? 0 : 1;
     const conceding = scorer === 0 ? 1 : 0;
@@ -1137,7 +1242,65 @@ export function step(world, inputs) {
       buf[HDR_LAST_GOAL_TICK] = tick;
       buf[HDR_KICKOFF_TEAM] = conceding; // conceding side restarts
       events.push({ type: 'goal', team: scorer, tick });
+      scored = true;
       resetKickoff(world);
+    }
+  }
+
+  // 13b) match rules -------------------------------------------------------
+  //
+  // Decided here, in the core, on the host's own state: "the match is over" is
+  // exactly the kind of verdict a client must never be allowed to author.
+  //
+  // Precedence when a single goal satisfies several rules at once:
+  //   mercy  >  golden goal  >  score limit
+  // Mercy first because a four-goal gap is the harshest fact on the board;
+  // golden goal before the score limit because during a golden-goal period the
+  // score limit has usually already been passed and "golden goal" is the reason
+  // a human would give for the ending.
+  {
+    const s0 = buf[HDR_SCORE_0];
+    const s1 = buf[HDR_SCORE_1];
+    const diff = s0 - s1;
+    const gap = diff < 0 ? -diff : diff;
+    const flags = buf[HDR_RULE_FLAGS];
+    const limit = buf[HDR_SCORE_LIMIT];
+    let reason = END_NONE;
+
+    if (scored) {
+      if (flags & RULE_MERCY && gap >= MERCY_GOAL_DIFF) reason = END_MERCY;
+      else if (buf[HDR_MATCH_STATE] === MATCH_GOLDEN_GOAL) reason = END_GOLDEN_GOAL;
+      else if (limit > 0 && (s0 >= limit || s1 >= limit)) reason = END_SCORE_LIMIT;
+    }
+
+    // Full time. The clock is checked against the tick this step is about to
+    // produce, so a duration of D means exactly D ticks were simulated.
+    const dur = buf[HDR_DURATION_TICKS];
+    if (
+      reason === END_NONE &&
+      dur > 0 &&
+      tick + 1 >= dur &&
+      buf[HDR_MATCH_STATE] === MATCH_RUNNING
+    ) {
+      if (diff !== 0 || (flags & RULE_GOLDEN_GOAL) === 0) {
+        reason = END_FULL_TIME; // a winner, or a draw nobody asked to break
+      } else {
+        // level, and the room wants it settled: play on, next goal wins
+        buf[HDR_MATCH_STATE] = MATCH_GOLDEN_GOAL;
+        events.push({ type: 'golden-goal', score: [s0, s1], tick });
+      }
+    }
+
+    if (reason !== END_NONE) {
+      buf[HDR_MATCH_STATE] = MATCH_FINISHED;
+      buf[HDR_END_REASON] = reason;
+      events.push({
+        type: 'match-end',
+        reason: endReasonName(reason),
+        winner: leaderOf(s0, s1),
+        score: [s0, s1],
+        tick,
+      });
     }
   }
 
@@ -1168,8 +1331,30 @@ export function serialize(world) {
   return Int32Array.from(world.buf);
 }
 
-/** Rebuild a world from a snapshot, rejecting anything that will not match. */
-export function deserialize(snapshot) {
+/**
+ * The MatchSettings a state was built with, reconstructed from its header.
+ * Derived rather than cached, so it cannot drift from what the sim reads.
+ */
+export function worldSettings(world) {
+  const buf = world && world.buf ? world.buf : world;
+  return settingsFrom({
+    durationTicks: buf[HDR_DURATION_TICKS],
+    scoreLimit: buf[HDR_SCORE_LIMIT],
+    pitchCode: buf[HDR_PITCH],
+    flags: buf[HDR_RULE_FLAGS],
+  });
+}
+
+/**
+ * Rebuild a world from a snapshot, rejecting anything that will not match.
+ *
+ * `expect.settings`, when given, is the settings the CALLER believes it is
+ * playing under. A snapshot from a different room is refused here — that is the
+ * whole point of putting the settings in the header. A big-pitch snapshot
+ * applied by a small-pitch client would put players through walls and score
+ * goals that never happened, and it would do it silently.
+ */
+export function deserialize(snapshot, expect = {}) {
   const buf = Int32Array.from(snapshot);
   if (buf[HDR_MAGIC] !== STATE_MAGIC) throw new Error('core: bad state magic');
   if (buf[HDR_VERSION] !== STATE_VERSION) {
@@ -1186,6 +1371,22 @@ export function deserialize(snapshot) {
   if (buf.length !== stateLength(playerCount)) {
     throw new Error('core: snapshot length does not match player count');
   }
+  // settingsFrom validates the pitch code, the rule bits and the clock; the
+  // hash word then has to agree with them, which catches a single tampered word
+  const settings = worldSettings(buf);
+  if (buf[HDR_SETTINGS_HASH] !== settingsHashInt(settings)) {
+    throw new SettingsError(
+      'settings-hash',
+      'core: settings hash in the state header does not match the settings words',
+    );
+  }
+  if (buf[HDR_MATCH_STATE] < MATCH_RUNNING || buf[HDR_MATCH_STATE] > MATCH_FINISHED) {
+    throw new SettingsError(
+      'bad-match-state',
+      `core: match state ${buf[HDR_MATCH_STATE]} is not one of 0..2`,
+    );
+  }
+  if (expect.settings !== undefined) assertSameSettings(expect.settings, settings);
   return { buf, playerCount };
 }
 
@@ -1217,10 +1418,24 @@ export function readState(world) {
       touchCooldown: buf[o + P_TOUCH_CD],
     });
   }
+  const dur = buf[HDR_DURATION_TICKS];
   return {
     tick: buf[HDR_TICK],
     score: [buf[HDR_SCORE_0], buf[HDR_SCORE_1]],
     kickoffTeam: buf[HDR_KICKOFF_TEAM],
+    settings: worldSettings(buf),
+    pitch: pitchOf(buf).id,
+    match: {
+      phase: matchPhaseName(buf[HDR_MATCH_STATE]),
+      reason: endReasonName(buf[HDR_END_REASON]),
+      over: buf[HDR_MATCH_STATE] === MATCH_FINISHED,
+      winner:
+        buf[HDR_MATCH_STATE] === MATCH_FINISHED
+          ? leaderOf(buf[HDR_SCORE_0], buf[HDR_SCORE_1])
+          : -1,
+      elapsedTicks: buf[HDR_TICK],
+      remainingTicks: dur > 0 ? Math.max(0, dur - buf[HDR_TICK]) : -1,
+    },
     ball: {
       x: buf[BALL_BASE] / FX_ONE,
       z: buf[BALL_BASE + 1] / FX_ONE,

@@ -9,6 +9,22 @@
 //   step(world, [{ moveX: 1, moveZ: 0, kick: false }, null]);
 //   checksum(world); // "1a2b3c4d"
 //
+// Room settings (host-canonical, matrix #26-#29)
+//   The host owns one MatchSettings object and every other peer copies it.
+//
+//   host   const settings = normaliseSettings(lobbyForm);      // clamps garbage
+//          const world = createWorld({ players, settings });
+//          lobbyChannel.send(encodeSettings(settings).buffer); // 6 Int32 words,
+//                                                              // on join and on
+//                                                              // every change
+//   client const settings = decodeSettings(new Int32Array(msg)); // throws on
+//                                                                // anything bad
+//          const world = createWorld({ players, settings });
+//          deserialize(snapshot, { settings });  // refuses a foreign room
+//
+//   Neither side is allowed to "fix up" the other's settings: decodeSettings and
+//   deserialize throw a SettingsError with a stable `code`, and the join fails.
+//
 // Input shape (per player, all optional)
 //   moveX/moveZ  float axes, or moveXFx/moveZFx if already quantised
 //   kick         instant ground pass, full impulse, no spin
@@ -58,12 +74,66 @@ export {
   HDR_AFTERTOUCH_TICKS,
   HDR_GRIEF_TEAM,
   HDR_GRIEF_TICKS,
+  HDR_PITCH,
+  HDR_SETTINGS_HASH,
+  HDR_DURATION_TICKS,
+  HDR_SCORE_LIMIT,
+  HDR_RULE_FLAGS,
+  HDR_MATCH_STATE,
+  HDR_END_REASON,
   HDR_LEN,
   BALL_BASE,
   PLAYER_BASE,
   PLAYER_STRIDE,
   FIELD,
+  pitchOf,
+  worldSettings,
 } from './world.js';
+
+export {
+  DEFAULT_SETTINGS,
+  DEFAULT_PITCH,
+  PITCH_PRESETS,
+  PITCH_PRESET_LIST,
+  PITCH_KUCUK,
+  PITCH_ORTA,
+  PITCH_BUYUK,
+  MERCY_GOAL_DIFF,
+  MIN_DURATION_SECONDS,
+  MAX_DURATION_SECONDS,
+  MIN_SCORE_LIMIT,
+  MAX_SCORE_LIMIT,
+  SETTINGS_WORDS,
+  RULE_GOLDEN_GOAL,
+  RULE_MERCY,
+  RULE_KEEPERS,
+  MATCH_RUNNING,
+  MATCH_GOLDEN_GOAL,
+  MATCH_FINISHED,
+  END_NONE,
+  END_FULL_TIME,
+  END_SCORE_LIMIT,
+  END_MERCY,
+  END_GOLDEN_GOAL,
+  SettingsError,
+  normaliseSettings,
+  isCanonicalSettings,
+  serializeSettings,
+  settingsHash,
+  settingsHashInt,
+  settingsFlags,
+  sameSettings,
+  assertSameSettings,
+  encodeSettings,
+  decodeSettings,
+  settingsFrom,
+  durationTicks,
+  pitchPreset,
+  pitchCodeOf,
+  endReasonName,
+  matchPhaseName,
+  leaderOf,
+} from './matchRules.js';
 
 export {
   CONSTANTS,
