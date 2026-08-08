@@ -59,6 +59,7 @@ export class PeerNet {
   /**
    * @param {{onOpen?:(code:string)=>void, onPeerJoin?:(id:string)=>void,
    *          onPeerLeave?:(id:string)=>void, onMessage?:(id:string, msg:object)=>void,
+   *          onBinary?:(id:string, data:ArrayBuffer)=>void,
    *          onError?:(err:{code:string,message:string,cause?:unknown})=>void,
    *          onClosed?:(reason:string)=>void}} [callbacks] all optional
    */
@@ -69,6 +70,10 @@ export class PeerNet {
       onPeerJoin: cb.onPeerJoin || noop,
       onPeerLeave: cb.onPeerLeave || noop,
       onMessage: cb.onMessage || noop,
+      // Binary frames bypass the JSON validator on purpose: they belong to a
+      // self-validating binary protocol (@goalnet/net decodes and rejects its
+      // own wire format). Nothing is delivered here unless a caller opts in.
+      onBinary: cb.onBinary || noop,
       onError: cb.onError || noop,
       onClosed: cb.onClosed || noop,
     };
@@ -251,6 +256,44 @@ export class PeerNet {
     return n;
   }
 
+  /**
+   * Send one binary frame to one peer, untouched. The JSON validator does not
+   * apply: binary belongs to a protocol that validates itself on arrival.
+   * @param {string} id target peer id
+   * @param {ArrayBuffer|ArrayBufferView} data
+   * @returns {boolean} true when it was handed to an open DataConnection
+   */
+  sendRaw(id, data) {
+    const conn = this.conns.get(id);
+    if (!conn || !conn.open) return false;
+    try {
+      conn.send(data);
+      this.stats.sent++;
+      return true;
+    } catch (err) {
+      this._emitError(err);
+      return false;
+    }
+  }
+
+  /**
+   * Binary broadcast (host side). Closed connections are skipped.
+   * @param {ArrayBuffer|ArrayBufferView} data
+   * @returns {number} how many peers received it
+   */
+  broadcastRaw(data) {
+    let n = 0;
+    for (const conn of this.conns.values()) {
+      if (!conn.open) continue;
+      try {
+        conn.send(data);
+        this.stats.sent++;
+        n++;
+      } catch { /* peer vanished mid-broadcast; 'close' will clean it up */ }
+    }
+    return n;
+  }
+
   // ------------------------------------------------------------- moderation
 
   /**
@@ -337,6 +380,14 @@ export class PeerNet {
 
   /** @private parse, validate and dispatch one inbound payload */
   _handleData(id, raw) {
+    // Binary never went through the JSON validator, and before onBinary existed
+    // it was dropped as malformed. Handing it to a subscriber is therefore
+    // strictly additive: a caller that does not listen still sees nothing.
+    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
+      this.stats.received++;
+      this.cb.onBinary(id, raw);
+      return;
+    }
     let parsed = raw;
     if (typeof raw === 'string') {
       try { parsed = JSON.parse(raw); } catch { parsed = null; }
