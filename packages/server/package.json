@@ -1,0 +1,12 @@
+{
+  "name": "@goalnet/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node services: static hosting with COOP/COEP, room registry, TURN credentials.",
+  "main": "src/index.mjs",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "test": "node test/run.mjs"
+  }
+}

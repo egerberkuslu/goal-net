@@ -1,0 +1,14 @@
+{
+  "name": "@goalnet/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic fixed-point football simulation. No DOM, no side effects.",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node test/run.mjs"
+  }
+}
