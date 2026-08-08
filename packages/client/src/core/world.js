@@ -94,6 +94,14 @@ export class World {
         this.events.length = 0;
         continue;
       }
+      // Snapshot "was the ball inside the arena" BEFORE anything can move it.
+      // The board rebound needs to know where the ball came from, and it must
+      // not read ball.prev for that: player depenetration shifts prev along
+      // with pos (so contacts inject no velocity), which used to make a shoved
+      // ball look like it had always been outside — and a ball nudged into a
+      // corner escaped the pitch and stayed there.
+      ball.wasInsideX = Math.abs(ball.pos.x) < WALL_X - BALL_R + 0.02;
+      ball.wasInsideZ = Math.abs(ball.pos.z) < PITCH_HALF_L - BALL_R + 0.02;
       ball.integrate(h);
       for (const p of this.players) p.integrate(h);
 
@@ -343,7 +351,7 @@ export class World {
     // a ball that sailed over them and came down outside stays outside, so
     // the game layer can award the throw-in / goal kick / corner.
     const belowBoards = bp.y < BOARD_TOP;
-    const wasInsideX = Math.abs(ball.prev.x) < WALL_X - BALL_R + 0.02;
+    const wasInsideX = ball.wasInsideX !== false;
     if (belowBoards && wasInsideX) {
       if (bp.x > WALL_X - BALL_R) {
         bp.x = WALL_X - BALL_R;
@@ -357,7 +365,7 @@ export class World {
     // boards start past the post plus the ball radius; the post capsule
     // guards the strip in between). Starting the wall at the post's inner
     // face used to swallow balls that should have hit the post or gone in.
-    const wasInsideZ = Math.abs(ball.prev.z) < PITCH_HALF_L - BALL_R + 0.02;
+    const wasInsideZ = ball.wasInsideZ !== false;
     if (belowBoards && wasInsideZ && Math.abs(bp.x) > this.halfW + 0.1) {
       if (bp.z > PITCH_HALF_L - BALL_R) {
         bp.z = PITCH_HALF_L - BALL_R;

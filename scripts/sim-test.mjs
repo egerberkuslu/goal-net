@@ -170,6 +170,32 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
   }
 }
 
+// 3e) a player cannot shove the ball out of the arena. The boards only
+//     rebound a ball that was inside, and player depenetration moves the
+//     ball's prev alongside its pos, so reading prev for "was it inside"
+//     made a shoved ball look like it had always been out: it escaped at
+//     the corner and stayed there, unreachable.
+{
+  const w = new World();
+  const p = w.addPlayer(0);
+  const cx = WALL_X - BALL_R, cz = PITCH_HALF_L - BALL_R;
+  w.ball.place(cx, cz);
+  w.ball.vel = { x: 0, y: 0, z: 0 };
+  w.ball.grounded = true;
+  p.reset(cx - 0.6, cz - 0.6);
+  let maxX = 0, maxZ = 0;
+  for (let f = 0; f < Math.round(7 / DT); f++) {
+    p.input.x = 1; p.input.z = 1;   // lean into the corner for seven seconds
+    w.step(DT);
+    w.drainEvents();
+    maxX = Math.max(maxX, Math.abs(w.ball.pos.x));
+    maxZ = Math.max(maxZ, Math.abs(w.ball.pos.z));
+  }
+  check('corner: shoving cannot push the ball past the boards',
+    maxX <= WALL_X + 0.05 && maxZ <= PITCH_HALF_L + 0.05,
+    `maxX=${maxX.toFixed(2)} maxZ=${maxZ.toFixed(2)}`);
+}
+
 // 4) end wall outside the mouth is solid (no phantom goal)
 {
   const w = new World();
