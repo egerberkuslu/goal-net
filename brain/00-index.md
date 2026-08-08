@@ -56,10 +56,10 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 23 | Kale ağı + bayrak Verlet cloth | 1.6 | Top ağı dalgalandırır; top ağdan geçmez (post-correction) | ☐ |
 | 24 | Forma sistemi (atlas + renk mask + numara) | 1.6 | Takım rengi/desen/numara runtime değişir | ☐ |
 | 25 | Tezahürat + temel sesler | 1.6 | iOS autoplay resume dahil çalışır | ☐ |
-| 26 | Golden goal | 1.7a | Oda ayarından açılır; beraberlikte ilk gol bitirir | ☐ |
-| 27 | Mercy rule | 1.7a | Oda ayarı; 4 gol farkta maç biter (açılıp kapanabilir) | ☐ |
-| 28 | Saha boyutu preset'leri (K/O/B) | 1.7a | Core harita parametresi; oyuncular arası fark yok | ☐ |
-| 29 | Özel oda ayarları senkronu | 1.7a | Süre/skor/saha/golden goal/mercy host-canonical, lobide görünür | ☐ |
+| 26 | Golden goal | 1.7a | Oda ayarından açılır; beraberlikte ilk gol bitirir | ☑ |
+| 27 | Mercy rule | 1.7a | Oda ayarı; 4 gol farkta maç biter (açılıp kapanabilir) | ☑ |
+| 28 | Saha boyutu preset'leri (K/O/B) | 1.7a | Core harita parametresi; oyuncular arası fark yok | ☑ (27/36/45 m; botlar preset-duyarlı) |
+| 29 | Özel oda ayarları senkronu | 1.7a | Süre/skor/saha/golden goal/mercy host-canonical, lobide görünür | ☑ (core API; lobi UI #13'te) |
 | 30 | Tam maç replay (input kaydı) | 1.7b | Kayıt→oynatma desync'siz; constantsHash uyuşmazsa açık ret | ☐ |
 | 31 | Replay paylaşımı | 1.7b | Deflate+base64 link veya kısa ID; açılır oynar | ☐ |
 | 32 | "En iyi 3 an" otomatik klipler | 1.7b | Gol/save/direk heuristikleri tick aralığı üretir | ☐ |

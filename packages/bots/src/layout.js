@@ -32,6 +32,7 @@ import {
   HDR_SCORE_0,
   HDR_SCORE_1,
   CONSTANTS,
+  pitchOf as corePitchOf,
   fx,
 } from '../../core/src/index.js';
 
@@ -126,6 +127,11 @@ const C = CONSTANTS;
 /**
  * Everything about the pitch a bot is allowed to know, in world units.
  * Derived from the locked constant table, never hardcoded.
+ *
+ * This is the MEDIUM preset — the historical arena and the fallback when no
+ * world is at hand. A match can be played on a smaller or larger pitch, so
+ * anything that normalises by pitch size must ask the world instead: see
+ * `pitchFor(world)` below.
  */
 export const PITCH = Object.freeze({
   HALF_X: u(C.PITCH_HALF_X), // 200 — touchlines at x = +/-200
@@ -142,6 +148,29 @@ export const PITCH = Object.freeze({
   TICK_RATE: C.TICK_RATE | 0,
   MAX_PLAYERS: C.MAX_PLAYERS | 0,
 });
+
+// Per-world pitch geometry: presets scale the arena, so a bot that normalises
+// by the medium half-width would read a big pitch as out of bounds. Cached per
+// preset id — there are three of them and they never change at runtime.
+const pitchCache = new Map();
+
+/** Pitch geometry for the world being observed, in world units. */
+export function pitchFor(world) {
+  if (!world) return PITCH;
+  const p = corePitchOf(world);
+  const hit = pitchCache.get(p.id);
+  if (hit) return hit;
+  const scaled = Object.freeze({
+    ...PITCH,
+    HALF_X: u(p.halfX),
+    HALF_Z: u(p.halfZ),
+    GOAL_HALF_X: u(p.goalHalfX),
+    SPAWN_Z: u(p.spawnZ),
+    PRESET: p.id,
+  });
+  pitchCache.set(p.id, scaled);
+  return scaled;
+}
 
 /**
  * Reference speeds used for normalisation.

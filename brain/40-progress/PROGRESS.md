@@ -14,7 +14,7 @@ Sıradaki hedef: Matris #7-#11 (saf fizik dribbling, şarj, falso, tackle, kalec
 | 1.4 | ☐ | — | |
 | 1.5 | ☑ | faz1.5-bots | #20 observe→action; scripted 3 kademe + ONNX aynı arayüz (enjekte runtime) |
 | 1.6 | ☐ | — | |
-| 1.7a | ☐ | — | |
+| 1.7a | ☑ | faz1.7a-rules | #26-#29; settingsHash ayrı (constantsHash "aynı build?", settingsHash "aynı oda?") |
 | 1.7b | ☐ | — | |
 | 1.7c | ☐ | — | |
 | 1.7d | ☐ | — | |
@@ -36,6 +36,16 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-08-08 (6): Faz 1.7a (#26-#29) KAPANDI. Maç ayarları tek kanonik nesne
+  (`normaliseSettings` + `settingsHash a168d11e`), saha preset'leri 27/36/45 m
+  tam tamsayı oranıyla, altın gol / mercy (4 fark) / skor limiti önceliği
+  mercy > altın gol > limit. Preset `constantsHash`'e DEĞİL header'a yazıldı:
+  aynı kodu koşan iki peer farklı odada "uyumsuz build" gibi görünmesin diye
+  (ADR-0005). constantsHash `7f502ae2` sabit, STATE_VERSION 3, core gate 182
+  kontrol. Koordinatör takip işini kapattı: botlar orta preset'e sabitlenmişti,
+  gözlem normalizasyonu artık `pitchFor(world)` ile presete göre ölçekleniyor —
+  üç preset'te de aynı normalize değer okunuyor. (Bu iş sırasında köşegeni
+  yarım hesaplayıp botları golsüz bıraktım; testler yakaladı, düzeltildi.)
 - 2026-08-08 (5): Faz 1.2'nin çekirdek satırları (#7-#11) KAPANDI. Ölçümler:
   dribbling 10 m = 6 dokunuş / 0 turnover (kabul 5-8), şarj eğrisi 0.30x→1.00x
   (sapma <1e-3), falso ±52 birim saptırıyor ve hız %1.2 içinde kalıyor (boost

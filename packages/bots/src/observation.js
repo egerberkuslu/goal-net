@@ -43,6 +43,7 @@
 
 import {
   PITCH,
+  pitchFor,
   PITCH_DIAG,
   SPEED,
   attackSignOf,
@@ -210,6 +211,12 @@ export function observe(world, playerIndex, opts = {}) {
   const out = opts.out && opts.out.length === size ? opts.out : new Float32Array(size);
   out.fill(0);
 
+  // pitch geometry follows the world's preset, not the medium default
+  const P = pitchFor(world);
+  const relX = 2 * P.HALF_X;
+  const relZ = 2 * P.HALF_Z;
+  const diag = Math.sqrt(relX * relX + relZ * relZ); // full pitch diagonal
+
   const scene = readScene(world, opts.scene || createScene(world.playerCount));
   const n = scene.playerCount;
   if (!(playerIndex >= 0 && playerIndex < n)) {
@@ -231,23 +238,23 @@ export function observe(world, playerIndex, opts = {}) {
 
   // Goals in the attack frame: always the same two points, whatever the team.
   const oppGoalX = 0;
-  const oppGoalZ = PITCH.HALF_Z;
+  const oppGoalZ = P.HALF_Z;
   const ownGoalX = 0;
-  const ownGoalZ = -PITCH.HALF_Z;
+  const ownGoalZ = -P.HALF_Z;
 
   // Layout is honoured by name, so a spec reorder cannot silently misfile a
   // feature; a missing name throws on the undefined index instead.
   const I = spec === OBSERVATION_SPEC ? OBS : indexMap(spec);
 
   // --- self ---------------------------------------------------------------
-  out[I.self_x] = c1(sx / PITCH.HALF_X);
-  out[I.self_z] = c1(sz / PITCH.HALF_Z);
+  out[I.self_x] = c1(sx / P.HALF_X);
+  out[I.self_z] = c1(sz / P.HALF_Z);
   out[I.self_vx] = c1(svx / SPEED.PLAYER);
   out[I.self_vz] = c1(svz / SPEED.PLAYER);
   out[I.self_speed] = c01(len2(svx, svz) / SPEED.PLAYER);
   out[I.self_kick_ready] = self.kickCooldown > 0 ? 0 : 1;
-  out[I.self_kick_cd] = c01(self.kickCooldown / PITCH.KICK_COOLDOWN_TICKS);
-  out[I.self_kick_armed] = c01(self.kickArm / PITCH.KICK_LATCH_TICKS);
+  out[I.self_kick_cd] = c01(self.kickCooldown / P.KICK_COOLDOWN_TICKS);
+  out[I.self_kick_armed] = c01(self.kickArm / P.KICK_LATCH_TICKS);
 
   const dOwnX = ownGoalX - sx;
   const dOwnZ = ownGoalZ - sz;
@@ -255,8 +262,8 @@ export function observe(world, playerIndex, opts = {}) {
   const dOppZ = oppGoalZ - sz;
   const distOwn = len2(dOwnX, dOwnZ);
   const distOpp = len2(dOppX, dOppZ);
-  out[I.self_dist_own_goal] = c01(distOwn / PITCH_DIAG);
-  out[I.self_dist_opp_goal] = c01(distOpp / PITCH_DIAG);
+  out[I.self_dist_own_goal] = c01(distOwn / diag);
+  out[I.self_dist_opp_goal] = c01(distOpp / diag);
 
   // --- ball ---------------------------------------------------------------
   const bdx = bx - sx;
@@ -265,30 +272,30 @@ export function observe(world, playerIndex, opts = {}) {
   const bux = bdist > 0 ? bdx / bdist : 0;
   const buz = bdist > 0 ? bdz / bdist : 0;
 
-  out[I.ball_x] = c1(bx / PITCH.HALF_X);
-  out[I.ball_z] = c1(bz / PITCH.HALF_Z);
+  out[I.ball_x] = c1(bx / P.HALF_X);
+  out[I.ball_z] = c1(bz / P.HALF_Z);
   out[I.ball_vx] = c1(bvx / SPEED.BALL);
   out[I.ball_vz] = c1(bvz / SPEED.BALL);
-  out[I.ball_dx] = c1(bdx / REL_X);
-  out[I.ball_dz] = c1(bdz / REL_Z);
-  out[I.ball_dist] = c01(bdist / PITCH_DIAG);
+  out[I.ball_dx] = c1(bdx / relX);
+  out[I.ball_dz] = c1(bdz / relZ);
+  out[I.ball_dist] = c01(bdist / diag);
   out[I.ball_dir_x] = c1(bux);
   out[I.ball_dir_z] = c1(buz);
   // Positive when the gap is shrinking: our motion along the axis minus theirs.
   out[I.ball_closing] = c1(((svx - bvx) * bux + (svz - bvz) * buz) / SPEED.BALL);
 
   // --- goal geometry ------------------------------------------------------
-  out[I.opp_goal_dx] = c1(dOppX / REL_X);
-  out[I.opp_goal_dz] = c1(dOppZ / REL_Z);
-  out[I.opp_goal_dist] = c01(distOpp / PITCH_DIAG);
-  out[I.own_goal_dx] = c1(dOwnX / REL_X);
-  out[I.own_goal_dz] = c1(dOwnZ / REL_Z);
-  out[I.own_goal_dist] = c01(distOwn / PITCH_DIAG);
+  out[I.opp_goal_dx] = c1(dOppX / relX);
+  out[I.opp_goal_dz] = c1(dOppZ / relZ);
+  out[I.opp_goal_dist] = c01(distOpp / diag);
+  out[I.own_goal_dx] = c1(dOwnX / relX);
+  out[I.own_goal_dz] = c1(dOwnZ / relZ);
+  out[I.own_goal_dist] = c01(distOwn / diag);
 
   const bgx = oppGoalX - bx;
   const bgz = oppGoalZ - bz;
   const bgd = len2(bgx, bgz);
-  out[I.ball_opp_goal_dist] = c01(bgd / PITCH_DIAG);
+  out[I.ball_opp_goal_dist] = c01(bgd / diag);
   out[I.shot_alignment] = bdist > 0 && bgd > 0 ? c1(bux * (bgx / bgd) + buz * (bgz / bgd)) : 0;
 
   // --- role and context ---------------------------------------------------
@@ -335,13 +342,16 @@ export function observe(world, playerIndex, opts = {}) {
   const theirs = scene.score[self.team === 0 ? 1 : 0];
   out[I.score_diff] = c1((ours - theirs) / 5);
 
-  writeEntities(out, I, 'mate', scratchMates, MATE_SLOTS);
-  writeEntities(out, I, 'opp', scratchOpps, OPP_SLOTS);
+  const norm = { relX, relZ, diag };
+  writeEntities(out, I, 'mate', scratchMates, MATE_SLOTS, norm);
+  writeEntities(out, I, 'opp', scratchOpps, OPP_SLOTS, norm);
 
   return out;
 }
 
-function writeEntities(out, I, prefix, list, slots) {
+// `norm` carries the pitch-dependent scales so a bigger preset does not read
+// as everyone standing on top of each other.
+function writeEntities(out, I, prefix, list, slots, norm) {
   for (let k = 0; k < slots; k++) {
     const base = I[`${prefix}${k}_present`];
     if (base === undefined) break; // a custom spec may declare fewer slots
@@ -349,9 +359,9 @@ function writeEntities(out, I, prefix, list, slots) {
     if (!e) continue; // already zeroed, present stays 0
     const d = Math.sqrt(e.d2);
     out[base] = 1;
-    out[base + 1] = c1(e.ex / REL_X);
-    out[base + 2] = c1(e.ez / REL_Z);
-    out[base + 3] = c01(d / PITCH_DIAG);
+    out[base + 1] = c1(e.ex / norm.relX);
+    out[base + 2] = c1(e.ez / norm.relZ);
+    out[base + 3] = c01(d / norm.diag);
     out[base + 4] = c1(e.evx / SPEED.PLAYER);
     out[base + 5] = c1(e.evz / SPEED.PLAYER);
   }
