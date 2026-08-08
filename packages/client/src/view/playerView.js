@@ -130,6 +130,9 @@ export class PlayerView {
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.45, 6, 14), jersey);
     body.position.y = 0.95;
     body.castShadow = true;
+    // Named so a cosmetic layer can re-skin the torso without reaching into
+    // group.children by index. Nothing here reads it; purely additive.
+    this.body = body;
     this.group.add(body);
 
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 14), skin);

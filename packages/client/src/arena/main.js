@@ -305,9 +305,29 @@ function onFrame(peerId, data) {
 
 // ------------------------------------------------------------------ match
 
+// ?atmos=0 builds the arena with no cosmetic layer at all, which is how the
+// draw-call and triangle budget of matrix #19 is measured with and without it.
+// ?tier=low|medium|high overrides the device detection.
 function buildView(roster) {
   view?.dispose();
-  view = new ArenaView(dom.app, { slots: roster.slots });
+  view = new ArenaView(dom.app, {
+    slots: roster.slots,
+    atmos: params.get('atmos') !== '0',
+    tier: params.get('tier') || undefined,
+    sound: params.get('sound') !== '0',
+  });
+  window.__atmos = () => (view?.atmos ? view.atmos.stats() : null);
+  // renderer.info is the only honest source for the matrix #19 budgets, so it
+  // is exposed rather than estimated.
+  window.__render = () => (view ? {
+    calls: view.renderer.info.render.calls,
+    triangles: view.renderer.info.render.triangles,
+    lines: view.renderer.info.render.lines,
+    points: view.renderer.info.render.points,
+    geometries: view.renderer.info.memory.geometries,
+    textures: view.renderer.info.memory.textures,
+    programs: view.renderer.info.programs ? view.renderer.info.programs.length : -1,
+  } : null);
   return view;
 }
 
@@ -337,6 +357,7 @@ function startMatch(roster, settings, localIndex, opts = {}) {
   });
   show(null);
   match.start();
+  view.atmos?.onRestart(); // kickoff whistle and a round of applause
   window.__arena = arenaHandle();
 }
 

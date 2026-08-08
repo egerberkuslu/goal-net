@@ -24,6 +24,7 @@ import { BallView } from '../view/ballView.js';
 import { CameraRig } from '../view/cameraRig.js';
 import { CONSTANTS } from '../../../core/src/index.js';
 import { GOAL_HEIGHT_M, PITCH_M, TICK_HZ, toMetres } from './units.js';
+import { Atmosphere } from './atmos/index.js';
 
 const DIVE_TOTAL_S = CONSTANTS.DIVE_ACTIVE_TICKS / TICK_HZ;
 const TACKLE_TOTAL_S = CONSTANTS.TACKLE_ACTIVE_TICKS / TICK_HZ;
@@ -118,6 +119,22 @@ class PlayerAdapter {
     this.celebrate = kind;
     this.celebrateLeft = seconds;
   }
+}
+
+/**
+ * A shirt number for a slot the lobby did not give one to: 1 for the keeper,
+ * then 2 upwards in slot order within the team. Cosmetic, so it needs to be
+ * stable and readable rather than authoritative.
+ */
+function shirtNumber(slots, index) {
+  const me = slots[index];
+  if (!me) return 0;
+  if (me.role === 'keeper') return 1;
+  let n = 2;
+  for (let i = 0; i < index; i++) {
+    if (slots[i].team === me.team && slots[i].role !== 'keeper') n++;
+  }
+  return Math.min(99, n);
 }
 
 function unit(x, z, fallback) {
@@ -235,20 +252,49 @@ export class ArenaView {
     this.ballView = new BallView(this.ball, scene);
     this.ballView.mesh.scale.setScalar(PITCH_M.ballR / BALL_VIEW_RADIUS_M);
 
+    // The cosmetic layer (matrix #21-#25). It is handed metres and seconds and
+    // nothing else; it cannot reach the world from here. `atmos: false` builds
+    // the arena exactly as it was before, which is how the draw-call and
+    // triangle deltas in the report were measured.
+    this.atmos = match.atmos === false ? null : new Atmosphere(scene, {
+      pitch: PITCH_M,
+      goalHeight: GOAL_HEIGHT_M,
+      tier: match.tier,
+      seed: 0x5eed17,
+      sound: match.sound !== false,
+      teamColors: match.teamColors || null,
+    });
+
     const bodyScale = PITCH_M.playerR / VIEW_BODY_RADIUS_M;
-    this.players = match.slots.map((slot) => {
+    this.players = match.slots.map((slot, index) => {
       const adapter = new PlayerAdapter(slot);
       const view = new PlayerView(adapter, scene, match.teamColors || null);
       view.group.scale.setScalar(bodyScale);
-      return { adapter, view, slot };
+      const entry = { adapter, view, slot };
+      // Kits are applied once here; a later change goes through
+      // atmos.applyKit(), which only writes uniforms.
+      entry.dressed = this.atmos?.dress(view, {
+        team: slot.team,
+        role: slot.role,
+        number: slot.number ?? shirtNumber(match.slots, index),
+        pattern: slot.team === 0 ? 'stripes' : 'hoops',
+      }) || null;
+      return entry;
     });
     this.bodyScale = bodyScale;
     this.state = 'kickoff';
+    // The ball reading of the PREVIOUS frame. The core resets the ball to the
+    // centre spot on the tick it awards the goal, so by the time the score has
+    // visibly moved the live ball is already back at the middle; the cosmetic
+    // ball that flies into the net is launched from this copy instead.
+    this.prevBall = { x: 0, z: 0, vx: 0, vz: 0 };
+    this.saveArmed = true;
   }
 
   /** Mark a strike so the kick swing plays; called from core events. */
   onStrike(index) {
     this.players[index]?.adapter.strike();
+    this.atmos?.onStrike(this.ball.pos.z);
   }
 
   /** Goal reaction: the scoring side bounces, the conceding side slumps. */
@@ -256,6 +302,7 @@ export class ArenaView {
     for (const p of this.players) {
       p.adapter.setCelebrate(p.slot.team === team ? 1 : -1, seconds);
     }
+    this.atmos?.onGoal(team, this.prevBall, Math.max(seconds, 2.4));
   }
 
   /**
@@ -264,6 +311,11 @@ export class ArenaView {
    * @param {{state?:string, me?:number}} ctx match flow, for the camera
    */
   update(state, dt, ctx = {}) {
+    // copy, never a reference: the atmosphere gets numbers it cannot write back
+    this.prevBall.x = this.ball.pos.x;
+    this.prevBall.z = this.ball.pos.z;
+    this.prevBall.vx = this.ball.vel.x;
+    this.prevBall.vz = this.ball.vel.z;
     this.ball.apply(state.ball);
     for (let i = 0; i < this.players.length; i++) {
       const p = state.players[i];
@@ -277,14 +329,48 @@ export class ArenaView {
       // body that has been scaled up onto its real collision radius
       if (p.view.tag) p.view.tag.position.y = 2.06 * this.bodyScale;
     }
+    if (this.atmos) {
+      this._reactSave(state);
+      this.atmos.update(dt, {
+        ball: { x: this.ball.pos.x, z: this.ball.pos.z },
+        flow: ctx.state || 'play',
+        scoreGap: state.score ? state.score[0] - state.score[1] : 0,
+        secondsLeft: ctx.secondsLeft,
+      });
+      // during the goal scene the ball the viewer sees is the one in the net
+      this.ballView.mesh.visible = !this.atmos.hidesMatchBall;
+    }
     const me = ctx.me != null ? this.players[ctx.me]?.adapter : null;
     this.rig.update(dt, { ball: this.ball.pos, state: ctx.state || 'play', me: me || null });
     this.renderer.render(this.scene, this.camera);
   }
 
+  /**
+   * A save is not a core event, so it is inferred the same way match.js infers
+   * a strike: a keeper stretched out with the ball inside his reach. Read-only,
+   * and wrong at worst by a round of applause.
+   */
+  _reactSave(state) {
+    let stretched = false;
+    for (let i = 0; i < this.players.length; i++) {
+      const p = state.players[i];
+      if (!p || this.players[i].slot.role !== 'keeper') continue;
+      if (!(p.diveActive > 0)) continue;
+      stretched = true;
+      const dx = toMetres(p.x) - this.ball.pos.x;
+      const dz = toMetres(p.z) - this.ball.pos.z;
+      if (Math.hypot(dx, dz) < PITCH_M.controlR * 1.4 && this.saveArmed) {
+        this.saveArmed = false;
+        this.atmos.onSave();
+      }
+    }
+    if (!stretched) this.saveArmed = true;
+  }
+
   cycleCamera() { return this.rig.cycle(); }
 
   dispose() {
+    this.atmos?.dispose();
     this.goalFrames.dispose();
     this.overlay.dispose();
     this.ballView.dispose();
