@@ -24,7 +24,10 @@
     "test:turn": "node packages/server/test/relay.mjs",
     "test:core": "node packages/core/test/run.mjs",
     "test:net": "node packages/net/test/run.mjs",
-    "test:bots": "node packages/bots/test/run.mjs"
+    "test:bots": "node packages/bots/test/run.mjs",
+    "test:arena": "node scripts/arena-test.mjs",
+    "test:arena2tab": "node scripts/arena-2tab.mjs",
+    "dev:arena": "vite --port 5301 --strictPort"
   },
   "dependencies": {
     "peerjs": "^1.5.0",
