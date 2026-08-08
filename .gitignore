@@ -11,3 +11,5 @@ docker/coturn/certs/
 
 # otonom kurulum arşivi
 haxball3d-brain.zip
+tools/vendor/
+dist-assets/
