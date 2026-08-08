@@ -1,0 +1,14 @@
+{
+  "name": "@goalnet/replay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Input-only replay container, deterministic playback, share codec and automatic highlight clips over @goalnet/core. No runtime dependencies.",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node test/run.mjs"
+  }
+}
