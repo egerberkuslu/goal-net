@@ -63,11 +63,11 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 30 | Tam maç replay (input kaydı) | 1.7b | Kayıt→oynatma desync'siz; constantsHash uyuşmazsa açık ret | ☑ |
 | 31 | Replay paylaşımı | 1.7b | Deflate+base64 link veya kısa ID; açılır oynar | ☑ (kısa ID önerilir) |
 | 32 | "En iyi 3 an" otomatik klipler | 1.7b | Gol/save/direk heuristikleri tick aralığı üretir | ☑ |
-| 33 | Rating: OpenSkill + placement + decay | 1.7c | Takım maçı sonrası mu/sigma güncellenir; 5-10 placement | ☐ |
-| 34 | Sezon (soft reset + rozet) | 1.7c | Sezon kapanışında sıkıştırma reseti çalışır | ☐ |
-| 35 | İzleyici modu | 1.7c | Input'suz katılım; 4+ izleyicide host yükü ölçülü/sınırlı | ☐ |
-| 36 | Klan tag'i (3-5 karakter) + isim filtresi | 1.7c | Homoglyph-normalize küfür filtresi | ☐ |
-| 37 | Quick chat / emote (korumalı) | 1.7c | 2-3s cooldown + spam tespiti + per-player mute | ☐ |
+| 33 | Rating: OpenSkill + placement + decay | 1.7c | Takım maçı sonrası mu/sigma güncellenir; 5-10 placement | ☑ (Plackett-Luce, 8 placement) |
+| 34 | Sezon (soft reset + rozet) | 1.7c | Sezon kapanışında sıkıştırma reseti çalışır | ☑ (yayılım ×0.5, sıra korunur) |
+| 35 | İzleyici modu | 1.7c | Input'suz katılım; 4+ izleyicide host yükü ölçülü/sınırlı | ☑ (16 izleyicide de 3 payload/yayın) |
+| 36 | Klan tag'i (3-5 karakter) + isim filtresi | 1.7c | Homoglyph-normalize küfür filtresi | ☑ (27/27 evasion, 47/47 temiz isim) |
+| 37 | Quick chat / emote (korumalı) | 1.7c | 2-3s cooldown + spam tespiti + per-player mute | ☑ (sabit ifade tablosu) |
 | 38 | Maç anlatımı (hazır klipler TR+EN) | 1.7d | Event bus + öncelik/kesme + cooldown; runtime TTS yok | ☐ |
 | 39 | Tansiyon sistemi | 1.7d | Skor+süre → tek değer → crowd/anlatıcı yoğunluğu; kozmetik | ☐ |
 | 40 | Stadyum varyantları (gece/gündüz, hava, temalar) | 1.7d | Baked ışık varyantları; GPU partikül; mobilde otomatik kısılır | ☐ |

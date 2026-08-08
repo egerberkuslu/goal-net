@@ -1,8 +1,8 @@
 # PROGRESS — Canlı Durum (koordinatör her hedefte günceller)
 
 Son güncelleme: 2026-08-08
-Aktif faz: 1.7b (replay) + kalan kozmetik fazlar
-Sıradaki hedef: #30-#32 replay (ajanda), sonra 1.3/1.4/1.6/1.7c/1.7d/2
+Aktif faz: 1.6 (atmosfer) + 2 (parity) ajanda; sonra 1.3/1.4/1.7d
+Sıradaki hedef: kalan matris satırları #14-#19, #21-#25, #38-#41, #42-#45
 
 | Faz | Durum | Tag | Not |
 |---|---|---|---|
@@ -16,7 +16,7 @@ Sıradaki hedef: #30-#32 replay (ajanda), sonra 1.3/1.4/1.6/1.7c/1.7d/2
 | 1.6 | ☐ | — | |
 | 1.7a | ☑ | faz1.7a-rules | #26-#29; settingsHash ayrı (constantsHash "aynı build?", settingsHash "aynı oda?") |
 | 1.7b | ☑ | faz1.7b-replay | #30-#32; input-kayıtlı konteyner, keyframe seek 0.97ms, kısa-ID paylaşımı |
-| 1.7c | ☐ | — | |
+| 1.7c | ☑ | faz1.7c-social | #33-#37; izleyici maliyeti sabit, isim filtresi homoglyph-dayanıklı |
 | 1.7d | ☐ | — | |
 | 2 | ☐ | — | |
 
@@ -36,6 +36,16 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-08-08 (9): Faz 1.7c (#33-#37) KAPANDI — `packages/social`: Plackett-Luce
+  OpenSkill (80 maçta 4v4 mu farkı 9.53, 1v1 kontrolü 2.69 — takım sonucu dörde
+  bölündüğü için yavaş olması beklenen davranış), 8 maçlık placement (×1.72
+  hızlı), atalet decay'i varyansta lineer. Sezon sıfırlaması yayılımı tam yarıya
+  indiriyor ve sırayı bozmuyor. İzleyici bütçesi gerçek ölçümle kanıtlandı:
+  16 izleyicide de yayın başına 3 payload kodlanıyor (naif tasarım 2576'ya
+  çıkardı). İsim filtresi 27/27 evasion varyantını yakaladı, 47/47 meşru Türkçe
+  ismi geçirdi; bilinen tek yanlış-pozitif "Niger" ve bu kod içinde açıkça
+  belgelenmiş (allowlist'e almak küfrü açardı). Quick chat sabit ifade tablosu
+  üzerinden çalıştığı için tel üzerinden hakaret taşınamıyor.
 - 2026-08-08 (6): Faz 1.7a (#26-#29) KAPANDI. Maç ayarları tek kanonik nesne
   (`normaliseSettings` + `settingsHash a168d11e`), saha preset'leri 27/36/45 m
   tam tamsayı oranıyla, altın gol / mercy (4 fark) / skor limiti önceliği
