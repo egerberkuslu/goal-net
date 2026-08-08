@@ -285,3 +285,128 @@ Hepsi `ALL PASS` veriyorsa `dist/` klasörü yayına hazırdır.
 | Konsolda `Mixed Content` hatası | HTTPS sayfadan HTTP oda sunucusuna istek | Oda sunucusunu TLS ile yayınlayın |
 | Oda kuruluyor ama kimse bağlanamıyor | Simetrik NAT, TURN yok | Aynı ağdan deneyin veya kendi TURN/broker'ınızı kurun |
 | Fly'da liste bir dolup bir boşalıyor | Birden fazla makine var | `fly scale count 1` |
+
+---
+
+## 7. Kendi sunucun: web + TURN (üretim)
+
+PeerJS'in genel brokerı bağlantıyı kurar ama simetrik NAT arkasındaki iki
+oyuncuyu birbirine bağlayamaz. Röle şart, ve röle ücretsiz genel bir
+hizmetten alınamaz: kendi coturn'ünüzü çalıştırırsınız. Depodaki
+`docker-compose.yml` iki servisi birlikte ayağa kaldırır.
+
+Yerel geliştirme kurulumu `SETUP.md` içinde. Burası internete açık kurulum.
+
+### 7.1 Ne gerekiyor
+
+| Gereksinim | Neden |
+|---|---|
+| Genel IPv4 adresi | Röle adresi adaylara konur, NAT arkasından duyurulamaz |
+| Bir alan adı (`turn.oyunalanin.com`) | `turns:` URI'si sertifikadaki adla eşleşmeli |
+| 3478 tcp+udp, 5349 tcp+udp, 49152-65535 udp açık | STUN, TLS ve röle trafiği |
+| Gerçek sertifika | Kendinden imzalı olan tarayıcıda `turns:` adayını düşürür |
+
+Bulut sağlayıcılarının çoğunda makine NAT arkasındadır (elastic IP, floating
+IP). O durumda `TURN_LISTENING_IP=0.0.0.0` ve `TURN_EXTERNAL_IP=<genel IP>`
+birlikte verilir; ikincisi olmadan coturn kendi özel adresini duyurur ve
+röle sessizce çalışmaz.
+
+### 7.2 Sertifika
+
+Let's Encrypt, HTTP-01 doğrulamasıyla:
+
+```bash
+sudo certbot certonly --standalone -d turn.oyunalanin.com
+```
+
+Sertifikayı coturn'ün okuyabileceği yere kopyalayın. Konteyner `nobody`
+(uid 65534) olarak koşar, `/etc/letsencrypt/live/...` altındaki 0600 anahtarı
+okuyamaz:
+
+```bash
+sudo install -d -m 755 /srv/goalnet/certs
+sudo install -m 644 /etc/letsencrypt/live/turn.oyunalanin.com/fullchain.pem \
+  /srv/goalnet/certs/turn_server_cert.pem
+sudo install -m 640 -g 65534 /etc/letsencrypt/live/turn.oyunalanin.com/privkey.pem \
+  /srv/goalnet/certs/turn_server_pkey.pem
+```
+
+`docker-compose.yml` içindeki coturn volume'una bu dizini bağlayın:
+
+```yaml
+    volumes:
+      - ./docker/coturn:/etc/coturn:ro
+      - /srv/goalnet/certs:/etc/coturn/certs:ro
+```
+
+Certbot yenilemesi dosyayı değiştirdiğinde konteyner yeniden başlatılmalı;
+`--deploy-hook "docker compose -f /srv/goalnet/docker-compose.yml restart coturn"`
+işi görür.
+
+### 7.3 `.env`
+
+```ini
+TURN_SECRET=<openssl rand -hex 32 çıktısı, ortama özel>
+TURN_REALM=turn.oyunalanin.com
+TURN_HOST=turn.oyunalanin.com
+TURN_LISTENING_IP=0.0.0.0
+TURN_EXTERNAL_IP=203.0.113.10
+TURN_MIN_PORT=49152
+TURN_MAX_PORT=65535
+TURN_TOTAL_QUOTA=100
+WEB_PORT=5210
+```
+
+`TURN_SECRET` yalnızca sunucuda kalır. `web` servisi onunla
+`username=(unix_ts+300):userId`, `credential=base64(HMAC-SHA1(secret, username))`
+üretir; tarayıcı sırrı hiç görmez ve eline geçen kimlik bilgisi beş dakikada
+kendiliğinden ölür. Sırrı ortamlar arasında paylaşmayın; sızarsa `.env`
+içinde değiştirip iki servisi de yeniden başlatmak yeterlidir.
+
+### 7.4 Güvenlik duvarı
+
+```bash
+sudo ufw allow 3478/tcp
+sudo ufw allow 3478/udp
+sudo ufw allow 5349/tcp
+sudo ufw allow 5349/udp
+sudo ufw allow 49152:65535/udp
+```
+
+Bulut sağlayıcısının kendi security group'unda da aynı beş kural açılmalı.
+UDP aralığını daraltmak isterseniz `TURN_MIN_PORT`/`TURN_MAX_PORT` ile hem
+coturn'ü hem duvarı birlikte kısın; eşzamanlı tahsis başına bir port düşer.
+
+`web` servisi varsayılan olarak `127.0.0.1:5210`'a bağlanır. Önüne TLS
+sonlandıran bir ters vekil koyun (nginx, Caddy). `docker-compose.yml`
+içindeki port satırından `127.0.0.1:` önekini kaldırıp doğrudan açmayın:
+COOP/COEP başlıkları ancak HTTPS altında çapraz köken izolasyonu sağlar.
+
+### 7.5 Doğrulama
+
+```bash
+docker compose up -d
+curl -s https://oyunalanin.com/healthz
+node packages/server/test/relay.mjs --from https://oyunalanin.com \
+  --host turn.oyunalanin.com --port 3478
+```
+
+Son komut gerçek bir TURN Allocate el sıkışması yapar ve röle adresini
+yazdırır. Başarısızsa sırayla bakın: 3478/udp duvarda açık mı, `TURN_SECRET`
+iki serviste aynı mı, `TURN_REALM` her iki tarafta aynı mı, `TURN_EXTERNAL_IP`
+gerçekten genel adres mi.
+
+Tarayıcı tarafını da doğrulamak için Trickle ICE sayfasına
+`/turn-credentials` çıktısındaki `iceServers` girin; `relay` tipinde aday
+görmelisiniz.
+
+### 7.6 Neden bu ayarlar
+
+| Ayar | Sebep |
+|---|---|
+| `use-auth-secret` | Kullanıcı veritabanı olmadan süreli kimlik bilgisi, sabit parola yok |
+| `no-auth` ASLA | Açık röle saatler içinde spam ve tünel trafiğiyle sömürülür |
+| `total-quota` / `user-quota` | Tek bir istemcinin bant genişliğini tüketmesini engeller |
+| loopback/multicast peer reddi | Rölenin sunucunun kendi iç servislerine yönlendirilmesini engeller |
+| `network_mode: host` | Docker NAT'i röle port aralığını güvenilir taşımıyor |
+| `no-tlsv1`, `no-tlsv1_1` | Eski TLS sürümleri kapalı |
