@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Goal Net — Arena (deterministik)</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥅</text></svg>" />
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1226;
+      font-family: 'Segoe UI', system-ui, sans-serif; touch-action: none;
+      -webkit-user-select: none; user-select: none; color: #fff; }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    .hud { position: fixed; z-index: 10; pointer-events: none; }
+    #arenaBoard { top: 12px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 14px;
+      background: rgba(8, 14, 30, .6); padding: 8px 20px; border-radius: 14px;
+      backdrop-filter: blur(6px); font-weight: 800; font-size: 22px; }
+    .dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+    #arenaTimer { font-size: 15px; font-weight: 600; color: #cfd8ff; min-width: 56px; text-align: center; }
+    #arenaDiag { top: 58px; left: 50%; transform: translateX(-50%);
+      font-size: 12px; color: #8fa2cf; font-family: ui-monospace, Consolas, monospace; }
+    #arenaMsg { top: 32%; left: 50%; transform: translate(-50%, -50%) scale(.6);
+      font-size: 60px; font-weight: 900; letter-spacing: 3px; opacity: 0;
+      text-shadow: 0 4px 24px rgba(0,0,0,.6); transition: all .18s ease-out; }
+    #arenaMsg.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    #arenaMsg.gol { color: #7CFC8E; }
+    #arenaKeys { right: 14px; bottom: 12px; font-size: 12px; color: #8fa2cf;
+      text-align: right; line-height: 1.7; }
+    #arenaKeys b { color: #dbe4ff; }
+
+    .overlay { position: fixed; inset: 0; z-index: 20; display: flex;
+      flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(6, 10, 22, .78); backdrop-filter: blur(8px);
+      overflow-y: auto; padding: 24px 12px; }
+    .overlay.hidden { display: none; }
+    .overlay h1 { font-size: 40px; margin: 0 0 4px; letter-spacing: 2px; }
+    .overlay h2 { font-size: 30px; margin: 0 0 6px; }
+    .overlay p.sub { color: #9fb0d8; margin: 0 0 22px; font-size: 14px; }
+    button { border: 0; color: #fff; background: #2456e6; padding: 12px 28px;
+      border-radius: 12px; font-size: 17px; font-weight: 700; cursor: pointer; margin: 5px; }
+    button:hover { background: #3868f8; }
+    button:disabled { background: #2b3556; color: #8b97bd; cursor: not-allowed; }
+    button.ghost { background: rgba(255, 255, 255, .1); }
+    button.ghost:hover { background: rgba(255, 255, 255, .2); }
+    button.small { padding: 7px 14px; font-size: 14px; border-radius: 9px; }
+    .panel { display: flex; flex-direction: column; gap: 8px; min-width: 300px;
+      background: rgba(8, 14, 30, .55); border: 1px solid rgba(120, 150, 220, .18);
+      padding: 20px 24px; border-radius: 16px; }
+    .label { color: #9fb0d8; font-size: 13px; font-weight: 700; letter-spacing: .6px; }
+    .input { border: 1px solid rgba(120, 150, 220, .28); background: rgba(4, 8, 20, .6);
+      color: #fff; font: inherit; font-size: 17px; padding: 10px 13px;
+      border-radius: 10px; outline: none; }
+    .input.code { font-family: ui-monospace, Consolas, monospace; letter-spacing: 8px;
+      text-align: center; font-weight: 800; text-transform: uppercase; }
+    .or { color: #7f8ec0; font-size: 13px; text-align: center; margin: 8px 0 2px; letter-spacing: 2px; }
+    .err { display: none; color: #ffb4ae; background: rgba(180, 40, 40, .2);
+      border: 1px solid rgba(255, 110, 100, .38); border-radius: 10px;
+      padding: 9px 18px; margin: 14px 0 0; max-width: 460px; font-size: 14px;
+      font-weight: 600; text-align: center; }
+    .err.show { display: block; }
+
+    .roomrow { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+    .roomcode { font-family: ui-monospace, Consolas, monospace; font-size: 34px;
+      font-weight: 800; letter-spacing: 9px; color: #ffd257; }
+    .teams { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+    .team { min-width: 250px; padding: 12px 14px 14px; border-radius: 14px;
+      background: rgba(8, 14, 30, .55); border-top: 3px solid transparent; }
+    .team.red { border-top-color: #e23b3b; }
+    .team.blue { border-top-color: #3b6de2; }
+    .team h3 { margin: 2px 0 10px; font-size: 15px; letter-spacing: 1.5px; }
+    .plist { list-style: none; margin: 0; padding: 0; display: flex;
+      flex-direction: column; gap: 6px; min-height: 44px; }
+    .p { display: flex; align-items: center; gap: 8px; font-size: 15px;
+      background: rgba(255, 255, 255, .06); padding: 7px 10px; border-radius: 9px; }
+    .p.you { background: rgba(60, 110, 250, .26); }
+    .p .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag { color: #9fb0d8; font-size: 12px; font-weight: 700; }
+    .tag.gk { color: #ffd257; }
+    .tag.ok { color: #7CFC8E; }
+    .empty { color: #7f8ec0; font-size: 13px; font-style: italic; padding: 7px 10px; }
+    .settings { display: grid; grid-template-columns: auto auto; align-items: center;
+      gap: 10px 16px; margin: 16px 0 4px; padding: 14px 20px; border-radius: 14px;
+      background: rgba(8, 14, 30, .5); }
+    .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+    .seg button { margin: 0; padding: 6px 13px; font-size: 14px; font-weight: 700;
+      border-radius: 9px; background: rgba(255, 255, 255, .08); }
+    .seg button.on, .seg button.on:disabled { background: #2456e6; color: #fff; }
+    .hint { color: #7f8ec0; font-size: 12px; margin: 8px 0 0; max-width: 560px; text-align: center; }
+    #arenaEndScore { font-size: 30px; font-weight: 800; margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div class="hud" id="arenaBoard">
+    <span class="dot" style="background:#e23b3b"></span>
+    <span id="arenaScoreRed">0</span>
+    <span id="arenaTimer">3:00</span>
+    <span id="arenaScoreBlue">0</span>
+    <span class="dot" style="background:#3b6de2"></span>
+  </div>
+  <div class="hud" id="arenaDiag"></div>
+  <div class="hud" id="arenaMsg"></div>
+  <div class="hud" id="arenaKeys">
+    <div><b>WASD / ok</b> hareket · <b>Boşluk</b> şarj+şut · <b>F</b> pas</div>
+    <div><b>E</b> dokunuş · <b>Shift</b> kayma · <b>Q</b> iptal · <b>V</b> kamera</div>
+    <div id="arenaKeeperKeys"><b>G</b> tut · <b>H</b> el atışı · <b>J</b> degaj · <b>R</b> dalış</div>
+  </div>
+
+  <div class="overlay" id="arenaEntry">
+    <h1>🥅 ARENA</h1>
+    <p class="sub">Deterministik çekirdek · host-otorite netcode · 60 Hz sabit adım</p>
+    <div class="panel">
+      <label class="label" for="arenaName">Oyuncu adın</label>
+      <input id="arenaName" class="input" type="text" maxlength="20" placeholder="Adın"
+             autocomplete="off" spellcheck="false" />
+      <button id="arenaSolo">Tek Başına Oyna (bota karşı)</button>
+      <div class="or">— veya —</div>
+      <button id="arenaCreate" class="ghost">Oda Kur</button>
+      <label class="label" for="arenaCode">Oda kodu</label>
+      <input id="arenaCode" class="input code" type="text" maxlength="6" placeholder="ABC123"
+             autocomplete="off" spellcheck="false" />
+      <button id="arenaJoin" class="ghost">Katıl</button>
+      <div class="or">— bağlantı —</div>
+      <span class="seg" id="arenaBackend">
+        <button data-backend="peer">PeerJS (internet)</button>
+        <button data-backend="local">Aynı tarayıcı (sekme)</button>
+      </span>
+    </div>
+    <div id="arenaEntryError" class="err"></div>
+  </div>
+
+  <div class="overlay hidden" id="arenaLobbyView">
+    <h2>Lobi</h2>
+    <div class="roomrow">
+      <span class="label">ODA KODU</span>
+      <span class="roomcode" id="arenaRoomCode">------</span>
+      <button class="small ghost" id="arenaCopy">Kopyala</button>
+    </div>
+
+    <div class="teams">
+      <div class="team red">
+        <h3>KIRMIZI</h3>
+        <ul class="plist" id="arenaTeamRed"></ul>
+      </div>
+      <div class="team blue">
+        <h3>MAVİ</h3>
+        <ul class="plist" id="arenaTeamBlue"></ul>
+      </div>
+    </div>
+
+    <div>
+      <button class="small ghost" id="arenaSwitch">Takım Değiştir</button>
+      <button class="small ghost" id="arenaKeeperBtn">Kaleci Ol</button>
+      <button class="small" id="arenaReady">Hazırım</button>
+    </div>
+
+    <div class="settings" id="arenaSettings">
+      <span class="label">Mod</span>
+      <span class="seg">
+        <button data-set="mode" data-value="1v1">1v1</button>
+        <button data-set="mode" data-value="2v2">2v2</button>
+        <button data-set="mode" data-value="3v3">3v3 (kalecisiz)</button>
+        <button data-set="mode" data-value="4v4">4v4 (kaleci)</button>
+      </span>
+      <span class="label">Bot zorluğu</span>
+      <span class="seg">
+        <button data-set="difficulty" data-value="kolay">Kolay</button>
+        <button data-set="difficulty" data-value="orta">Orta</button>
+        <button data-set="difficulty" data-value="zor">Zor</button>
+      </span>
+      <span class="label">Süre</span>
+      <span class="seg">
+        <button data-set="matchSeconds" data-value="60">1 dk</button>
+        <button data-set="matchSeconds" data-value="180">3 dk</button>
+        <button data-set="matchSeconds" data-value="300">5 dk</button>
+      </span>
+      <span class="label">Gol limiti</span>
+      <span class="seg">
+        <button data-set="goalLimit" data-value="3">3</button>
+        <button data-set="goalLimit" data-value="5">5</button>
+        <button data-set="goalLimit" data-value="10">10</button>
+        <button data-set="goalLimit" data-value="0">Sınırsız</button>
+      </span>
+    </div>
+    <p class="hint" id="arenaLobbyHint"></p>
+    <div id="arenaLobbyError" class="err"></div>
+
+    <div>
+      <button id="arenaStart">Başlat</button>
+      <button id="arenaLeave" class="ghost">Ayrıl</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="arenaEnd">
+    <h2 id="arenaEndTitle">Bitti</h2>
+    <div id="arenaEndScore">0 — 0</div>
+    <button id="arenaEndBack" class="ghost">Lobiye Dön</button>
+  </div>
+
+  <script type="module" src="/src/arena/main.js"></script>
+</body>
+</html>
