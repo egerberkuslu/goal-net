@@ -21,8 +21,14 @@ import {
   deserialize,
   readState,
   place,
+  setCurve,
   quantiseInput,
   playerOffset,
+  controlAdvice,
+  chargePower,
+  inPenaltyArea,
+  keeperEmpowered,
+  BTN,
   BALL_BASE,
   FIELD,
   CONSTANTS,
@@ -33,6 +39,13 @@ import {
   fx,
   CORE_VERSION,
 } from '../src/index.js';
+import {
+  straightRun,
+  zigzagRun,
+  turnRun,
+  tackleGrid,
+  TEN_METRES,
+} from './tuning.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 const FX_ONE = fx.FX_ONE;
@@ -68,10 +81,13 @@ const DIRS = [
 ];
 
 const SCENARIO = {
-  name: 'phase1-3000',
+  name: 'phase12-3000',
   seed: 0x5eed1234,
   ticks: 3000,
   playerCount: 4,
+  // players 0 and 1 are the fixed keepers of teams 0 and 1 (ADR-0001); the
+  // determinism chain has to cover the keeper branches, not just the outfield
+  roles: [1, 1, 0, 0],
 };
 
 /**
@@ -116,24 +132,45 @@ function dirTowardBall(buf, p) {
 }
 
 /**
- * Press kick once the ball is nearly in reach, but only in short bursts: the
- * core arms on the rising edge of the button, so a permanently held kick would
- * fire exactly once per approach and the run would barely touch the impulse
- * path at all.
+ * Every button, on a fixed schedule, so the determinism chain walks the charge
+ * accumulator, the close-control touch, the slide windows and all four keeper
+ * powers rather than only the Phase 1.1 kick path.
+ *
+ * Kick and touch are gated on proximity and pressed in short bursts: the core
+ * arms the kick on the rising edge, so a permanently held button would fire once
+ * per approach and the run would barely touch the impulse path at all.
  */
-function wantsKick(buf, p, t) {
-  if (t % 10 > 1) return false;
+function wantsButtons(buf, p, t) {
   const o = playerOffset(p);
   const dx = buf[BALL_BASE] - buf[o + FIELD.P_X];
   const dz = buf[BALL_BASE + 1] - buf[o + FIELD.P_Z];
-  return fx.fxHypot(dx, dz) - REACH < CONSTANTS.KICK_RANGE * 3;
+  const gap = fx.fxHypot(dx, dz) - REACH;
+  const near = gap < CONSTANTS.KICK_RANGE * 3;
+  const reachable = gap < CONSTANTS.KICK_RANGE;
+  let b = 0;
+  if (near && t % 10 <= 1) b |= BTN.KICK;
+  if (near && (t + p * 3) % 7 <= 1) b |= BTN.TOUCH;
+  // hold the shot button for 20 ticks out of every 50, offset per player, and
+  // let go the moment the ball is genuinely reachable, so releases land at many
+  // points on the charge curve AND actually connect
+  if (!reachable && (t + p * 23) % 50 < 20) b |= BTN.CHARGE;
+  if ((t + p * 31) % 271 === 0) b |= BTN.CANCEL;
+  if ((t + p * 5) % 173 === 0) b |= BTN.TACKLE;
+  if (p < 2) {
+    // the keepers: grab whenever they legally can, and periodically dive,
+    // hand-throw and boot it clear
+    b |= BTN.CATCH;
+    if ((t + p * 11) % 61 === 0) b |= BTN.DIVE;
+    if ((t + p * 17) % 97 < 15) b |= BTN.CLEAR;
+    if ((t + p * 29) % 211 === 0) b |= BTN.THROW;
+  }
+  return b;
 }
 
-/** Decode a recorded input code (dirIndex + 9 if kick) back into an input. */
+/** Decode a recorded input code (dirIndex | buttons << 4) back into an input. */
 function decodeInput(code) {
-  const kick = code >= 9;
-  const d = DIRS[code % 9];
-  return { moveXFx: d[0], moveZFx: d[1], kick };
+  const d = DIRS[code & 15];
+  return { moveXFx: d[0], moveZFx: d[1], buttons: code >>> 4 };
 }
 
 /**
@@ -142,34 +179,43 @@ function decodeInput(code) {
  * has to reimplement the steering above.
  */
 function runTrace(scn = SCENARIO, wander = wanderScript(scn), onTick = null) {
-  const world = createWorld({ playerCount: scn.playerCount });
+  const world = createWorld({ playerCount: scn.playerCount, roles: scn.roles });
   const chain = [checksum(world)]; // tick 0, before any step
   const codes = [];
-  let goals = 0;
-  let kicks = 0;
+  const tally = {
+    goal: 0,
+    kick: 0,
+    shot: 0,
+    touch: 0,
+    tackle: 0,
+    'keeper-catch': 0,
+    'keeper-release': 0,
+    'keeper-save': 0,
+    'keeper-whiff': 0,
+    'grief-void': 0,
+  };
   for (let t = 0; t < scn.ticks; t++) {
     const frame = [];
     const inputs = [];
     for (let p = 0; p < scn.playerCount; p++) {
       const d = wander[t][p] >= 0 ? wander[t][p] : dirTowardBall(world.buf, p);
-      const code = d + (wantsKick(world.buf, p, t) ? 9 : 0);
+      const code = d | (wantsButtons(world.buf, p, t) << 4);
       frame.push(code);
       inputs.push(decodeInput(code));
     }
     codes.push(frame);
     for (const e of step(world, inputs)) {
-      if (e.type === 'goal') goals++;
-      else if (e.type === 'kick') kicks++;
+      if (tally[e.type] != null) tally[e.type]++;
     }
     chain.push(checksum(world));
     if (onTick) onTick(world, t);
   }
-  return { world, chain, codes, goals, kicks };
+  return { world, chain, codes, tally, goals: tally.goal, kicks: tally.kick };
 }
 
 /** Replay a recorded code stream with no policy in the loop at all. */
 function replayCodes(scn, codes) {
-  const world = createWorld({ playerCount: scn.playerCount });
+  const world = createWorld({ playerCount: scn.playerCount, roles: scn.roles });
   const chain = [checksum(world)];
   for (let t = 0; t < codes.length; t++) {
     step(world, codes[t].map(decodeInput));
@@ -191,15 +237,17 @@ function firstDiff(a, b) {
 // ------------------------------------------------------------ trace mode
 
 if (process.argv.includes('--dump-trace')) {
-  const { world, chain, codes, goals, kicks } = runTrace();
+  const { world, chain, codes, tally, goals, kicks } = runTrace();
   process.stdout.write(
     JSON.stringify({
       core: CORE_VERSION,
       constantsHash,
       scenario: SCENARIO,
-      // input encoding: code = dirIndex + (kick ? 9 : 0); DIRS is the
-      // fixed-point direction table below, index 0 = no movement
+      // input encoding: code = dirIndex | (buttons << 4); DIRS is the
+      // fixed-point direction table below, index 0 = no movement, and the
+      // button bits are the BTN table exported by the core
       dirs: DIRS,
+      tally,
       goals,
       kicks,
       chainDigest: chainDigest(chain),
@@ -488,6 +536,18 @@ const runB = runTrace();
     runA.kicks > 50 && runA.goals > 0 && runA.chain.length === SCENARIO.ticks + 1,
     `kicks=${runA.kicks} goals=${runA.goals}`,
   );
+  {
+    // a determinism chain that never enters a branch proves nothing about it
+    const t = runA.tally;
+    const cold = Object.entries(t).filter(
+      ([k, v]) => v === 0 && k !== 'grief-void',
+    );
+    check(
+      'the chain walks every Phase 1.2 mechanic at least once',
+      cold.length === 0,
+      `${JSON.stringify(t)}`,
+    );
+  }
   const replay = replayCodes(SCENARIO, runA.codes);
   const rd = firstDiff(runA.chain, replay.chain);
   check(
@@ -524,7 +584,10 @@ const runB = runTrace();
   // serialize -> deserialize -> continue must rejoin the uninterrupted chain
   const codes = runA.codes;
   const cut = 1234;
-  const world = createWorld({ playerCount: SCENARIO.playerCount });
+  const world = createWorld({
+    playerCount: SCENARIO.playerCount,
+    roles: SCENARIO.roles,
+  });
   const chain = [checksum(world)];
   let resumed = world;
   for (let t = 0; t < codes.length; t++) {
@@ -781,7 +844,759 @@ check(
   );
 }
 
-// ----------------------------------------------------- 4. constantsHash
+// ------------------------------------------- 4. gameplay core (rows 7-11)
+
+section('dribbling — pure physics, no magnet (row #7)');
+
+{
+  // A resting player next to a resting ball must not move it, ever. If there
+  // were an attraction term anywhere this is where it would show up.
+  const w = createWorld({ playerCount: 1 });
+  place(w, 0, 0, 0);
+  place(w, 'ball', 0, 26);
+  const before = readState(w).ball;
+  for (let t = 0; t < 120; t++) step(w, [null]);
+  const after = readState(w).ball;
+  check(
+    'a still player never attracts the ball (no magnet)',
+    after.x === before.x && after.z === before.z,
+    `${before.z} -> ${after.z}`,
+  );
+}
+
+{
+  // After a full kick the ball must keep leaving; a ball that stops running
+  // away is a ball that has been stuck to a foot.
+  const w = createWorld({ playerCount: 1 });
+  place(w, 0, 0, 0);
+  place(w, 'ball', 0, 26);
+  step(w, [{ moveXFx: 0, moveZFx: FX_ONE, kick: true }]);
+  let prev = -1;
+  let monotone = true;
+  for (let t = 0; t < 40; t++) {
+    step(w, [{ moveXFx: 0, moveZFx: FX_ONE }]);
+    const s = readState(w);
+    const gap = Math.hypot(s.ball.x - s.players[0].x, s.ball.z - s.players[0].z);
+    if (gap < prev) monotone = false;
+    prev = gap;
+  }
+  check(
+    'a kicked ball keeps running away from the kicker (no sticking)',
+    monotone && prev > 60,
+    `final gap ${prev.toFixed(1)}`,
+  );
+}
+
+const dribbleStraight = straightRun();
+const dribbleZigzag = zigzagRun();
+const dribbleTurn = turnRun();
+
+check(
+  'a competent dribbler covers 10 m in 5-8 controlled touches',
+  dribbleStraight.touches >= 5 &&
+    dribbleStraight.touches <= 8 &&
+    dribbleStraight.travelled >= TEN_METRES / FX_ONE,
+  `${dribbleStraight.touches} touches over ${dribbleStraight.travelled.toFixed(1)} units`,
+);
+check(
+  'the 10 m run keeps the ball in the target band (playerR+ballR +/- 7)',
+  Math.abs(dribbleStraight.meanGap - 25) <= 7,
+  `mean gap ${dribbleStraight.meanGap.toFixed(2)}`,
+);
+check(
+  'the 10 m run loses the ball zero times',
+  dribbleStraight.turnovers === 0 && dribbleStraight.maxGap < 3 * 25,
+  `turnovers ${dribbleStraight.turnovers} max gap ${dribbleStraight.maxGap.toFixed(1)}`,
+);
+check(
+  'a zigzag keeps close control and spends corrective touches',
+  dribbleZigzag.turnovers === 0 &&
+    dribbleZigzag.taps > 0 &&
+    dribbleZigzag.controlRatio > 0.4,
+  `taps ${dribbleZigzag.taps} control ${(dribbleZigzag.controlRatio * 100).toFixed(0)}% turnovers ${dribbleZigzag.turnovers}`,
+);
+check(
+  'a 180 turn keeps the ball and costs control ticks, not possession',
+  dribbleTurn.turnovers === 0 &&
+    dribbleTurn.taps > 0 &&
+    dribbleTurn.controlTicks > 0,
+  `taps ${dribbleTurn.taps} control ticks ${dribbleTurn.controlTicks}/${dribbleTurn.ticks} turnovers ${dribbleTurn.turnovers}`,
+);
+
+{
+  const w = createWorld({ playerCount: 1 });
+  place(w, 0, 0, 0);
+  place(w, 'ball', 0, 27, 0, 0);
+  const still = controlAdvice(w, 0, 0, FX_ONE);
+  place(w, 'ball', 0, 27, 0, 5);
+  const fleeing = controlAdvice(w, 0, 0, FX_ONE);
+  check(
+    'controlAdvice answers the CMU question and mutates nothing',
+    still.keep === true &&
+      fleeing.keep === false &&
+      readState(w).ball.vz === 5 &&
+      controlAdvice(w, 0, 0, FX_ONE, 4).gapNext > fleeing.gapNext,
+    `still ${still.gapNext} fleeing ${fleeing.gapNext}`,
+  );
+}
+
+{
+  // the corrective touch is small by construction, and spamming it loses the
+  // ball rather than gluing it on
+  const w = createWorld({ playerCount: 1 });
+  place(w, 0, 0, 0);
+  place(w, 'ball', 0, 26);
+  let contactTicks = 0;
+  let sum = 0;
+  for (let t = 0; t < 180; t++) {
+    step(w, [{ moveXFx: 0, moveZFx: FX_ONE, touch: true }]);
+    const s = readState(w);
+    const gap = Math.hypot(s.ball.x - s.players[0].x, s.ball.z - s.players[0].z);
+    sum += gap;
+    if (gap <= 25.01) contactTicks++;
+  }
+  const mean = sum / 180;
+  check(
+    'spamming the close-control button pushes the ball to arm\'s length, never onto the foot',
+    contactTicks < 18 && mean > 27,
+    `contact ${contactTicks}/180 ticks, mean gap ${mean.toFixed(2)}`,
+  );
+  check(
+    'the corrective touch is an order of magnitude below a kick',
+    CONSTANTS.TOUCH_IMPULSE * 10 < CONSTANTS.KICK_IMPULSE,
+    `${CONSTANTS.TOUCH_IMPULSE} vs ${CONSTANTS.KICK_IMPULSE}`,
+  );
+}
+
+section('shot charge (row #8)');
+
+{
+  const span = CONSTANTS.CHARGE_MAX_TICKS - CONSTANTS.CHARGE_MIN_TICKS;
+  let worst = 0;
+  let monotone = true;
+  let prev = -1;
+  for (let t = 0; t <= 70; t++) {
+    const got = chargePower(t) / FX_ONE;
+    const u = Math.min(1, Math.max(0, (t - CONSTANTS.CHARGE_MIN_TICKS) / span));
+    const want = 0.3 + 0.7 * Math.pow(u, 1.5);
+    worst = Math.max(worst, Math.abs(got - want));
+    if (got < prev) monotone = false;
+    prev = got;
+  }
+  check(
+    'the charge curve is 0.3 + 0.7*t^1.5 to within 1e-3',
+    worst < 1e-3,
+    `worst ${worst}`,
+  );
+  check('the charge curve never goes backwards', monotone);
+  check(
+    'a tap is exactly 0.3x and a full hold exactly 1.0x',
+    chargePower(0) === CONSTANTS.CHARGE_BASE &&
+      chargePower(CONSTANTS.CHARGE_MIN_TICKS) === CONSTANTS.CHARGE_BASE &&
+      chargePower(CONSTANTS.CHARGE_MAX_TICKS) === FX_ONE &&
+      chargePower(600) === FX_ONE,
+    `${chargePower(0)} / ${chargePower(CONSTANTS.CHARGE_MAX_TICKS)}`,
+  );
+  check(
+    'the hold window is the designed 100-800 ms',
+    CONSTANTS.CHARGE_MIN_TICKS === 6 && CONSTANTS.CHARGE_MAX_TICKS === 48,
+  );
+  check(
+    'the release buffer sits in the designed 4-6 tick band',
+    CONSTANTS.CHARGE_BUFFER_TICKS >= 4 && CONSTANTS.CHARGE_BUFFER_TICKS <= 6,
+    String(CONSTANTS.CHARGE_BUFFER_TICKS),
+  );
+}
+
+/** Hold the shot button for `hold` ticks next to the ball, then let go. */
+function chargeShot(hold, ballVz = 0, gap = 27) {
+  const w = createWorld({ playerCount: 1 });
+  place(w, 0, 0, 0);
+  place(w, 'ball', 0, 200); // parked out of the way while the button is held
+  let peakCharge = 0;
+  for (let t = 0; t < hold; t++) {
+    step(w, [{ moveXFx: 0, moveZFx: 0, charge: true }]);
+    peakCharge = Math.max(peakCharge, readState(w).players[0].charge);
+  }
+  place(w, 'ball', 0, gap, 0, ballVz); // and there it is, on the release tick
+  const ev = step(w, [{ moveXFx: 0, moveZFx: 0 }]);
+  const shot = ev.find((e) => e.type === 'shot');
+  return { world: w, shot, peakCharge, ball: readState(w).ball };
+}
+
+{
+  const bd = CONSTANTS.BALL_DAMPING / FX_ONE;
+  const imp = CONSTANTS.KICK_IMPULSE / FX_ONE;
+  const rows = [1, 6, 12, 24, 36, 48].map((h) => ({ h, r: chargeShot(h) }));
+  let ok = true;
+  const detail = [];
+  for (const { h, r } of rows) {
+    if (!r.shot) {
+      ok = false;
+      detail.push(`${h}: no shot`);
+      continue;
+    }
+    const want = (chargePower(h) / FX_ONE) * imp;
+    const got = r.ball.vz / bd;
+    detail.push(`${h}t ${got.toFixed(3)}`);
+    if (Math.abs(got - want) > 2e-3) ok = false;
+  }
+  check(
+    'a released charge adds exactly power x KICK_IMPULSE',
+    ok,
+    detail.join(' '),
+  );
+  check(
+    'the charge counter lives in core state and climbs while held',
+    rows[5].r.peakCharge === CONSTANTS.CHARGE_MAX_TICKS &&
+      rows[1].r.peakCharge === 6,
+    `${rows[1].r.peakCharge} / ${rows[5].r.peakCharge}`,
+  );
+
+  const moving = chargeShot(48, -3);
+  const resting = chargeShot(48, 0);
+  check(
+    'a charged shot ADDS to the ball velocity, it never sets it',
+    Math.abs(moving.ball.vz / bd - (-3 + imp)) < 2e-3 &&
+      Math.abs(moving.ball.vz - resting.ball.vz) > 1,
+    `${(moving.ball.vz / bd).toFixed(4)} vs ${(-3 + imp).toFixed(4)}`,
+  );
+}
+
+{
+  // buffered release: let go while the ball is out of reach and let it arrive
+  // let go while the ball is nowhere near, then let it arrive `delay` ticks later
+  const arrive = (delay) => {
+    const w = createWorld({ playerCount: 1 });
+    place(w, 0, 0, 0);
+    place(w, 'ball', 0, 200);
+    for (let t = 0; t < 10; t++) step(w, [{ charge: true }]);
+    step(w, [{}]); // the release itself, with nothing in range
+    for (let t = 0; t < delay; t++) step(w, [{}]);
+    place(w, 'ball', 0, 27);
+    let fired = false;
+    for (let t = 0; t < 10; t++) {
+      for (const e of step(w, [{}])) if (e.type === 'shot') fired = true;
+    }
+    return fired;
+  };
+  check(
+    'a release buffered a few ticks early still connects',
+    arrive(0) && arrive(2),
+  );
+  check(
+    'the buffer expires instead of waiting forever',
+    arrive(CONSTANTS.CHARGE_BUFFER_TICKS + 2) === false,
+  );
+}
+
+{
+  const w = createWorld({ playerCount: 1 });
+  place(w, 0, 0, 0);
+  place(w, 'ball', 0, 27);
+  for (let t = 0; t < 30; t++) step(w, [{ charge: true }]);
+  const mid = readState(w).players[0].charge;
+  const ev = step(w, [{ charge: true, chargeCancel: true }]);
+  const after = readState(w);
+  let fired = false;
+  for (let t = 0; t < 10; t++) {
+    for (const e of step(w, [{}])) if (e.type === 'shot') fired = true;
+  }
+  check(
+    'the cancel input drops the charge without firing anything',
+    mid === 30 &&
+      after.players[0].charge === 0 &&
+      after.ball.vz === 0 &&
+      !fired &&
+      ev.some((e) => e.type === 'charge-cancel'),
+    `charge ${mid} -> ${after.players[0].charge}, ball vz ${after.ball.vz}`,
+  );
+}
+
+section('curve (row #9)');
+
+/** Fire the ball down +z with a preset curve and report the lateral drift. */
+function curveFlight(curve, ticks = 60) {
+  const w = createWorld({ playerCount: 1 });
+  place(w, 0, 0, -350);
+  place(w, 'ball', 0, 0, 0, 8);
+  setCurve(w, curve);
+  for (let t = 0; t < ticks; t++) step(w, [null]);
+  return readState(w);
+}
+
+{
+  const straight = curveFlight(0);
+  const left = curveFlight(1);
+  const right = curveFlight(-1);
+  check(
+    'zero curve flies straight',
+    Math.abs(straight.ball.x) < 1e-3,
+    `x ${straight.ball.x}`,
+  );
+  check(
+    'a positive curve bends one way and a negative curve the other',
+    left.ball.x < -5 && right.ball.x > 5 && Math.abs(left.ball.x + right.ball.x) < 1e-3,
+    `left ${left.ball.x.toFixed(2)} right ${right.ball.x.toFixed(2)}`,
+  );
+  // the curve term is a rotation of the velocity, not a boost: the ball ends up
+  // somewhere else, but it is not travelling faster for free
+  const sp = (s) => Math.hypot(s.ball.vx, s.ball.vz);
+  check(
+    'curve rotates the velocity instead of adding energy to it',
+    Math.abs(sp(left) / sp(straight) - 1) < 0.05 && left.ball.curve !== 0,
+    `speed ${sp(left).toFixed(4)} vs ${sp(straight).toFixed(4)}`,
+  );
+}
+
+{
+  const w = createWorld({ playerCount: 1 });
+  place(w, 0, 0, -350);
+  place(w, 'ball', 0, 0, 0, 8);
+  setCurve(w, 1);
+  const d = CONSTANTS.CURVE_DAMPING / FX_ONE;
+  for (let t = 0; t < 40; t++) step(w, [null]);
+  const got = readState(w).ball.curve;
+  check(
+    'curve damps out on its own',
+    Math.abs(got - Math.pow(d, 40)) < 5e-3 && got < 0.4,
+    `${got.toFixed(4)} want ~${Math.pow(d, 40).toFixed(4)}`,
+  );
+}
+
+{
+  // a ground pass is a ground pass: no spin, and no aftertouch window either
+  const w = createWorld({ playerCount: 1 });
+  place(w, 0, 0, 0);
+  place(w, 'ball', 0, 27);
+  setCurve(w, 1);
+  step(w, [{ moveXFx: 0, moveZFx: FX_ONE, kick: true }]);
+  const s = readState(w);
+  for (let t = 0; t < 10; t++) step(w, [{ moveXFx: FX_ONE, moveZFx: 0 }]);
+  const later = readState(w);
+  check(
+    'a ground pass carries curve 0 and opens no aftertouch window',
+    s.ball.curve === 0 && s.aftertouch.owner === -1 && later.ball.curve === 0,
+    `curve ${s.ball.curve} owner ${s.aftertouch.owner} later ${later.ball.curve}`,
+  );
+}
+
+{
+  // aftertouch: sideways input inside the window bends the shot, outside it does
+  // nothing at all
+  const shootThenSteer = (mx, waitTicks) => {
+    const w = createWorld({ playerCount: 1 });
+    place(w, 0, 0, -350);
+    place(w, 'ball', 0, -323);
+    for (let t = 0; t < 48; t++) step(w, [{ charge: true }]);
+    const ev = step(w, [{}]);
+    if (!ev.some((e) => e.type === 'shot')) return null;
+    for (let t = 0; t < waitTicks; t++) step(w, [{}]);
+    for (let t = 0; t < 20; t++) step(w, [{ moveXFx: mx, moveZFx: 0 }]);
+    for (let t = 0; t < 40; t++) step(w, [null]);
+    return readState(w);
+  };
+  const bentLeft = shootThenSteer(-FX_ONE, 0);
+  const bentRight = shootThenSteer(FX_ONE, 0);
+  const tooLate = shootThenSteer(FX_ONE, CONSTANTS.AFTERTOUCH_TICKS + 2);
+  check(
+    'aftertouch inside the window bends the shot both ways',
+    bentLeft &&
+      bentRight &&
+      bentLeft.ball.x < -5 &&
+      bentRight.ball.x > 5 &&
+      Math.abs(bentLeft.ball.x + bentRight.ball.x) < 1e-3,
+    `left ${bentLeft?.ball.x.toFixed(2)} right ${bentRight?.ball.x.toFixed(2)}`,
+  );
+  check(
+    'input after the window closes does nothing to the ball',
+    tooLate && Math.abs(tooLate.ball.x) < 1e-3,
+    `x ${tooLate?.ball.x}`,
+  );
+  check(
+    'the aftertouch window is short',
+    CONSTANTS.AFTERTOUCH_TICKS > 0 && CONSTANTS.AFTERTOUCH_TICKS <= 30,
+    String(CONSTANTS.AFTERTOUCH_TICKS),
+  );
+}
+
+section('slide tackle (row #10)');
+
+{
+  const w = createWorld({ players: [{ team: 0 }, { team: 1 }] });
+  place(w, 0, 0, -100);
+  place(w, 1, 0, 100);
+  place(w, 'ball', 150, 300);
+  const windows = [];
+  for (let t = 0; t < 80; t++) {
+    step(w, [{ moveXFx: 0, moveZFx: FX_ONE, tackle: true }, null]);
+    const p = readState(w).players[0];
+    windows.push([p.tackleActive, p.tackleRecovery]);
+  }
+  const activeTicks = windows.filter((x) => x[0] > 0).length + 1;
+  const recovTicks = windows.filter((x) => x[1] > 0).length;
+  check(
+    'the active window is X ticks and recovery is 2X',
+    activeTicks === CONSTANTS.TACKLE_ACTIVE_TICKS &&
+      recovTicks === CONSTANTS.TACKLE_RECOVERY_TICKS &&
+      CONSTANTS.TACKLE_RECOVERY_TICKS === 2 * CONSTANTS.TACKLE_ACTIVE_TICKS,
+    `active ${activeTicks} recovery ${recovTicks}`,
+  );
+  check(
+    'holding the button does not chain slides (spam is taxed)',
+    windows.filter((x) => x[0] === CONSTANTS.TACKLE_ACTIVE_TICKS).length <= 1,
+  );
+}
+
+{
+  // movement lock: input during recovery must not accelerate anyone
+  const w = createWorld({ players: [{ team: 0 }, { team: 1 }] });
+  place(w, 0, 0, -100);
+  place(w, 1, 0, 100);
+  place(w, 'ball', 150, 300);
+  step(w, [{ moveXFx: 0, moveZFx: FX_ONE, tackle: true }, null]);
+  for (let t = 0; t < CONSTANTS.TACKLE_ACTIVE_TICKS; t++) step(w, [{}, null]);
+  const speeds = [];
+  for (let t = 0; t < 10; t++) {
+    step(w, [{ moveXFx: 0, moveZFx: FX_ONE }, null]);
+    const p = readState(w).players[0];
+    speeds.push(Math.hypot(p.vx, p.vz));
+  }
+  let decaying = true;
+  for (let i = 1; i < speeds.length; i++) if (speeds[i] >= speeds[i - 1]) decaying = false;
+  check(
+    'recovery locks movement: input during it produces no acceleration',
+    decaying && readState(w).players[0].tackleRecovery > 0,
+    speeds.map((s) => s.toFixed(3)).join(' '),
+  );
+}
+
+{
+  // the same geometry, once against a team-mate and once against an opponent
+  const trial = (team) => {
+    const w = createWorld({ players: [{ team: 0 }, { team }] });
+    place(w, 0, 0, -100);
+    place(w, 1, 0, -60); // 40 apart: inside the widened box, outside the bodies
+    place(w, 'ball', 150, 300);
+    const ev = step(w, [{ moveXFx: 0, moveZFx: FX_ONE, tackle: true }, null]);
+    const s = readState(w);
+    return {
+      hit: ev.some((e) => e.type === 'tackle' && e.victim === 1),
+      victimSpeed: Math.hypot(s.players[1].vx, s.players[1].vz),
+    };
+  };
+  const mate = trial(0);
+  const foe = trial(1);
+  check(
+    'a slide has NO effect on a team-mate',
+    mate.hit === false && mate.victimSpeed === 0,
+    `hit ${mate.hit} speed ${mate.victimSpeed}`,
+  );
+  check(
+    'the same slide shoves an opponent',
+    foe.hit === true && foe.victimSpeed > 1,
+    `hit ${foe.hit} speed ${foe.victimSpeed.toFixed(3)}`,
+  );
+}
+
+{
+  const w = createWorld({ players: [{ team: 0 }, { team: 1 }] });
+  place(w, 0, 0, -100);
+  place(w, 1, 0, 200);
+  place(w, 'ball', 0, -65, 0, 6);
+  const ev = step(w, [{ moveXFx: 0, moveZFx: FX_ONE, tackle: true }, null]);
+  const won = ev.find((e) => e.type === 'tackle' && e.won);
+  const s = readState(w);
+  check(
+    'reaching the ball is a clean win that kills its pace',
+    !!won && Math.abs(s.ball.vz) < 6,
+    `ball vz ${s.ball.vz.toFixed(3)}`,
+  );
+}
+
+const tackle = tackleGrid();
+check(
+  'measured tackle success sits in the designed 40-55% band',
+  tackle.rate >= 0.4 && tackle.rate <= 0.55,
+  `${tackle.won}/${tackle.trials} = ${(tackle.rate * 100).toFixed(1)}%`,
+);
+
+section('keeper (row #11)');
+
+const GK_Z = -390; // deep inside team 0's box
+function keeperWorld() {
+  const w = createWorld({
+    players: [{ team: 0, role: 'keeper' }, { team: 1 }],
+  });
+  place(w, 0, 0, GK_Z);
+  place(w, 1, 150, 300);
+  place(w, 'ball', 0, GK_Z + 26);
+  return w;
+}
+
+{
+  const w = keeperWorld();
+  check(
+    'the role is set at match start and readable from state',
+    readState(w).players[0].role === 1 && readState(w).players[1].role === 0,
+  );
+  // a goal calls resetKickoff; the role must survive it
+  const w2 = createWorld({
+    players: [{ team: 0, role: 'keeper' }, { team: 1, role: 'keeper' }],
+  });
+  place(w2, 'ball', 0, 415, 0, 12);
+  let scored = false;
+  for (let t = 0; t < 60 && !scored; t++) {
+    for (const e of step(w2, [null, null])) if (e.type === 'goal') scored = true;
+  }
+  check(
+    'the role survives a goal and the kickoff reset (ADR-0001)',
+    scored &&
+      readState(w2).players[0].role === 1 &&
+      readState(w2).players[1].role === 1,
+  );
+  check(
+    'the penalty area is a per-team box in front of its own goal',
+    inPenaltyArea(0, fx.fxFromNumber(-400), 0) &&
+      !inPenaltyArea(0, fx.fxFromNumber(-400), 1) &&
+      !inPenaltyArea(0, fx.fxFromNumber(-200), 0) &&
+      !inPenaltyArea(fx.fxFromNumber(190), fx.fxFromNumber(-400), 0),
+  );
+  check(
+    'keeper powers are gated on standing in its own box',
+    keeperEmpowered(w, 0) === true,
+  );
+}
+
+{
+  // outside the box the keeper is an ordinary field player
+  const w = keeperWorld();
+  place(w, 0, 0, -100);
+  place(w, 'ball', 0, -74);
+  const ev = step(w, [{ catchBall: true }, null]);
+  check(
+    'a keeper outside its box cannot catch',
+    !ev.some((e) => e.type === 'keeper-catch') &&
+      readState(w).ball.holder === -1 &&
+      keeperEmpowered(w, 0) === false,
+  );
+}
+
+{
+  const w = keeperWorld();
+  const ev = step(w, [{ catchBall: true }, null]);
+  const s = readState(w);
+  check(
+    'a keeper in its box catches on contact and pins the ball',
+    ev.some((e) => e.type === 'keeper-catch') &&
+      s.ball.holder === 0 &&
+      s.ball.holdTicks === CONSTANTS.CATCH_HOLD_TICKS,
+    `holder ${s.ball.holder} ticks ${s.ball.holdTicks}`,
+  );
+  check(
+    'the hold counter sits in the designed 180-240 tick band',
+    CONSTANTS.CATCH_HOLD_TICKS >= 180 && CONSTANTS.CATCH_HOLD_TICKS <= 240,
+    String(CONSTANTS.CATCH_HOLD_TICKS),
+  );
+
+  // the ball rides with him, and the counter runs down to a forced release
+  let held = 0;
+  let release = null;
+  for (let t = 0; t < 400 && !release; t++) {
+    for (const e of step(w, [{ catchBall: true, moveXFx: 0, moveZFx: FX_ONE }, null])) {
+      if (e.type === 'keeper-release') release = e;
+    }
+    if (readState(w).ball.holder === 0) held++;
+  }
+  const after = readState(w);
+  check(
+    'the hold expires into a forced release at the designed count',
+    release &&
+      release.kind === 'forced' &&
+      held >= CONSTANTS.CATCH_HOLD_TICKS - 2 &&
+      held <= CONSTANTS.CATCH_HOLD_TICKS + 2,
+    `${release?.kind} after ${held} ticks`,
+  );
+  check(
+    'the released ball is out of his hands and moving',
+    after.ball.holder === -1 && Math.abs(after.ball.vz) > 0,
+    `holder ${after.ball.holder} vz ${after.ball.vz}`,
+  );
+}
+
+{
+  // two distinct releases: the hand throw is straight and medium, the foot
+  // clearance is chargeable and long
+  const release = (mode, chargeTicks) => {
+    const w = keeperWorld();
+    step(w, [{ catchBall: true }, null]);
+    for (let t = 0; t < chargeTicks; t++) {
+      step(w, [{ catchBall: true, clearBall: mode === 'clear' }, null]);
+    }
+    const ev = step(w, [
+      { throwBall: mode === 'throw', moveXFx: 0, moveZFx: FX_ONE },
+      null,
+    ]);
+    const s = readState(w);
+    return {
+      kind: ev.find((e) => e.type === 'keeper-release')?.kind,
+      speed: Math.hypot(s.ball.vx, s.ball.vz),
+      curve: s.ball.curve,
+      aftertouch: s.aftertouch.owner,
+    };
+  };
+  const thrown = release('throw', 0);
+  const short = release('clear', 1);
+  const long = release('clear', CONSTANTS.CLEAR_MAX_TICKS);
+  check(
+    'the hand throw is a straight medium release with no spin',
+    thrown.kind === 'throw' &&
+      thrown.curve === 0 &&
+      thrown.aftertouch === -1 &&
+      Math.abs(thrown.speed - CONSTANTS.THROW_IMPULSE / FX_ONE) < 0.2,
+    `${thrown.kind} speed ${thrown.speed.toFixed(2)}`,
+  );
+  check(
+    'the foot clearance is a separate, chargeable, longer release',
+    short.kind === 'clear' &&
+      long.kind === 'clear' &&
+      long.speed > short.speed &&
+      long.speed > thrown.speed * 2,
+    `short ${short.speed.toFixed(2)} long ${long.speed.toFixed(2)} throw ${thrown.speed.toFixed(2)}`,
+  );
+  check(
+    'only the foot clearance opens an aftertouch window',
+    long.aftertouch === 0 && thrown.aftertouch === -1,
+  );
+}
+
+{
+  // four-way dive: a save when the ball is in reach, a grounded lock when not
+  const dive = (mx, ballX) => {
+    const w = keeperWorld();
+    place(w, 'ball', ballX, GK_Z);
+    let save = null;
+    let whiff = null;
+    let start = null;
+    for (let t = 0; t < 90; t++) {
+      const inp = t === 0 ? { dive: true, moveXFx: mx, moveZFx: 0 } : {};
+      for (const e of step(w, [inp, null])) {
+        if (e.type === 'keeper-save') save = e;
+        if (e.type === 'keeper-whiff') whiff = e;
+        if (e.type === 'dive-start') start = e;
+      }
+      if (t === 3 && (save || whiff)) break;
+    }
+    return { save, whiff, start, state: readState(w) };
+  };
+  const right = dive(FX_ONE, 45);
+  const wrong = dive(-FX_ONE, 45);
+  check(
+    'a dive into the ball is a save that kills the shot',
+    !!right.save && right.start.dir === 1 && !right.whiff,
+    `dir ${right.start?.dir}`,
+  );
+  check(
+    'a dive the wrong way whiffs and grounds the keeper for ~60 ticks',
+    !!wrong.whiff && !wrong.save && wrong.start.dir === 0,
+    `whiff ${!!wrong.whiff}`,
+  );
+  check(
+    'the whiff lock is the designed length',
+    CONSTANTS.DIVE_WHIFF_LOCK_TICKS === 60,
+    String(CONSTANTS.DIVE_WHIFF_LOCK_TICKS),
+  );
+
+  // the four directions really are four
+  const dirs = new Set();
+  for (const [mx, mz] of [[-FX_ONE, 0], [FX_ONE, 0], [0, -FX_ONE], [0, FX_ONE]]) {
+    const w = keeperWorld();
+    place(w, 'ball', 300, 300);
+    for (const e of step(w, [{ dive: true, moveXFx: mx, moveZFx: mz }, null])) {
+      if (e.type === 'dive-start') dirs.add(e.dir);
+    }
+  }
+  check('the dive resolves to exactly four directions', dirs.size === 4, [...dirs].join(','));
+}
+
+{
+  // grounded means grounded: input during the lock must not accelerate him
+  const w = keeperWorld();
+  place(w, 'ball', 300, 300);
+  step(w, [{ dive: true, moveXFx: -FX_ONE, moveZFx: 0 }, null]);
+  for (let t = 0; t < CONSTANTS.DIVE_ACTIVE_TICKS; t++) step(w, [{}, null]);
+  const locked = readState(w).players[0].diveLock;
+  const speeds = [];
+  for (let t = 0; t < 12; t++) {
+    step(w, [{ moveXFx: FX_ONE, moveZFx: 0 }, null]);
+    const p = readState(w).players[0];
+    speeds.push(Math.hypot(p.vx, p.vz));
+  }
+  let decaying = true;
+  for (let i = 1; i < speeds.length; i++) if (speeds[i] >= speeds[i - 1]) decaying = false;
+  check(
+    'the whiff lock takes his legs away for its full length',
+    locked >= CONSTANTS.DIVE_WHIFF_LOCK_TICKS - 1 && decaying,
+    `lock ${locked}`,
+  );
+}
+
+{
+  // grief lock: a keeper cannot throw his own hold into his own net
+  const w = keeperWorld();
+  step(w, [{ catchBall: true }, null]);
+  const grief = readState(w).griefLock;
+  let voided = null;
+  let goal = null;
+  // throw it straight backwards, at his own goal
+  step(w, [{ throwBall: true, moveXFx: 0, moveZFx: -FX_ONE }, null]);
+  const lock = readState(w).griefLock;
+  for (let t = 0; t < 120 && !voided && !goal; t++) {
+    for (const e of step(w, [{}, null])) {
+      if (e.type === 'grief-void') voided = e;
+      if (e.type === 'goal') goal = e;
+    }
+  }
+  const s = readState(w);
+  check(
+    'releasing a hold arms the own-goal grief lock',
+    grief.team === -1 && lock.team === 0 && lock.ticks > 0,
+    `${JSON.stringify(lock)}`,
+  );
+  check(
+    'a held ball released into its own goal is NOT a goal',
+    !!voided && !goal && s.score[0] === 0 && s.score[1] === 0,
+    `voided ${!!voided} goal ${!!goal} score ${s.score}`,
+  );
+  check(
+    'the void puts the ball back in his hands so he takes it again',
+    s.ball.holder === 0 && s.ball.holdTicks === CONSTANTS.CATCH_HOLD_TICKS,
+    `holder ${s.ball.holder} ticks ${s.ball.holdTicks}`,
+  );
+  check(
+    'the grief lock is the designed length',
+    CONSTANTS.GRIEF_LOCK_TICKS === 180,
+    String(CONSTANTS.GRIEF_LOCK_TICKS),
+  );
+}
+
+{
+  // an ordinary own goal, with no hold anywhere near it, still counts
+  const w = keeperWorld();
+  place(w, 0, 150, -200);
+  place(w, 'ball', 0, -400, 0, -6);
+  let goal = null;
+  for (let t = 0; t < 60 && !goal; t++) {
+    for (const e of step(w, [{}, null])) if (e.type === 'goal') goal = e;
+  }
+  check(
+    'an own goal that did not come out of a hold still counts',
+    goal && goal.team === 1 && readState(w).score[1] === 1,
+    `${JSON.stringify(goal)}`,
+  );
+}
+
+// ----------------------------------------------------- 5. constantsHash
 
 section('constantsHash');
 
