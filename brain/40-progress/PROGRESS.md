@@ -1,15 +1,15 @@
 # PROGRESS — Canlı Durum (koordinatör her hedefte günceller)
 
 Son güncelleme: 2026-08-08
-Aktif faz: 1.2 (oynanış seti + kaleci + modlar + lobi)
-Sıradaki hedef: Matris #7-#11 (saf fizik dribbling, şarj, falso, tackle, kaleci)
+Aktif faz: 1.7b (replay) + kalan kozmetik fazlar
+Sıradaki hedef: #30-#32 replay (ajanda), sonra 1.3/1.4/1.6/1.7c/1.7d/2
 
 | Faz | Durum | Tag | Not |
 |---|---|---|---|
 | K | ☑ | — | SETUP.md yazıldı; Blender HUMAN-QUEUE'da, iş durdurmuyor |
 | 0 | ☑ | faz0-stable | INVENTORY.md; testler kırılganlıktan arındırıldı (21/21) |
 | 1.1 | ☑ | faz1.1-netcode | #3 monorepo, #4 determinizm (Node+Chromium bit-özdeş), #5 netcode paketi, #6 docker/coturn |
-| 1.2 | ☐ | — | |
+| 1.2 | ☑ | faz1.2-arena | #7-#11 core; #12-#13 /arena.html (modlar, lobi, kaleci seçimi, iki-sekme kanıtı) |
 | 1.3 | ☐ | — | |
 | 1.4 | ☐ | — | |
 | 1.5 | ☑ | faz1.5-bots | #20 observe→action; scripted 3 kademe + ONNX aynı arayüz (enjekte runtime) |
@@ -46,6 +46,19 @@ DOKUNULMAZ — sadece envantere yazılır):
   gözlem normalizasyonu artık `pitchFor(world)` ile presete göre ölçekleniyor —
   üç preset'te de aynı normalize değer okunuyor. (Bu iş sırasında köşegeni
   yarım hesaplayıp botları golsüz bıraktım; testler yakaladı, düzeltildi.)
+- 2026-08-08 (7): #12 ve #13 için deterministik istemci `/arena.html` olarak
+  ayrı giriş noktasında yazıldı (ADR-0005); yayındaki oyun `/` adresinde
+  değişmedi, görüntü katmanı ve PeerJS taşıması fork edilmeden kullanıldı.
+  Modlar 1v1/2v2/3v3 (kalecisiz) ve 4v4 (takım başına tam bir kaleci, lobide
+  seçilir, maç boyu sabit); boş slotlar seçilen zorlukta bota gidiyor, botlar
+  yalnız host'ta koşuyor. Ölçek eşlemesi tek sabit: `UNITS_PER_METRE = 23.3333`
+  (840 birim = 36 m), gerçek duvarlar çekirdeğin sayılarından çiziliyor.
+  Kapılar: `test:arena` 125/125, `test:arena2tab` 30/30 (in-process + gerçek
+  Chromium iki sekme: aynı skor, tick 1011'de checksum `6035d1ea` iki tarafta
+  da aynı, misafirde bot çağrısı 0'a karşı host'ta 2030). Yukarı akışta iki
+  gerçek hata çıktı ve düzeltildi: `hostSession` saati yeniden çıpalarken
+  snapshot yayınını susturuyordu (20 Hz yerine 1.8 Hz ölçüldü) ve host/bot
+  inputundan 9 butonluk maskeyi düşürüyordu. Matris işareti koordinatörde.
 - 2026-08-08 (5): Faz 1.2'nin çekirdek satırları (#7-#11) KAPANDI. Ölçümler:
   dribbling 10 m = 6 dokunuş / 0 turnover (kabul 5-8), şarj eğrisi 0.30x→1.00x
   (sapma <1e-3), falso ±52 birim saptırıyor ve hız %1.2 içinde kalıyor (boost

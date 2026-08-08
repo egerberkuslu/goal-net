@@ -5,6 +5,41 @@ sonda toplu koşar)
 ## P2P gerçek ağ
 - [ ] Farklı ağlardaki 2 cihazla oda kur/katıl (TURN zorlaması dahil)
 
+## Arena (deterministik istemci, `/arena.html`)
+
+Otomatik koşan kısım: `npm run test:arena` (125 kontrol, DOM'suz) ve
+`npm run test:arena2tab` (in-process + gerçek Chromium iki sekme, 30 kontrol).
+Aşağıdakiler gerçek ağ, gerçek GPU ya da gerçek el istediği için elde kaldı.
+
+- [ ] **PeerJS ile iki gerçek cihaz.** İki sekme kanıtı `?net=local`
+      (BroadcastChannel) üzerinden koşuyor; yayın yolu olan PeerJS brokerı
+      hiç zorlanmadı.
+  ```
+  Cihaz A: http://<host>:5301/arena.html  → "Oda Kur" (bağlantı: PeerJS)
+  Cihaz B: aynı adres → kodu gir → "Katıl" → "Hazırım"
+  Cihaz A: mod seç (4v4) → "Başlat"
+  Beklenen: iki ekranda aynı skor; HUD'daki `tick` farkı ~6 tick'i geçmiyor;
+  misafirin HUD'unda `bot 0`, host'unkinde `bot` sayacı artıyor.
+  ```
+
+- [ ] **Kaleci elle oynanır mı.** 4v4'te lobide "Kaleci Ol" seç, maça gir.
+      Kendi ceza sahanda: `G` topu tutar (sayaç 3.5 sn), `H` el atışı yapar,
+      `J` basılı tutup bırakmak degaj eder, `R` + yön dalış yapar. Ceza sahası
+      DIŞINDA dördü de çalışmamalı (çekirdek yetkiyi orada kapatıyor).
+
+- [ ] **Modların hissi.** 1v1 / 2v2 / 3v3 (kalecisiz) ve 4v4 (kalecili) tek tek
+      açılıp baştan sona oynanır: başlama vuruşu → oyun → gol → skor → maç sonu
+      ekranı. Bot zorluğu kolay/orta/zor arasında hissedilir fark yaratmalı.
+
+- [ ] **Gerçek GPU'da kare hızı.** İki sekme testi yazılım rasterleştirmeyle
+      koştuğu için misafir sekmesi ~13 FPS çizdi (simülasyon ve ağ etkilenmedi;
+      pump rAF'tan ayrı çalışıyor). Gerçek GPU'da 60 FPS bekleniyor —
+      `/arena.html` açıp HUD'daki tick akışına ve gözle akıcılığa bakılır.
+
+- [ ] **Arka plandaki host.** Host sekmesini arkaya al, 30 sn bekle, öne getir.
+      Beklenen: maç durmamış, misafirin skoru host'la aynı (pump worker
+      zamanlayıcısından koşuyor, rAF'tan değil).
+
 ## Determinizm — üçüncü motor ailesi
 - [ ] `npx vite --port 5199` çalışırken Firefox (SpiderMonkey) ve varsa Safari
       (JavaScriptCore) ile `http://localhost:5199/enginecheck.html` aç,
