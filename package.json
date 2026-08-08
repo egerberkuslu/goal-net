@@ -29,6 +29,8 @@
     "test:social": "node packages/social/test/run.mjs",
     "test:parity": "python3 python/test_parity.py",
     "test:atmos": "node scripts/atmos-test.mjs",
+    "test:anim": "node scripts/anim-test.mjs",
+    "build:assets": "node tools/build-assets.mjs",
     "test:arena": "node scripts/arena-test.mjs",
     "test:arena2tab": "node scripts/arena-2tab.mjs",
     "test:present": "node scripts/present-test.mjs",

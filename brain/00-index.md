@@ -44,12 +44,12 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 11 | Kaleci: maç başı seçim + tutma + degaj + 4 yön dalış | 1.2 | Rol lobide seçilir, maç boyu sabit; tutma ~200 tick; dalış whiff → ~60 tick kilit; dalış sonucu host onaylı | ☑ (core tarafı; lobi UI #13'te) |
 | 12 | Modlar: insan vs bot, 3v3, kalecili 4v4 | 1.2 | Her mod baştan sona oynanabilir | ☑ (/arena.html) |
 | 13 | Lobi + oda + zorluk seçimi UI | 1.2 | Oda kur/katıl/başlat akışı çalışır | ☑ |
-| 14 | 8 yönlü locomotion + prosedürel katmanlar | 1.3 | Blend tree + aim/lean/foot-IK/tap; tek klip koşu yok | ☐ |
-| 15 | Kaleci animasyon seti | 1.3 | Bekleme, yan adım, 4 dalış+kalkış, tutma, degaj | ☐ |
-| 16 | Vuruş varyantları + kutlamalar (3-5) | 1.3 | State machine'de geçişler temiz | ☐ |
-| 17 | Kamera: vuruş sarsıntısı + gol replay | 1.3 | Kozmetik; core'a dokunmaz | ☐ |
-| 18 | Stadyum + dekor asset'leri | 1.4 | Sahne <150k üçgen; GLB Draco+KTX2 | ☐ |
-| 19 | Performans bütçesi | 1.4 | Draw call mobil <50 / masaüstü <100; 60 FPS orta donanım | ☐ |
+| 14 | 8 yönlü locomotion + prosedürel katmanlar | 1.3 | Blend tree + aim/lean/foot-IK/tap; tek klip koşu yok | ☑ (8×3 blend, 24 anchor ayrı) |
+| 15 | Kaleci animasyon seti | 1.3 | Bekleme, yan adım, 4 dalış+kalkış, tutma, degaj | ☑ |
+| 16 | Vuruş varyantları + kutlamalar (3-5) | 1.3 | State machine'de geçişler temiz | ☑ (5 vuruş, 5 kutlama, 15 state) |
+| 17 | Kamera: vuruş sarsıntısı + gol replay | 1.3 | Kozmetik; core'a dokunmaz | ☑ |
+| 18 | Stadyum + dekor asset'leri | 1.4 | Sahne <150k üçgen; GLB Draco+KTX2 | ☑ (44.8k üçgen; 440→272 KB) |
+| 19 | Performans bütçesi | 1.4 | Draw call mobil <50 / masaüstü <100; 60 FPS orta donanım | ☑ (20 / 19 call, 60 FPS) |
 | 20 | Bot arayüzü soyutlama | 1.5 | Scripted ve ONNX bot aynı observe→action interface'i | ☑ |
 | 21 | Seyirci (instanced + VAT) | 1.6 | Tek-birkaç draw call; idle/dalga/gol coşkusu | ☑ (1387 seyirci, 1 draw call) |
 | 22 | Top toplayıcı çocuk sahneleri | 1.6 | Top dışarı → kozmetik sahne; core sadece T sn restart | ☑ |

@@ -106,3 +106,39 @@ otomatikleştirilemedi. Sunucu kurulduktan sonra elle koşulacak.
 - [ ] **Röle port aralığı doğrulaması.** Eşzamanlı 3-4 tahsis açıkken
   `ss -unlp | grep turnserver` çıktısındaki portlar 49152-65535 içinde
   kalmalı; dışına taşıyorsa `min-port`/`max-port` uygulanmamış demektir.
+
+## Faz 1.3 / 1.4 — animasyon ve stadyum (#14-#19)
+
+`npm run test:anim` 112 assertion'ı otomatik doğruluyor (poz determinizmi,
+state machine geçiş yasallığı, ayak faz sürekliliği, kutlama seçimi, kamera
+sarsıntı zarfı, GLB Draco+KTX2, tarayıcıda draw call / üçgen / FPS).
+Aşağıdakiler otomatikleştirilemez — göz gerekir.
+
+- [ ] **Poz gözle kontrolü.** `npm run dev:anim` →
+  `/arena.html?auto=solo&autostart=1`. Üç şeye bak: (1) oyuncular saha
+  çizgilerinin İÇİNDE ve isim etiketleri başlarının ÜSTÜNDE mi; (2) saha
+  çizgileri (taç, kale, ceza sahası, altıpas) hepsi çizili mi; (3) reklam
+  panolarındaki yazı sahadan bakınca DÜZ mü — ters ise pano sahaya sırtını
+  dönmüş demektir.
+  Bu üç hatanın ÜÇÜ DE bu fazda gerçekten oldu, ve testler yeşilken oldu.
+  Üçü de artık assertion'a bağlı, ama yeni geometri eklerken bir kez göze
+  bakmak şart.
+
+- [ ] **Vuruş varyantları ayırt ediliyor mu.** Boşluğu basılı tutup bırak
+  (şarjlı = `driven`), kısa dokun (`pass`), yarım şarj (`chip`), falsolu şut
+  (`curler`), kaleciyle degaj (`clear`). Beşi de FARKLI görünmeli.
+
+- [ ] **Kutlama tutarlılığı (iki sekme).** `?net=local` ile iki sekme aç,
+  gol at: her iki sekmede AYNI oyuncu AYNI kutlamayı yapmalı. Farklıysa
+  seçim deterministik olmaktan çıkmış demektir.
+
+- [ ] **Gol replay cutaway.** Gol sonrası ~0.55 s'de kamera yörüngeye geçip
+  golü ağır çekimde tekrar göstermeli, ~2.3 s'de canlıya dönmeli. Donmuş tek
+  kare gösteriyorsa halka tampon beslenmiyor.
+
+- [ ] **Kamera modları (V).** Yayın / çapraz / oyuncu. Oyuncu modunda kamera
+  karakterin İÇİNDE olmamalı (gövde ölçeği büyük, mesafe onunla ölçeklenir).
+
+- [ ] **Gerçek mobil cihazda bütçe.** Test masaüstü Chrome'da mobil viewport
+  emülasyonuyla ölçüyor; gerçek telefonda `?tier=mobile` ile açıp konsoldan
+  `__arena.budget()` okunmalı ve 60 FPS hissi doğrulanmalı.

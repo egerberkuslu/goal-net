@@ -10,8 +10,8 @@ Sıradaki hedef: kalan matris satırları #14-#19, #21-#25, #38-#41, #42-#45
 | 0 | ☑ | faz0-stable | INVENTORY.md; testler kırılganlıktan arındırıldı (21/21) |
 | 1.1 | ☑ | faz1.1-netcode | #3 monorepo, #4 determinizm (Node+Chromium bit-özdeş), #5 netcode paketi, #6 docker/coturn |
 | 1.2 | ☑ | faz1.2-arena | #7-#11 core; #12-#13 /arena.html (modlar, lobi, kaleci seçimi, iki-sekme kanıtı) |
-| 1.3 | ☐ | — | |
-| 1.4 | ☐ | — | |
+| 1.3 | ☑ | faz1.3-anim | #14-#17 prosedürel; iskeletli animasyon Blender ile insanda |
+| 1.4 | ☑ | faz1.4-assets | #18-#19; draw call 111→20, GLB Draco+KTX2 hattı gerçek |
 | 1.5 | ☑ | faz1.5-bots | #20 observe→action; scripted 3 kademe + ONNX aynı arayüz (enjekte runtime) |
 | 1.6 | ☑ | faz1.6-atmos | #21-#25; +5 draw call / +67k üçgen; draw call bütçesi #19a devredildi |
 | 1.7a | ☑ | faz1.7a-rules | #26-#29; settingsHash ayrı (constantsHash "aynı build?", settingsHash "aynı oda?") |

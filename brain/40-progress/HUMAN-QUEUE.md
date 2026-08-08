@@ -6,6 +6,104 @@
       şifresini verdi, `apt-get install blender` ile kuruldu. Headless kullanım:
       `blender --background --python <script.py>`.
 
+      → LİSTE HAZIR, aşağıda "Mixamo klip listesi" başlığında.
+- [ ] KTX-Software (`ktx` CLI) sistem kurulumu:
+      `sudo apt install ktx-tools`. Şu an `tools/vendor/` altına Khronos'un
+      hazır Linux release'i açılmış durumda (v4.3.2) ve `tools/build-assets.mjs`
+      onu buluyor, ama vendor klasörü .gitignore'da — temiz bir checkout'ta
+      GLB'nin tekstürleri PNG kalır (Draco yine çalışır). Kurulunca
+      `ktx --version` çıktısını buraya not düş.
+
+---
+
+## Faz 1.3 / 1.4 durumu (#14-#19)
+
+Blender ve Mixamo olmadan yapılabilen HER ŞEY yapıldı ve
+`npm run test:anim` ile doğrulanıyor (112 assertion, GEÇTİ):
+
+- #14 8 yönlü locomotion, prosedürel katmanlar (lean / aim / foot-IK / tap)
+- #15 kaleci seti (duruş, yan adım, 4 dalış, kalkış, tutma, atış, degaj)
+- #16 5 vuruş varyantı + 5 kutlama + 2 üzüntü, state machine
+- #17 kamera sarsıntısı + gol replay cutaway
+- #18 prosedürel stadyum + GLB (Draco + KTX2) pipeline
+- #19 performans bütçesi (masaüstü 20 draw call, mobil 19; 60 FPS)
+
+Bunların TAMAMI prosedürel: `packages/client/src/arena/anim/` altındaki bir
+rig'e kod tarafından poz yazılıyor. Skinned mesh YOK, glTF skeleton YOK,
+AnimationMixer YOK — çünkü hiçbirini üretecek araç bu makinede yok.
+
+### Blender/Mixamo gelince YAPILACAKLAR
+
+Prosedürel katman ATILMAYACAK; skinned karakter onun ÜSTÜNE gelecek.
+Poz vektörü (`arena/anim/pose.js`) zaten kemik başına Euler + offset
+tutuyor, yani aynı vektör bir `THREE.Skeleton`'a da yazılabilir.
+
+1. **Mixamo klip listesi** (mixamo.com, ücretsiz Adobe hesabı,
+   "Without Skin" + FBX for Unity, 60 fps, keyframe reduction: none):
+
+   Saha oyuncusu — 8 yön locomotion blend space:
+   - Idle, Standing Idle
+   - Walking, Walking Backwards, Left Strafe Walking, Right Strafe Walking
+   - Running, Running Backward, Left Strafe, Right Strafe
+   - Jog Forward Diagonal (varsa) — yoksa blend'den türetilir
+   - Standing Turn Left 90 / Right 90
+
+   Vuruş ve müdahale:
+   - Soccer Pass, Soccer Powerkick, Soccer Kick Corner (falso için),
+     Soccer Chest Trap, Soccer Header, Standing Tackle, Sliding Tackle,
+     Stumble Backwards, Getting Up
+
+   Kaleci:
+   - Goalkeeper Idle, Goalkeeper Dive Left, Goalkeeper Dive Right,
+     Goalkeeper Catch, Goalkeeper Throw, Soccer Goalie Kick
+   - (yüksek dalış / topu üstten çelme Mixamo'da YOK → Cascadeur veya
+     Blender keyframe; `arena/anim/keeper.js` içindeki `tipOver` ve
+     `smother` şekilleri referans alınabilir)
+
+   Kutlama (5 tane, `arena/anim/celebrations.js` ile birebir eşleşsin):
+   - Cheering / Victory (armsUp), Knee Slide veya Salsa Dancing (kneeSlide),
+     Pointing (pointToCrowd), Arms Out / Aeroplane (aeroplane),
+     Fist Pump / Excited (fistPump)
+   - Üzüntü: Defeated, Sad Idle
+
+   İndirilen dosyalar → `assets/mixamo/` altına, dosya yolları BURAYA yazılsın.
+
+2. **Blender retarget** (Blender 4.x + Rokoko/Auto-Rig Pro veya elle):
+   - Hedef iskelet `arena/anim/rig.js` içindeki BIND tablosuyla aynı
+     olmalı: 15 kemik, aynı isimler, aynı offsetler, aynı eksen düzeni
+     (kemikler -Y'ye bakar, Euler XYZ). Tablo tek kaynak.
+   - Bone sayısı mobil için 20-30 bandında kalsın
+     (rendering-optimization.md).
+   - Export: glTF 2.0 (.glb), "Animation" açık, sampling 30 fps,
+     `assets/characters/player.glb` ve `assets/characters/keeper.glb`.
+
+3. **Entegrasyon** (Blender geldikten sonra bir agent yapabilir):
+   - `arena/anim/` içine `clipSource.js` eklenecek: GLB'den okunan
+     AnimationClip'leri örnekleyip AYNI poz vektörüne yazacak.
+   - `locomotion.js`'in blend space'i klip ağırlıklarına dönüşecek;
+     `stateMachine.js`, `celebrations.js`, `kicks.js` seçim mantığı
+     AYNEN kalacak (klip id'leri zaten var).
+   - `instancedBody.js` yerine skinned mesh gelecek. DİKKAT: 10 skinned
+     mesh = 10 draw call, şu anki 4'ün yerine. Bütçe hâlâ tutar
+     (mobil 19 → ~25) ama GPU skinning ŞART, CPU skinning değil.
+
+### Bu makinede yapılamayan tek kabul kriteri
+
+- animation-standard.md "AnimationMixer + setEffectiveWeight + crossFade"
+  diyor. Klip olmadığı için AnimationMixer kullanılmadı; yerine aynı
+  semantiği taşıyan bir crossfade (`stateMachine.js`, lerp'li geçiş,
+  sıfır süreli geçiş YOK) kondu. Klipler gelince Mixer'a geçilebilir.
+- Bunun DIŞINDA #14-#19'un tüm kabul kriterleri karşılandı ve ölçüldü.
+
+### Manuel bakılması iyi olur (otomatik test yakalamaz)
+
+Bu fazda üç hata SADECE ekran görüntüsüyle yakalandı; testler yeşildi:
+oyuncuların dünya koordinatının gövde ölçeğiyle çarpılması, saha
+çizgilerinin ters winding yüzünden hiç çizilmemesi, reklam panolarının
+sahaya sırtını dönmesi. Üçü de artık `scripts/anim-test.mjs` içinde
+assertion'a bağlandı, ama yeni geometri eklerken bir kez göze bakmak
+şart. `MANUAL-TESTS.md`'ye de not düşüldü.
+
 ## Maç anlatımı kliplerinin kaydı (matris #38, Faz 1.7d)
 
 **Durum:** hat çalışıyor, ses yok. `packages/client/src/arena/present/`
