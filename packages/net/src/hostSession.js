@@ -102,6 +102,13 @@ function emptyRejections() {
  *   maxMessageBytes wire ceiling, default 16000
  *   historyTicks    how far back a peer may still delta against (default 180)
  *   maxCatchUpTicks ticks a single update() may burn (default 8)
+ *   onEvents        read-only observer, called with (events, tick) after EVERY
+ *                   step, events array possibly empty. The core's event list is otherwise consumed and
+ *                   dropped in here, so a cosmetic layer (commentary, stats,
+ *                   crowd) has no way to see a save or a tackle. It is an
+ *                   OBSERVER: it is called after the tick is complete, its
+ *                   return value is ignored and anything it throws is its own
+ *                   problem, never the simulation's.
  */
 export function createHostSession(options = {}) {
   const {
@@ -118,6 +125,7 @@ export function createHostSession(options = {}) {
     maxMessageBytes = MAX_MESSAGE_BYTES,
     historyTicks = 180,
     maxCatchUpTicks = 8,
+    onEvents = null,
   } = options;
 
   if (!(snapshotHz >= 20 && snapshotHz <= 30)) {
@@ -338,6 +346,14 @@ export function createHostSession(options = {}) {
   function stepOnce() {
     const events = step(world, gatherInputs());
     stats.ticks++;
+    if (onEvents) {
+      // Cosmetic observers must not be able to stall or crash the authority.
+      try {
+        onEvents(events, world.buf[HDR_TICK]);
+      } catch (err) {
+        console.warn('[host] event observer threw', err && err.message);
+      }
+    }
     return events;
   }
 
