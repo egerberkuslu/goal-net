@@ -65,9 +65,15 @@ function play(w, rec, seconds, onFrame) {
     w.ball.pos.z = i * 0.002;
   };
   for (let i = 0; i < 3000; i++) { bump(i); rec.record(w); } // warm up
-  const before = process.memoryUsage().heapUsed;
-  for (let i = 3000; i < 43000; i++) { bump(i); rec.record(w); }
-  const grew = process.memoryUsage().heapUsed - before;
+  // heapUsed is a sawtooth: whether a GC happens to land inside the window
+  // can swing it by megabytes, so take the smallest of three windows. A real
+  // per-frame allocation shows up in every window, a GC artefact does not.
+  const window = (from) => {
+    const before = process.memoryUsage().heapUsed;
+    for (let i = from; i < from + 40000; i++) { bump(i); rec.record(w); }
+    return process.memoryUsage().heapUsed - before;
+  };
+  const grew = Math.min(window(3000), window(43000), window(83000));
   check('record: no allocation growth over 40k frames',
     grew < 1.5e6, `${(grew / 1024).toFixed(0)} KiB`);
 }

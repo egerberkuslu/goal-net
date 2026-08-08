@@ -32,7 +32,7 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | # | Özellik | Faz | Kabul kriteri | Durum |
 |---|---------|-----|---------------|-------|
 | 1 | Ortam kurulumu (Node, Docker, Blender+MCP, gltf araçları) | K | SETUP.md'deki her doğrulama komutu tester'da geçer | ☑ (Blender → HUMAN-QUEUE) |
-| 2 | Mevcut oyun envanteri + stabilizasyon | 0 | Envanter tam; bilinen bug'lar düzeltildi; tag faz0-stable | ⏳ |
+| 2 | Mevcut oyun envanteri + stabilizasyon | 0 | Envanter tam; bilinen bug'lar düzeltildi; tag faz0-stable | ☑ |
 | 3 | Monorepo core/client/server ayrımı | 1.1 | Core DOM'suz derlenir; client/server ayrı paket | ☐ |
 | 4 | Determinizm | 1.1 | Aynı input → 2 farklı cihazda bit-özdeş checksum (ADR-0003) | ☐ |
 | 5 | Host-authoritative netcode | 1.1 | 2 sekme: input→host→snapshot 20-30Hz + interp; botlar sadece host'ta | ☐ |

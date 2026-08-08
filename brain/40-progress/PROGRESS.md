@@ -1,13 +1,13 @@
 # PROGRESS — Canlı Durum (koordinatör her hedefte günceller)
 
 Son güncelleme: 2026-08-08
-Aktif faz: 0 (envanter + stabilizasyon)
-Sıradaki hedef: Matris #2 (agent'ta sürüyor) → sonra 1.1 (#3-6)
+Aktif faz: 1.1 (monorepo + determinizm + netcode)
+Sıradaki hedef: Matris #3 (monorepo) ve #4 (determinizm/ADR-0003)
 
 | Faz | Durum | Tag | Not |
 |---|---|---|---|
 | K | ☑ | — | SETUP.md yazıldı; Blender HUMAN-QUEUE'da, iş durdurmuyor |
-| 0 | ⏳ | — | Envanter+stabilizasyon agent'a delege edildi |
+| 0 | ☑ | faz0-stable | INVENTORY.md; testler kırılganlıktan arındırıldı (21/21) |
 | 1.1 | ☐ | — | |
 | 1.2 | ☐ | — | |
 | 1.3 | ☐ | — | |
@@ -36,4 +36,9 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
-- 2026-08-08: Otonom döngü başladı. Faz K bitti (SETUP.md). Faz 0 delege edildi.
+- 2026-08-08: Otonom döngü başladı. Faz K bitti (SETUP.md). Faz 0 koordinatör
+  tarafından yürütüldü (delege edilen ajan kullanıcı tarafından durduruldu):
+  INVENTORY.md yazıldı, iki kırılgan test iddiası ölçüme dayalı biçimde
+  sağlamlaştırıldı, 7 paket × 3 koşu yeşil, build+dist temiz, tag faz0-stable.
+  Önemli bulgu: perf "regresyonu" gerçek değildi — eski commit aynı yük altında
+  aynı süreyi ölçtü; makine ollama/java yüzünden ~1.7× yavaşlamıştı.
