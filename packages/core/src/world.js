@@ -1,16 +1,18 @@
 // Deterministic 2D pitch simulation, 60 Hz fixed timestep.
 //
-// Scope of THIS core (Phase 1.1)
+// Scope of THIS core (Phase 1.1 base + Phase 1.2 rows 7-11)
 //   in  : players and ball on the (x, z) plane, circle-circle and circle-wall
 //         collisions with bCoef/invMass, kick as an added impulse, goal posts,
-//         goal detection, kickoff reset, per-tick checksum
-//   out : anything with height (aerial ball, jumps, headers), spin/curve,
-//         slide tackles, shot charging, keepers, bots, fouls, halves, stats.
-//         Those are Phase 1.2+ and they land on top of this state, not beside
-//         it. Aerial motion in particular is deliberately absent: the LOCKED
-//         constants in physics-constants.md describe the 2D base, and adding a
-//         y axis before those are proven would change the numbers being
-//         validated.
+//         goal detection, kickoff reset, per-tick checksum, close-control
+//         support for pure-physics dribbling, shot charge, ball curve with
+//         aftertouch, slide tackles, and the fixed-role keeper (catch, hand
+//         throw, foot clearance, four-way dive, own-goal grief lock).
+//   out : anything with height (aerial ball, jumps, headers), full Magnus and
+//         visual spin, bots, fouls, halves, stats. Those are later phases and
+//         they land on top of this state, not beside it. Aerial motion in
+//         particular is deliberately absent: the LOCKED constants in
+//         physics-constants.md describe the 2D base, and adding a y axis before
+//         those are proven would change the numbers being validated.
 //
 // Everything lives in one Int32Array so the checksum is a straight linear walk
 // with no field-ordering ambiguity, and so serialise/deserialise is a copy.
@@ -26,10 +28,16 @@
 //           7  lastGoalTeam       (plain int, -1 = none)
 //           8  lastGoalTick       (plain int, -1 = none)
 //           9  kickoffTeam        (plain int, team that restarts play)
-//          10  reserved
-//          11  reserved
-//   ball   12  x  13 z  14 vx  15 vz
-//   player 16 + i*8: x, z, vx, vz, team, kickArm, kickCooldown, prevKick
+//          10  ballHolder         (plain int, keeper index or -1)
+//          11  ballHoldTicks      (plain int, counts down to a forced release)
+//          12  ballCurve          (Q16.16 signed scalar — the ONLY spin state)
+//          13  aftertouchOwner    (plain int, player index or -1)
+//          14  aftertouchTicks    (plain int)
+//          15  griefTeam          (plain int, team whose own goal is void, -1)
+//          16  griefTicks         (plain int)
+//          17..19 reserved
+//   ball   20  x  21 z  22 vx  23 vz
+//   player 24 + i*22: see the P_* table below
 
 import {
   FX_ONE,
@@ -40,13 +48,18 @@ import {
   fxMul,
   fxNeg,
   fxSub,
+  fxSqrt,
+  fxFromInt,
   fxFromNumber,
+  fxNormalize,
 } from './fx.js';
 import { CONSTANTS, constantsHashInt } from './constants.js';
 import { checksumInts } from './checksum.js';
 
 export const STATE_MAGIC = 0x474e4331; // "GNC1"
-export const STATE_VERSION = 1;
+// v2 = Phase 1.2 layout (charge, curve, tackle, keeper). A v1 snapshot has a
+// different stride and a different meaning for slot 10, so it is rejected.
+export const STATE_VERSION = 2;
 
 export const HDR_MAGIC = 0;
 export const HDR_VERSION = 1;
@@ -58,12 +71,19 @@ export const HDR_SCORE_1 = 6;
 export const HDR_LAST_GOAL_TEAM = 7;
 export const HDR_LAST_GOAL_TICK = 8;
 export const HDR_KICKOFF_TEAM = 9;
-export const HDR_LEN = 12;
+export const HDR_BALL_HOLDER = 10;
+export const HDR_BALL_HOLD_TICKS = 11;
+export const HDR_BALL_CURVE = 12;
+export const HDR_AFTERTOUCH_OWNER = 13;
+export const HDR_AFTERTOUCH_TICKS = 14;
+export const HDR_GRIEF_TEAM = 15;
+export const HDR_GRIEF_TICKS = 16;
+export const HDR_LEN = 20;
 
 export const BALL_BASE = HDR_LEN;
 export const BALL_LEN = 4;
 export const PLAYER_BASE = BALL_BASE + BALL_LEN;
-export const PLAYER_STRIDE = 8;
+export const PLAYER_STRIDE = 22;
 
 const P_X = 0;
 const P_Z = 1;
@@ -72,10 +92,43 @@ const P_VZ = 3;
 const P_TEAM = 4;
 const P_KICK_ARM = 5;
 const P_KICK_CD = 6;
-const P_PREV_KICK = 7;
+const P_PREV_BUTTONS = 7; // bit 0 is the old P_PREV_KICK
+const P_ROLE = 8; // 0 field player, 1 keeper — fixed for the match (ADR-0001)
+const P_CHARGE = 9; // ticks the shot button has been held, 0 = not charging
+const P_CHARGE_REL = 10; // ticks left of the release buffer
+const P_CHARGE_PWR = 11; // Q16.16 power captured when the button came up
+const P_TACKLE_ACTIVE = 12;
+const P_TACKLE_RECOV = 13;
+const P_TACKLE_CD = 14;
+const P_DIVE_ACTIVE = 15;
+const P_DIVE_LOCK = 16; // grounded after a whiff
+const P_DIVE_DIR = 17; // 0 -x, 1 +x, 2 -z, 3 +z
+const P_CLEAR_CHARGE = 18; // ticks the foot-clearance button has been held
+const P_FLAGS = 19;
+const P_TOUCH_CD = 20; // close-control touch cooldown
+// index 21 is spare so the stride can absorb one more field without a reshuffle
+
+const FLAG_TOUCHING = 1; // was overlapping the ball at the end of last tick
+const FLAG_TACKLE_HELD = 2; // the tackle button was down last tick
+const FLAG_DIVE_HELD = 4; // the dive button was down last tick
+
+/** Button bits. One int on the wire, one int in the state's edge detector. */
+export const BTN = Object.freeze({
+  KICK: 1, //   instant pass: full impulse, ground ball, curve forced to 0
+  CHARGE: 2, //   hold to charge a shot, release to fire
+  CANCEL: 4, //   drop the charge without firing
+  TACKLE: 8, //   slide
+  CATCH: 16, //  keeper: pin the ball (inside its own area only)
+  THROW: 32, //  keeper: hand throw — straight, medium, no curve
+  CLEAR: 64, //  keeper: foot clearance — hold to charge, long, curvable
+  DIVE: 128, //  keeper: four-way dive, direction from the move axis
+  TOUCH: 256, //  close control: the small corrective kick, ~7% of a full kick
+});
+const BTN_MASK = 511;
 
 const C = CONSTANTS;
 const HALF_SPAWN_STEP = C.SPAWN_X_STEP / 2; // SPAWN_X_STEP is even by construction
+const REACH = C.PLAYER_RADIUS + C.BALL_RADIUS;
 
 export function stateLength(playerCount) {
   return PLAYER_BASE + playerCount * PLAYER_STRIDE;
@@ -87,22 +140,39 @@ export function playerOffset(i) {
 
 // ------------------------------------------------------------------ setup
 
+function roleOf(spec) {
+  if (spec === 1 || spec === true) return 1;
+  if (spec === 'keeper' || spec === 'gk' || spec === 'goalkeeper') return 1;
+  return 0;
+}
+
 /**
- * createWorld({ players: [{ team }], teams: [0,1,...], playerCount })
+ * createWorld({ players: [{ team, role }], teams: [0,1,...], roles: [...],
+ *               playerCount })
  *
  * `players` wins if given; otherwise `teams`; otherwise playerCount players are
- * dealt alternately to team 0 and team 1.
+ * dealt alternately to team 0 and team 1. Roles are fixed here and nowhere else:
+ * ADR-0001 says the keeper is chosen at match start and never reassigned, so the
+ * core deliberately offers no mid-match setter.
  */
 export function createWorld(config = {}) {
   let teams;
+  let roles;
   if (Array.isArray(config.players)) {
     teams = config.players.map((p) => (p && p.team ? 1 : 0));
+    roles = config.players.map((p) => roleOf(p && p.role));
   } else if (Array.isArray(config.teams)) {
     teams = config.teams.map((t) => (t ? 1 : 0));
+    roles = teams.map((_, i) =>
+      Array.isArray(config.roles) ? roleOf(config.roles[i]) : 0,
+    );
   } else {
     const n = config.playerCount == null ? 2 : config.playerCount | 0;
     teams = [];
     for (let i = 0; i < n; i++) teams.push(i % 2);
+    roles = teams.map((_, i) =>
+      Array.isArray(config.roles) ? roleOf(config.roles[i]) : 0,
+    );
   }
   if (teams.length < 1 || teams.length > C.MAX_PLAYERS) {
     throw new RangeError(
@@ -124,19 +194,27 @@ export function createWorld(config = {}) {
 
   for (let i = 0; i < teams.length; i++) {
     buf[playerOffset(i) + P_TEAM] = teams[i];
+    buf[playerOffset(i) + P_ROLE] = roles[i];
   }
   const world = { buf, playerCount: teams.length };
   resetKickoff(world);
   return world;
 }
 
-/** Ball to the centre spot, players to their side, every velocity to zero. */
+/** Ball to the centre spot, players to their side, every timer to zero. */
 export function resetKickoff(world) {
   const { buf } = world;
   buf[BALL_BASE] = 0;
   buf[BALL_BASE + 1] = 0;
   buf[BALL_BASE + 2] = 0;
   buf[BALL_BASE + 3] = 0;
+  buf[HDR_BALL_HOLDER] = -1;
+  buf[HDR_BALL_HOLD_TICKS] = 0;
+  buf[HDR_BALL_CURVE] = 0;
+  buf[HDR_AFTERTOUCH_OWNER] = -1;
+  buf[HDR_AFTERTOUCH_TICKS] = 0;
+  buf[HDR_GRIEF_TEAM] = -1;
+  buf[HDR_GRIEF_TICKS] = 0;
 
   // Lateral slots are handed out per team so a 2v2 and a 1v3 both look sane.
   const seen = [0, 0];
@@ -155,7 +233,20 @@ export function resetKickoff(world) {
     buf[o + P_VZ] = 0;
     buf[o + P_KICK_ARM] = 0;
     buf[o + P_KICK_CD] = 0;
-    buf[o + P_PREV_KICK] = 0;
+    buf[o + P_PREV_BUTTONS] = 0;
+    buf[o + P_CHARGE] = 0;
+    buf[o + P_CHARGE_REL] = 0;
+    buf[o + P_CHARGE_PWR] = 0;
+    buf[o + P_TACKLE_ACTIVE] = 0;
+    buf[o + P_TACKLE_RECOV] = 0;
+    buf[o + P_TACKLE_CD] = 0;
+    buf[o + P_DIVE_ACTIVE] = 0;
+    buf[o + P_DIVE_LOCK] = 0;
+    buf[o + P_DIVE_DIR] = 0;
+    buf[o + P_CLEAR_CHARGE] = 0;
+    buf[o + P_FLAGS] = 0;
+    buf[o + P_TOUCH_CD] = 0;
+    // P_TEAM and P_ROLE survive a restart on purpose (ADR-0001).
   }
 }
 
@@ -175,12 +266,13 @@ export function quantiseAxis(v) {
 }
 
 /**
- * Normalise one player's input into `{ mx, mz, kick }` with mx/mz already
- * fixed-point and clamped to unit length. Accepts either floats (moveX/moveZ)
- * or pre-quantised integers (moveXFx/moveZFx).
+ * Normalise one player's input into `{ mx, mz, kick, buttons }` with mx/mz
+ * already fixed-point and clamped to unit length. Accepts either floats
+ * (moveX/moveZ) or pre-quantised integers (moveXFx/moveZFx), and either a
+ * ready-made `buttons` bitmask or the named booleans.
  */
 export function quantiseInput(input) {
-  if (!input) return { mx: 0, mz: 0, kick: 0 };
+  if (!input) return { mx: 0, mz: 0, kick: 0, buttons: 0 };
   let mx =
     input.moveXFx != null ? input.moveXFx | 0 : quantiseAxis(input.moveX || 0);
   let mz =
@@ -190,7 +282,17 @@ export function quantiseInput(input) {
     mx = fxDiv(mx, len);
     mz = fxDiv(mz, len);
   }
-  return { mx, mz, kick: input.kick ? 1 : 0 };
+  let buttons = (input.buttons | 0) & BTN_MASK;
+  if (input.kick) buttons |= BTN.KICK;
+  if (input.charge) buttons |= BTN.CHARGE;
+  if (input.chargeCancel) buttons |= BTN.CANCEL;
+  if (input.tackle) buttons |= BTN.TACKLE;
+  if (input.catchBall) buttons |= BTN.CATCH;
+  if (input.throwBall) buttons |= BTN.THROW;
+  if (input.clearBall) buttons |= BTN.CLEAR;
+  if (input.dive) buttons |= BTN.DIVE;
+  if (input.touch) buttons |= BTN.TOUCH;
+  return { mx, mz, kick: buttons & BTN.KICK ? 1 : 0, buttons };
 }
 
 // ------------------------------------------------------------- collisions
@@ -300,86 +402,518 @@ function resolveWall(buf, o, r, ai, limit, bcoef) {
   return false;
 }
 
+// ------------------------------------------------------------- geometry
+
+/** Squared-free centre distance from player i to the ball, raw units. */
+function ballDistance(buf, o) {
+  return fxHypot(
+    fxSub(buf[BALL_BASE], buf[o + P_X]),
+    fxSub(buf[BALL_BASE + 1], buf[o + P_Z]),
+  );
+}
+
+/** Unit vector player -> ball into out[]; (+x, 0) when the centres coincide. */
+function ballDirection(buf, o, out) {
+  const dx = fxSub(buf[BALL_BASE], buf[o + P_X]);
+  const dz = fxSub(buf[BALL_BASE + 1], buf[o + P_Z]);
+  if (fxNormalize(dx, dz, out) === 0) {
+    out[0] = FX_ONE;
+    out[1] = 0;
+  }
+}
+
+/**
+ * Where the player is pointing: the movement stick if it is pushed, otherwise
+ * straight at the opponents' goal. Never zero, so every impulse has a direction.
+ */
+function aimDirection(mx, mz, team, out) {
+  if ((mx !== 0 || mz !== 0) && fxNormalize(mx, mz, out) !== 0) return;
+  out[0] = 0;
+  out[1] = team === 0 ? FX_ONE : -FX_ONE; // team 0 defends -z, attacks +z
+}
+
+/** Is (x, z) inside `team`'s own penalty area? */
+export function inPenaltyArea(x, z, team) {
+  if (fxAbs(x) > C.PENALTY_HALF_X) return false;
+  const edge = C.PITCH_HALF_Z - C.PENALTY_DEPTH;
+  return team === 0 ? z <= -edge : z >= edge;
+}
+
+/**
+ * A keeper's hand powers (catch, throw, clearance, dive) exist only inside its
+ * own box; outside it the keeper is an ordinary field player. Host-side truth,
+ * so a client cannot claim a catch it was never entitled to.
+ */
+export function keeperEmpowered(world, i) {
+  const buf = world.buf;
+  const o = playerOffset(i);
+  if (buf[o + P_ROLE] !== 1) return false;
+  return inPenaltyArea(buf[o + P_X], buf[o + P_Z], buf[o + P_TEAM]);
+}
+
+// ------------------------------------------------------------ close control
+
+/**
+ * The CMU-RoboCup close-control predicate, exposed so bots, the tuning harness
+ * and the client all ask the same deterministic question: "if I move this way,
+ * will the ball still be mine next tick?".
+ *
+ * It reads state and returns a verdict; it changes nothing. There is no magnet
+ * anywhere in this file — a dribbler keeps the ball by touching it, and this
+ * only tells it when the next touch is due.
+ *
+ * `horizon` is how many ticks to project. One tick answers "am I about to lose
+ * it"; a few ticks answer "is it worth spending a touch now", which matters
+ * because the charge release needs the ball still in reach when it fires.
+ *
+ * Returns { gap, gapNext, keep } in RAW fixed-point units.
+ */
+export function controlAdvice(world, i, mx = 0, mz = 0, horizon = 1) {
+  const buf = world.buf;
+  const o = playerOffset(i);
+  const gap = ballDistance(buf, o);
+  // forward integration for both bodies in the same order step() uses
+  let px = buf[o + P_X];
+  let pz = buf[o + P_Z];
+  let pvx = buf[o + P_VX];
+  let pvz = buf[o + P_VZ];
+  let bx = buf[BALL_BASE];
+  let bz = buf[BALL_BASE + 1];
+  let bvx = buf[BALL_BASE + 2];
+  let bvz = buf[BALL_BASE + 3];
+  const h = horizon < 1 ? 1 : horizon | 0;
+  for (let k = 0; k < h; k++) {
+    pvx = fxAdd(pvx, fxMul(mx, C.PLAYER_ACCEL));
+    pvz = fxAdd(pvz, fxMul(mz, C.PLAYER_ACCEL));
+    px = fxAdd(px, pvx);
+    pz = fxAdd(pz, pvz);
+    bx = fxAdd(bx, bvx);
+    bz = fxAdd(bz, bvz);
+    pvx = fxMul(pvx, C.PLAYER_DAMPING);
+    pvz = fxMul(pvz, C.PLAYER_DAMPING);
+    bvx = fxMul(bvx, C.BALL_DAMPING);
+    bvz = fxMul(bvz, C.BALL_DAMPING);
+  }
+  const gapNext = fxHypot(fxSub(bx, px), fxSub(bz, pz));
+  return { gap, gapNext, keep: gapNext <= C.CONTROL_RADIUS };
+}
+
+// ------------------------------------------------------------ shot charge
+
+/**
+ * Charge curve from the design note: power = 0.3 + 0.7 * t^1.5, with t the
+ * fraction of the 100 ms -> 800 ms window that was held. Returns a Q16.16
+ * multiplier on KICK_IMPULSE, so a tap is 0.3x and a full hold is exactly 1x.
+ *
+ * t^1.5 is t * sqrt(t); fxSqrt is the exact integer root, so the curve is the
+ * same integer on every engine.
+ */
+export function chargePower(ticks) {
+  const span = C.CHARGE_MAX_TICKS - C.CHARGE_MIN_TICKS;
+  let held = (ticks | 0) - C.CHARGE_MIN_TICKS;
+  if (held <= 0) return C.CHARGE_BASE;
+  if (held > span) held = span;
+  const t = fxDiv(fxFromInt(held), fxFromInt(span));
+  const t15 = fxMul(t, fxSqrt(t));
+  return fxAdd(C.CHARGE_BASE, fxMul(C.CHARGE_SPAN, t15));
+}
+
+/** Same shape, mapped onto the keeper's clearance range instead of 0.3..1. */
+function clearImpulse(ticks) {
+  const span = C.CLEAR_MAX_TICKS;
+  let held = ticks | 0;
+  if (held < 0) held = 0;
+  if (held > span) held = span;
+  const t = fxDiv(fxFromInt(held), fxFromInt(span));
+  const t15 = fxMul(t, fxSqrt(t));
+  return fxAdd(
+    C.CLEAR_MIN_IMPULSE,
+    fxMul(C.CLEAR_MAX_IMPULSE - C.CLEAR_MIN_IMPULSE, t15),
+  );
+}
+
 // ------------------------------------------------------------------- step
 
 /**
  * Advance one 60 Hz tick.
  *
- * `inputs` is indexed by player: { moveX, moveZ, kick } floats, or
- * { moveXFx, moveZFx, kick } if the caller already quantised. Missing entries
- * count as no input.
+ * `inputs` is indexed by player: { moveX, moveZ, kick, charge, tackle, ... }
+ * floats/booleans, or the pre-quantised { moveXFx, moveZFx, buttons } form.
+ * Missing entries count as no input.
  *
  * Returns the events produced this tick. Order inside the tick is fixed and
- * load-bearing: accelerate, kick, integrate, collide, damp, score.
+ * load-bearing: timers, acceleration, tackle lunge, impulses, tackle hitbox,
+ * curve, integrate, collide, hold pin, damp, decay, score.
  */
 export function step(world, inputs) {
   const { buf } = world;
   const n = world.playerCount;
   const events = [];
+  const tick = buf[HDR_TICK];
+  const dir = [0, 0];
+  const aim = [0, 0];
+  // touched[i] !== 0 means player i already produced a touch event this tick,
+  // which suppresses the duplicate "contact" touch after the collision pass.
+  const touched = new Int32Array(n);
 
-  // 1) acceleration from input -------------------------------------------
+  const inp = [];
+  for (let i = 0; i < n; i++) inp.push(quantiseInput(inputs && inputs[i]));
+
+  const holder = buf[HDR_BALL_HOLDER];
+  const held = holder >= 0;
+
+  // 1) timers, button edges and the charge accumulators ---------------------
   for (let i = 0; i < n; i++) {
     const o = playerOffset(i);
-    const inp = quantiseInput(inputs && inputs[i]);
-    const accel = inp.kick ? C.PLAYER_KICKING_ACCEL : C.PLAYER_ACCEL;
-    if (inp.mx !== 0) buf[o + P_VX] = fxAdd(buf[o + P_VX], fxMul(inp.mx, accel));
-    if (inp.mz !== 0) buf[o + P_VZ] = fxAdd(buf[o + P_VZ], fxMul(inp.mz, accel));
+    const b = inp[i].buttons;
+    const prev = buf[o + P_PREV_BUTTONS];
+    const pressed = b & ~prev;
+    const released = prev & ~b;
+
+    if (buf[o + P_TACKLE_CD] > 0) buf[o + P_TACKLE_CD]--;
+    if (buf[o + P_TOUCH_CD] > 0) buf[o + P_TOUCH_CD]--;
+    if (buf[o + P_DIVE_LOCK] > 0) buf[o + P_DIVE_LOCK]--;
+    if (buf[o + P_TACKLE_RECOV] > 0) buf[o + P_TACKLE_RECOV]--;
+
+    // shot charge lives here, in state, so the host and every client agree on
+    // the power a release is worth without trusting a timestamp
+    if (b & BTN.CANCEL) {
+      if (buf[o + P_CHARGE] > 0 || buf[o + P_CHARGE_REL] > 0) {
+        events.push({ type: 'charge-cancel', player: i, tick });
+      }
+      buf[o + P_CHARGE] = 0;
+      buf[o + P_CHARGE_REL] = 0;
+      buf[o + P_CHARGE_PWR] = 0;
+      buf[o + P_CLEAR_CHARGE] = 0;
+    } else {
+      if (b & BTN.CHARGE) {
+        if (buf[o + P_CHARGE] < C.CHARGE_MAX_TICKS) buf[o + P_CHARGE]++;
+        // `P_CHARGE > 0` is what stops a cancel from turning into a shot: the
+        // cancel zeroes the accumulator, and the button coming up on the NEXT
+        // tick is still a release edge
+      } else if (released & BTN.CHARGE && buf[o + P_CHARGE] > 0) {
+        buf[o + P_CHARGE_PWR] = chargePower(buf[o + P_CHARGE]);
+        buf[o + P_CHARGE_REL] = C.CHARGE_BUFFER_TICKS;
+        buf[o + P_CHARGE] = 0;
+      }
+      if (b & BTN.CLEAR) {
+        if (buf[o + P_CLEAR_CHARGE] < C.CLEAR_MAX_TICKS) buf[o + P_CLEAR_CHARGE]++;
+      } else if (holder !== i) {
+        // only the keeper actually holding the ball keeps a clearance charge
+        buf[o + P_CLEAR_CHARGE] = 0;
+      }
+    }
 
     // latch: a fresh press arms the kick for KICK_LATCH_TICKS so a press a few
     // frames before contact still connects
-    const kick = inp.kick;
-    if (kick && !buf[o + P_PREV_KICK] && buf[o + P_KICK_CD] === 0) {
+    if (pressed & BTN.KICK && buf[o + P_KICK_CD] === 0) {
       buf[o + P_KICK_ARM] = C.KICK_LATCH_TICKS;
     }
-    buf[o + P_PREV_KICK] = kick;
+    buf[o + P_PREV_BUTTONS] = b;
   }
 
-  // 2) kicks: impulse ADDED along unit(player -> ball), never a velocity set
+  // 2) acceleration from input, unless the player is committed or grounded ---
+  for (let i = 0; i < n; i++) {
+    const o = playerOffset(i);
+    if (buf[o + P_TACKLE_ACTIVE] > 0) continue; // riding the slide
+    if (buf[o + P_TACKLE_RECOV] > 0) continue; // movement lock
+    if (buf[o + P_DIVE_LOCK] > 0) continue; // grounded after a whiff
+    const { mx, mz, kick } = inp[i];
+    const accel = kick ? C.PLAYER_KICKING_ACCEL : C.PLAYER_ACCEL;
+    if (mx !== 0) buf[o + P_VX] = fxAdd(buf[o + P_VX], fxMul(mx, accel));
+    if (mz !== 0) buf[o + P_VZ] = fxAdd(buf[o + P_VZ], fxMul(mz, accel));
+  }
+
+  // 3) slide tackle: start the lunge ---------------------------------------
+  for (let i = 0; i < n; i++) {
+    const o = playerOffset(i);
+    const b = inp[i].buttons;
+    const startable =
+      buf[o + P_TACKLE_ACTIVE] === 0 &&
+      buf[o + P_TACKLE_RECOV] === 0 &&
+      buf[o + P_TACKLE_CD] === 0 &&
+      buf[o + P_DIVE_LOCK] === 0 &&
+      holder !== i;
+    // strict rising edge, held in the flags word: section 1 has already
+    // overwritten P_PREV_BUTTONS, and a held button must never re-trigger
+    if ((b & BTN.TACKLE) === 0) {
+      buf[o + P_FLAGS] &= ~FLAG_TACKLE_HELD;
+      continue;
+    }
+    const fresh = (buf[o + P_FLAGS] & FLAG_TACKLE_HELD) === 0;
+    buf[o + P_FLAGS] |= FLAG_TACKLE_HELD;
+    if (fresh && startable) {
+      buf[o + P_TACKLE_ACTIVE] = C.TACKLE_ACTIVE_TICKS;
+      aimDirection(inp[i].mx, inp[i].mz, buf[o + P_TEAM], aim);
+      buf[o + P_VX] = fxAdd(buf[o + P_VX], fxMul(aim[0], C.TACKLE_IMPULSE));
+      buf[o + P_VZ] = fxAdd(buf[o + P_VZ], fxMul(aim[1], C.TACKLE_IMPULSE));
+      events.push({ type: 'tackle-start', player: i, tick });
+    }
+  }
+
+  // 4) keeper: dive start ---------------------------------------------------
+  for (let i = 0; i < n; i++) {
+    const o = playerOffset(i);
+    const b = inp[i].buttons;
+    if ((b & BTN.DIVE) === 0) {
+      buf[o + P_FLAGS] &= ~FLAG_DIVE_HELD;
+      continue;
+    }
+    if (buf[o + P_FLAGS] & FLAG_DIVE_HELD) continue; // already consumed
+    buf[o + P_FLAGS] |= FLAG_DIVE_HELD;
+    if (!keeperEmpowered(world, i)) continue;
+    if (buf[o + P_DIVE_ACTIVE] > 0 || buf[o + P_DIVE_LOCK] > 0) continue;
+    if (holder === i) continue;
+    // four directions only: whichever axis the stick leans on hardest
+    const { mx, mz } = inp[i];
+    let d;
+    if (fxAbs(mx) >= fxAbs(mz)) d = mx < 0 ? 0 : 1;
+    else d = mz < 0 ? 2 : 3;
+    const dvx = d === 0 ? -FX_ONE : d === 1 ? FX_ONE : 0;
+    const dvz = d === 2 ? -FX_ONE : d === 3 ? FX_ONE : 0;
+    buf[o + P_DIVE_DIR] = d;
+    buf[o + P_DIVE_ACTIVE] = C.DIVE_ACTIVE_TICKS;
+    buf[o + P_VX] = fxAdd(buf[o + P_VX], fxMul(dvx, C.DIVE_IMPULSE));
+    buf[o + P_VZ] = fxAdd(buf[o + P_VZ], fxMul(dvz, C.DIVE_IMPULSE));
+    events.push({ type: 'dive-start', player: i, dir: d, tick });
+  }
+
+  // 5) impulses on the ball -------------------------------------------------
+  // 5a) the keeper who is holding it decides how it leaves his hands
+  if (held) {
+    const o = playerOffset(holder);
+    const b = inp[holder].buttons;
+    // section 1 only lets a holder's clearance charge survive while the button
+    // is down, so "charge > 0 and button up" is exactly the release edge
+    const releasedClear = (b & BTN.CLEAR) === 0 && buf[o + P_CLEAR_CHARGE] > 0;
+    let kind = null;
+    let impulse = 0;
+    if (b & BTN.THROW) {
+      kind = 'throw';
+      impulse = C.THROW_IMPULSE;
+    } else if (releasedClear) {
+      kind = 'clear';
+      impulse = clearImpulse(buf[o + P_CLEAR_CHARGE]);
+    } else if (buf[HDR_BALL_HOLD_TICKS] <= 1) {
+      kind = 'forced'; // the counter ran out: the ball leaves whether he likes it or not
+      impulse = C.THROW_IMPULSE;
+    }
+    if (kind) {
+      aimDirection(inp[holder].mx, inp[holder].mz, buf[o + P_TEAM], aim);
+      buf[BALL_BASE] = fxAdd(buf[o + P_X], fxMul(aim[0], C.HOLD_OFFSET));
+      buf[BALL_BASE + 1] = fxAdd(buf[o + P_Z], fxMul(aim[1], C.HOLD_OFFSET));
+      buf[BALL_BASE + 2] = fxAdd(buf[o + P_VX], fxMul(aim[0], impulse));
+      buf[BALL_BASE + 3] = fxAdd(buf[o + P_VZ], fxMul(aim[1], impulse));
+      buf[HDR_BALL_HOLDER] = -1;
+      buf[HDR_BALL_HOLD_TICKS] = 0;
+      buf[o + P_CLEAR_CHARGE] = 0;
+      // a hand throw is deliberately straight; only the foot clearance bends
+      buf[HDR_BALL_CURVE] = 0;
+      if (kind === 'clear') {
+        buf[HDR_AFTERTOUCH_OWNER] = holder;
+        buf[HDR_AFTERTOUCH_TICKS] = C.AFTERTOUCH_TICKS;
+      } else {
+        buf[HDR_AFTERTOUCH_OWNER] = -1;
+        buf[HDR_AFTERTOUCH_TICKS] = 0;
+      }
+      // grief lock: whatever he does with it, it cannot end up an own goal
+      buf[HDR_GRIEF_TEAM] = buf[o + P_TEAM];
+      buf[HDR_GRIEF_TICKS] = C.GRIEF_LOCK_TICKS;
+      touched[holder] = 1;
+      events.push({ type: 'keeper-release', player: holder, kind, tick });
+      events.push({ type: 'touch', player: holder, kind, tick });
+    } else {
+      buf[HDR_BALL_HOLD_TICKS]--;
+    }
+  }
+
+  const stillHeld = buf[HDR_BALL_HOLDER] >= 0;
+
+  // 5b) close-control touch: the CMU "small corrective kick". Level triggered
+  //     behind its own cooldown, because a dribbler asks for it every few ticks
+  //     and a rising edge would make close control a drum solo. It cannot glue
+  //     the ball on: repeated touches raise the ball's speed until it outruns
+  //     the player, so spamming it loses possession rather than keeping it.
+  for (let i = 0; i < n; i++) {
+    const o = playerOffset(i);
+    if ((inp[i].buttons & BTN.TOUCH) === 0) continue;
+    if (stillHeld || buf[o + P_TOUCH_CD] > 0) continue;
+    const dist = ballDistance(buf, o);
+    if (fxSub(dist, REACH) >= C.KICK_RANGE) continue;
+    ballDirection(buf, o, dir);
+    buf[BALL_BASE + 2] = fxAdd(buf[BALL_BASE + 2], fxMul(dir[0], C.TOUCH_IMPULSE));
+    buf[BALL_BASE + 3] = fxAdd(buf[BALL_BASE + 3], fxMul(dir[1], C.TOUCH_IMPULSE));
+    buf[o + P_TOUCH_CD] = C.TOUCH_COOLDOWN_TICKS;
+    buf[HDR_BALL_CURVE] = 0; // a dribble touch is a ground touch
+    touched[i] = 1;
+    events.push({ type: 'touch', player: i, kind: 'control', tick });
+  }
+
+  // 5c) plain kick — the latched instant pass, unchanged from Phase 1.1
   for (let i = 0; i < n; i++) {
     const o = playerOffset(i);
     if (buf[o + P_KICK_CD] > 0) buf[o + P_KICK_CD]--;
     if (buf[o + P_KICK_ARM] <= 0) continue;
-    if (buf[o + P_KICK_CD] > 0) {
+    if (stillHeld || buf[o + P_KICK_CD] > 0) {
       buf[o + P_KICK_ARM]--;
       continue;
     }
-    const dx = fxSub(buf[BALL_BASE], buf[o + P_X]);
-    const dz = fxSub(buf[BALL_BASE + 1], buf[o + P_Z]);
-    const dist = fxHypot(dx, dz);
-    const gap = fxSub(dist, C.PLAYER_RADIUS + C.BALL_RADIUS);
-    if (gap < C.KICK_RANGE) {
-      let nx = FX_ONE;
-      let nz = 0;
-      if (dist !== 0) {
-        nx = fxDiv(dx, dist);
-        nz = fxDiv(dz, dist);
-      }
-      buf[BALL_BASE + 2] = fxAdd(
-        buf[BALL_BASE + 2],
-        fxMul(nx, C.KICK_IMPULSE),
-      );
-      buf[BALL_BASE + 3] = fxAdd(
-        buf[BALL_BASE + 3],
-        fxMul(nz, C.KICK_IMPULSE),
-      );
+    const dist = ballDistance(buf, o);
+    if (fxSub(dist, REACH) < C.KICK_RANGE) {
+      ballDirection(buf, o, dir);
+      buf[BALL_BASE + 2] = fxAdd(buf[BALL_BASE + 2], fxMul(dir[0], C.KICK_IMPULSE));
+      buf[BALL_BASE + 3] = fxAdd(buf[BALL_BASE + 3], fxMul(dir[1], C.KICK_IMPULSE));
       buf[o + P_KICK_ARM] = 0;
       buf[o + P_KICK_CD] = C.KICK_COOLDOWN_TICKS;
-      events.push({ type: 'kick', player: i, tick: buf[HDR_TICK] });
+      // a ground pass carries no spin, by design, and takes no aftertouch
+      buf[HDR_BALL_CURVE] = 0;
+      buf[HDR_AFTERTOUCH_OWNER] = -1;
+      buf[HDR_AFTERTOUCH_TICKS] = 0;
+      touched[i] = 1;
+      events.push({ type: 'kick', player: i, tick });
+      events.push({ type: 'touch', player: i, kind: 'kick', tick });
     } else {
       buf[o + P_KICK_ARM]--;
     }
   }
 
-  // 3) integrate ----------------------------------------------------------
+  // 5d) charged shot: the buffered release fires on the first tick the ball is
+  //     actually reachable, which is what "4-6 tick input buffer" means
+  for (let i = 0; i < n; i++) {
+    const o = playerOffset(i);
+    if (buf[o + P_CHARGE_REL] <= 0) continue;
+    if (stillHeld || buf[o + P_KICK_CD] > 0) {
+      buf[o + P_CHARGE_REL]--;
+      continue;
+    }
+    const dist = ballDistance(buf, o);
+    if (fxSub(dist, REACH) < C.KICK_RANGE) {
+      const power = buf[o + P_CHARGE_PWR];
+      const impulse = fxMul(power, C.KICK_IMPULSE);
+      ballDirection(buf, o, dir);
+      buf[BALL_BASE + 2] = fxAdd(buf[BALL_BASE + 2], fxMul(dir[0], impulse));
+      buf[BALL_BASE + 3] = fxAdd(buf[BALL_BASE + 3], fxMul(dir[1], impulse));
+      buf[o + P_CHARGE_REL] = 0;
+      buf[o + P_CHARGE_PWR] = 0;
+      buf[o + P_KICK_CD] = C.KICK_COOLDOWN_TICKS;
+      buf[HDR_BALL_CURVE] = 0;
+      buf[HDR_AFTERTOUCH_OWNER] = i;
+      buf[HDR_AFTERTOUCH_TICKS] = C.AFTERTOUCH_TICKS;
+      touched[i] = 1;
+      events.push({ type: 'shot', player: i, power, impulse, tick });
+      events.push({ type: 'touch', player: i, kind: 'shot', tick });
+    } else {
+      buf[o + P_CHARGE_REL]--;
+    }
+  }
+
+  // 6) slide tackle: the widened hitbox ------------------------------------
+  for (let i = 0; i < n; i++) {
+    const o = playerOffset(i);
+    if (buf[o + P_TACKLE_ACTIVE] <= 0) continue;
+    buf[o + P_TACKLE_ACTIVE]--;
+    let done = false;
+
+    if (!stillHeld) {
+      const dist = ballDistance(buf, o);
+      if (dist <= REACH + C.TACKLE_REACH) {
+        // clean win: the ball is killed and poked away from the tackler
+        ballDirection(buf, o, dir);
+        buf[BALL_BASE + 2] = fxAdd(
+          fxMul(buf[BALL_BASE + 2], C.TACKLE_BALL_DAMP),
+          fxMul(dir[0], C.TACKLE_POKE),
+        );
+        buf[BALL_BASE + 3] = fxAdd(
+          fxMul(buf[BALL_BASE + 3], C.TACKLE_BALL_DAMP),
+          fxMul(dir[1], C.TACKLE_POKE),
+        );
+        buf[HDR_BALL_CURVE] = 0;
+        buf[HDR_AFTERTOUCH_OWNER] = -1;
+        buf[HDR_AFTERTOUCH_TICKS] = 0;
+        touched[i] = 1;
+        events.push({ type: 'tackle', player: i, won: true, tick });
+        events.push({ type: 'touch', player: i, kind: 'tackle', tick });
+        done = true;
+      }
+    }
+
+    if (!done) {
+      // a slide that catches a body instead. Team-mates are invisible to it:
+      // this is the grief lock, and it is decided here so the host owns it.
+      for (let j = 0; j < n && !done; j++) {
+        if (j === i) continue;
+        const oj = playerOffset(j);
+        if (buf[oj + P_TEAM] === buf[o + P_TEAM]) continue;
+        const d = fxHypot(
+          fxSub(buf[oj + P_X], buf[o + P_X]),
+          fxSub(buf[oj + P_Z], buf[o + P_Z]),
+        );
+        if (d > C.PLAYER_RADIUS + C.TACKLE_REACH + C.PLAYER_RADIUS) continue;
+        const kx = fxSub(buf[oj + P_X], buf[o + P_X]);
+        const kz = fxSub(buf[oj + P_Z], buf[o + P_Z]);
+        if (fxNormalize(kx, kz, dir) === 0) {
+          dir[0] = FX_ONE;
+          dir[1] = 0;
+        }
+        buf[oj + P_VX] = fxAdd(buf[oj + P_VX], fxMul(dir[0], C.TACKLE_KNOCK));
+        buf[oj + P_VZ] = fxAdd(buf[oj + P_VZ], fxMul(dir[1], C.TACKLE_KNOCK));
+        events.push({ type: 'tackle', player: i, victim: j, won: false, tick });
+        done = true;
+      }
+    }
+
+    if (done) buf[o + P_TACKLE_ACTIVE] = 0;
+    if (buf[o + P_TACKLE_ACTIVE] === 0) {
+      buf[o + P_TACKLE_RECOV] = C.TACKLE_RECOVERY_TICKS;
+      buf[o + P_TACKLE_CD] = C.TACKLE_COOLDOWN_TICKS;
+    }
+  }
+
+  // 7) curve: ONE signed scalar, applied as v += k * perp(v) * curve --------
+  if (!stillHeld) {
+    // aftertouch first: within the window, sideways input feeds the scalar
+    const at = buf[HDR_AFTERTOUCH_OWNER];
+    if (at >= 0 && at < n && buf[HDR_AFTERTOUCH_TICKS] > 0) {
+      const vx = buf[BALL_BASE + 2];
+      const vz = buf[BALL_BASE + 3];
+      if (fxNormalize(vx, vz, dir) !== 0) {
+        const { mx, mz } = inp[at];
+        // cross(unit(v), move): positive means "bend left"
+        const lateral = fxSub(fxMul(dir[0], mz), fxMul(dir[1], mx));
+        let curve = fxAdd(
+          buf[HDR_BALL_CURVE],
+          fxMul(lateral, C.AFTERTOUCH_GAIN),
+        );
+        if (curve > C.CURVE_MAX) curve = C.CURVE_MAX;
+        if (curve < -C.CURVE_MAX) curve = -C.CURVE_MAX;
+        buf[HDR_BALL_CURVE] = curve;
+      }
+      buf[HDR_AFTERTOUCH_TICKS]--;
+      if (buf[HDR_AFTERTOUCH_TICKS] === 0) buf[HDR_AFTERTOUCH_OWNER] = -1;
+    }
+    const curve = buf[HDR_BALL_CURVE];
+    if (curve !== 0) {
+      const vx = buf[BALL_BASE + 2];
+      const vz = buf[BALL_BASE + 3];
+      const k = fxMul(C.CURVE_ACCEL, curve);
+      // perp(v) = (-vz, vx)
+      buf[BALL_BASE + 2] = fxAdd(vx, fxMul(fxNeg(vz), k));
+      buf[BALL_BASE + 3] = fxAdd(vz, fxMul(vx, k));
+    }
+  }
+
+  // 8) integrate ----------------------------------------------------------
   for (let i = 0; i < n; i++) {
     const o = playerOffset(i);
     buf[o + P_X] = fxAdd(buf[o + P_X], buf[o + P_VX]);
     buf[o + P_Z] = fxAdd(buf[o + P_Z], buf[o + P_VZ]);
   }
-  buf[BALL_BASE] = fxAdd(buf[BALL_BASE], buf[BALL_BASE + 2]);
-  buf[BALL_BASE + 1] = fxAdd(buf[BALL_BASE + 1], buf[BALL_BASE + 3]);
+  if (!stillHeld) {
+    buf[BALL_BASE] = fxAdd(buf[BALL_BASE], buf[BALL_BASE + 2]);
+    buf[BALL_BASE + 1] = fxAdd(buf[BALL_BASE + 1], buf[BALL_BASE + 3]);
+  }
 
-  // 4) collisions, in a fixed order ---------------------------------------
+  // 9) collisions, in a fixed order ---------------------------------------
   const playerWallCoef = fxMul(C.PLAYER_BCOEF, C.WALL_BCOEF);
   const ballWallCoef = fxMul(C.BALL_BCOEF, C.WALL_BCOEF);
   const playerPostCoef = fxMul(C.PLAYER_BCOEF, C.POST_BCOEF);
@@ -387,27 +921,29 @@ export function step(world, inputs) {
   const playerPlayerCoef = fxMul(C.PLAYER_BCOEF, C.PLAYER_BCOEF);
   const playerBallCoef = fxMul(C.PLAYER_BCOEF, C.BALL_BCOEF);
 
-  // 4a) players stay inside the rectangle; they never enter a goal mouth
+  // 9a) players stay inside the rectangle; they never enter a goal mouth
   for (let i = 0; i < n; i++) {
     const o = playerOffset(i);
     resolveWall(buf, o, C.PLAYER_RADIUS, P_X, C.PITCH_HALF_X, playerWallCoef);
     resolveWall(buf, o, C.PLAYER_RADIUS, P_Z, C.PITCH_HALF_Z, playerWallCoef);
   }
 
-  // 4b) ball: side walls always, goal lines only outside the mouth
-  resolveWall(buf, BALL_BASE, C.BALL_RADIUS, P_X, C.PITCH_HALF_X, ballWallCoef);
-  if (fxAbs(buf[BALL_BASE]) >= C.GOAL_HALF_X) {
-    resolveWall(
-      buf,
-      BALL_BASE,
-      C.BALL_RADIUS,
-      P_Z,
-      C.PITCH_HALF_Z,
-      ballWallCoef,
-    );
+  if (!stillHeld) {
+    // 9b) ball: side walls always, goal lines only outside the mouth
+    resolveWall(buf, BALL_BASE, C.BALL_RADIUS, P_X, C.PITCH_HALF_X, ballWallCoef);
+    if (fxAbs(buf[BALL_BASE]) >= C.GOAL_HALF_X) {
+      resolveWall(
+        buf,
+        BALL_BASE,
+        C.BALL_RADIUS,
+        P_Z,
+        C.PITCH_HALF_Z,
+        ballWallCoef,
+      );
+    }
   }
 
-  // 4c) the four posts
+  // 9c) the four posts
   for (let s = 0; s < 4; s++) {
     const px = s & 1 ? C.GOAL_HALF_X : -C.GOAL_HALF_X;
     const pz = s & 2 ? C.PITCH_HALF_Z : -C.PITCH_HALF_Z;
@@ -423,19 +959,21 @@ export function step(world, inputs) {
         C.POST_RADIUS,
       );
     }
-    resolvePost(
-      buf,
-      BALL_BASE,
-      C.BALL_RADIUS,
-      C.BALL_INV_MASS,
-      ballPostCoef,
-      px,
-      pz,
-      C.POST_RADIUS,
-    );
+    if (!stillHeld) {
+      resolvePost(
+        buf,
+        BALL_BASE,
+        C.BALL_RADIUS,
+        C.BALL_INV_MASS,
+        ballPostCoef,
+        px,
+        pz,
+        C.POST_RADIUS,
+      );
+    }
   }
 
-  // 4d) player vs player
+  // 9d) player vs player
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       resolveDiscs(
@@ -451,47 +989,171 @@ export function step(world, inputs) {
     }
   }
 
-  // 4e) player vs ball
+  // 9e) player vs ball. This is the whole of dribbling: no attraction, no
+  //     sticking, just the disc response plus the damping gap (ball 0.99 >
+  //     player 0.96) that keeps a nudged ball inside chasing range.
   for (let i = 0; i < n; i++) {
-    resolveDiscs(
-      buf,
-      playerOffset(i),
-      BALL_BASE,
-      C.PLAYER_RADIUS,
-      C.BALL_RADIUS,
-      C.PLAYER_INV_MASS,
-      C.BALL_INV_MASS,
-      playerBallCoef,
-    );
+    const o = playerOffset(i);
+    let contact = false;
+    if (!stillHeld) {
+      contact = resolveDiscs(
+        buf,
+        o,
+        BALL_BASE,
+        C.PLAYER_RADIUS,
+        C.BALL_RADIUS,
+        C.PLAYER_INV_MASS,
+        C.BALL_INV_MASS,
+        playerBallCoef,
+      );
+    }
+    const was = (buf[o + P_FLAGS] & FLAG_TOUCHING) !== 0;
+    if (contact) {
+      buf[o + P_FLAGS] |= FLAG_TOUCHING;
+      if (!was && !touched[i]) {
+        touched[i] = 1;
+        events.push({ type: 'touch', player: i, kind: 'contact', tick });
+      }
+      // possession changed hands, so the spin the last striker put on it dies
+      buf[HDR_BALL_CURVE] = 0;
+      if (buf[HDR_AFTERTOUCH_OWNER] !== i) {
+        buf[HDR_AFTERTOUCH_OWNER] = -1;
+        buf[HDR_AFTERTOUCH_TICKS] = 0;
+      }
+      // anyone else touching the ball ends the released-hold protection
+      if (buf[HDR_GRIEF_TEAM] >= 0 && buf[o + P_TEAM] !== buf[HDR_GRIEF_TEAM]) {
+        buf[HDR_GRIEF_TEAM] = -1;
+        buf[HDR_GRIEF_TICKS] = 0;
+      }
+    } else {
+      buf[o + P_FLAGS] &= ~FLAG_TOUCHING;
+    }
   }
 
-  // 5) damping: newSpeed = damping * oldSpeed, applied after the move -----
+  // 10) keeper: dive resolution, then catch --------------------------------
+  for (let i = 0; i < n; i++) {
+    const o = playerOffset(i);
+    if (buf[o + P_DIVE_ACTIVE] <= 0) continue;
+    buf[o + P_DIVE_ACTIVE]--;
+    if (buf[HDR_BALL_HOLDER] >= 0) continue;
+    const dist = ballDistance(buf, o);
+    if (dist <= REACH + C.DIVE_REACH) {
+      buf[BALL_BASE + 2] = fxMul(buf[BALL_BASE + 2], C.DIVE_SAVE_DAMP);
+      buf[BALL_BASE + 3] = fxMul(buf[BALL_BASE + 3], C.DIVE_SAVE_DAMP);
+      buf[HDR_BALL_CURVE] = 0;
+      buf[o + P_DIVE_ACTIVE] = 0;
+      if (!touched[i]) {
+        touched[i] = 1;
+        events.push({ type: 'touch', player: i, kind: 'save', tick });
+      }
+      events.push({ type: 'keeper-save', player: i, tick });
+    } else if (buf[o + P_DIVE_ACTIVE] === 0) {
+      // the window closed with nothing in it: grounded and defenceless
+      buf[o + P_DIVE_LOCK] = C.DIVE_WHIFF_LOCK_TICKS;
+      events.push({ type: 'keeper-whiff', player: i, tick });
+    }
+  }
+
+  if (buf[HDR_BALL_HOLDER] < 0) {
+    for (let i = 0; i < n; i++) {
+      const o = playerOffset(i);
+      if ((inp[i].buttons & BTN.CATCH) === 0) continue;
+      if (!keeperEmpowered(world, i)) continue;
+      if (ballDistance(buf, o) > REACH + C.CATCH_REACH) continue;
+      buf[HDR_BALL_HOLDER] = i;
+      buf[HDR_BALL_HOLD_TICKS] = C.CATCH_HOLD_TICKS;
+      buf[HDR_BALL_CURVE] = 0;
+      buf[HDR_AFTERTOUCH_OWNER] = -1;
+      buf[HDR_AFTERTOUCH_TICKS] = 0;
+      buf[o + P_DIVE_ACTIVE] = 0;
+      if (!touched[i]) {
+        touched[i] = 1;
+        events.push({ type: 'touch', player: i, kind: 'catch', tick });
+      }
+      events.push({ type: 'keeper-catch', player: i, tick });
+      break; // lowest index wins a simultaneous grab, deterministically
+    }
+  }
+
+  // 11) a held ball rides with its keeper -----------------------------------
+  const nowHolder = buf[HDR_BALL_HOLDER];
+  if (nowHolder >= 0) {
+    const o = playerOffset(nowHolder);
+    // pinned in FRONT of the keeper (goal-ward), never behind him: a held ball
+    // must not be able to drift over his own line while it is still in his hands
+    aimDirection(0, 0, buf[o + P_TEAM], aim);
+    buf[BALL_BASE] = fxAdd(buf[o + P_X], fxMul(aim[0], C.HOLD_OFFSET));
+    buf[BALL_BASE + 1] = fxAdd(buf[o + P_Z], fxMul(aim[1], C.HOLD_OFFSET));
+    buf[BALL_BASE + 2] = buf[o + P_VX];
+    buf[BALL_BASE + 3] = buf[o + P_VZ];
+  }
+
+  // 12) damping: newSpeed = damping * oldSpeed, applied after the move -----
   for (let i = 0; i < n; i++) {
     const o = playerOffset(i);
     buf[o + P_VX] = fxMul(buf[o + P_VX], C.PLAYER_DAMPING);
     buf[o + P_VZ] = fxMul(buf[o + P_VZ], C.PLAYER_DAMPING);
   }
-  buf[BALL_BASE + 2] = fxMul(buf[BALL_BASE + 2], C.BALL_DAMPING);
-  buf[BALL_BASE + 3] = fxMul(buf[BALL_BASE + 3], C.BALL_DAMPING);
+  if (nowHolder < 0) {
+    buf[BALL_BASE + 2] = fxMul(buf[BALL_BASE + 2], C.BALL_DAMPING);
+    buf[BALL_BASE + 3] = fxMul(buf[BALL_BASE + 3], C.BALL_DAMPING);
+    // spin bleeds off on its own; nothing else has to remember to clear it
+    if (buf[HDR_BALL_CURVE] !== 0) {
+      buf[HDR_BALL_CURVE] = fxMul(buf[HDR_BALL_CURVE], C.CURVE_DAMPING);
+    }
+  }
+  if (buf[HDR_GRIEF_TICKS] > 0) {
+    buf[HDR_GRIEF_TICKS]--;
+    if (buf[HDR_GRIEF_TICKS] === 0) buf[HDR_GRIEF_TEAM] = -1;
+  }
 
-  // 6) goals --------------------------------------------------------------
+  // 13) goals --------------------------------------------------------------
   const bz = buf[BALL_BASE + 1];
   const line = C.PITCH_HALF_Z + C.BALL_RADIUS;
   if (fxAbs(buf[BALL_BASE]) < C.GOAL_HALF_X && (bz > line || bz < -line)) {
     // team 0 defends -z and attacks +z
     const scorer = bz > 0 ? 0 : 1;
-    if (scorer === 0) buf[HDR_SCORE_0]++;
-    else buf[HDR_SCORE_1]++;
-    buf[HDR_LAST_GOAL_TEAM] = scorer;
-    buf[HDR_LAST_GOAL_TICK] = buf[HDR_TICK];
-    buf[HDR_KICKOFF_TEAM] = scorer === 0 ? 1 : 0; // conceding side restarts
-    events.push({ type: 'goal', team: scorer, tick: buf[HDR_TICK] });
-    resetKickoff(world);
+    const conceding = scorer === 0 ? 1 : 0;
+    if (buf[HDR_GRIEF_TEAM] === conceding && buf[HDR_GRIEF_TICKS] > 0) {
+      // a keeper cannot throw or boot his own hold into his own net; the ball
+      // goes back into his hands and he takes the clearance again
+      const gk = findKeeper(world, conceding);
+      const o = playerOffset(gk >= 0 ? gk : 0);
+      buf[HDR_BALL_HOLDER] = gk >= 0 ? gk : -1;
+      buf[HDR_BALL_HOLD_TICKS] = gk >= 0 ? C.CATCH_HOLD_TICKS : 0;
+      aimDirection(0, 0, buf[o + P_TEAM], aim);
+      buf[BALL_BASE] = fxAdd(buf[o + P_X], fxMul(aim[0], C.HOLD_OFFSET));
+      buf[BALL_BASE + 1] = fxAdd(buf[o + P_Z], fxMul(aim[1], C.HOLD_OFFSET));
+      buf[BALL_BASE + 2] = 0;
+      buf[BALL_BASE + 3] = 0;
+      buf[HDR_BALL_CURVE] = 0;
+      buf[HDR_GRIEF_TEAM] = -1;
+      buf[HDR_GRIEF_TICKS] = 0;
+      events.push({ type: 'grief-void', team: conceding, tick });
+    } else {
+      if (scorer === 0) buf[HDR_SCORE_0]++;
+      else buf[HDR_SCORE_1]++;
+      buf[HDR_LAST_GOAL_TEAM] = scorer;
+      buf[HDR_LAST_GOAL_TICK] = tick;
+      buf[HDR_KICKOFF_TEAM] = conceding; // conceding side restarts
+      events.push({ type: 'goal', team: scorer, tick });
+      resetKickoff(world);
+    }
   }
 
-  // 7) advance the clock --------------------------------------------------
-  buf[HDR_TICK] = (buf[HDR_TICK] + 1) | 0;
+  // 14) advance the clock --------------------------------------------------
+  buf[HDR_TICK] = (tick + 1) | 0;
   return events;
+}
+
+/** Lowest-index keeper on a team, or -1. Deterministic tie-break (ADR-0001). */
+function findKeeper(world, team) {
+  const buf = world.buf;
+  for (let i = 0; i < world.playerCount; i++) {
+    const o = playerOffset(i);
+    if (buf[o + P_ROLE] === 1 && buf[o + P_TEAM] === team) return i;
+  }
+  return -1;
 }
 
 // ------------------------------------------------------------- inspection
@@ -536,12 +1198,23 @@ export function readState(world) {
     players.push({
       index: i,
       team: buf[o + P_TEAM],
+      role: buf[o + P_ROLE],
       x: buf[o + P_X] / FX_ONE,
       z: buf[o + P_Z] / FX_ONE,
       vx: buf[o + P_VX] / FX_ONE,
       vz: buf[o + P_VZ] / FX_ONE,
       kickArm: buf[o + P_KICK_ARM],
       kickCooldown: buf[o + P_KICK_CD],
+      charge: buf[o + P_CHARGE],
+      chargeRelease: buf[o + P_CHARGE_REL],
+      clearCharge: buf[o + P_CLEAR_CHARGE],
+      tackleActive: buf[o + P_TACKLE_ACTIVE],
+      tackleRecovery: buf[o + P_TACKLE_RECOV],
+      tackleCooldown: buf[o + P_TACKLE_CD],
+      diveActive: buf[o + P_DIVE_ACTIVE],
+      diveLock: buf[o + P_DIVE_LOCK],
+      diveDir: buf[o + P_DIVE_DIR],
+      touchCooldown: buf[o + P_TOUCH_CD],
     });
   }
   return {
@@ -553,7 +1226,15 @@ export function readState(world) {
       z: buf[BALL_BASE + 1] / FX_ONE,
       vx: buf[BALL_BASE + 2] / FX_ONE,
       vz: buf[BALL_BASE + 3] / FX_ONE,
+      curve: buf[HDR_BALL_CURVE] / FX_ONE,
+      holder: buf[HDR_BALL_HOLDER],
+      holdTicks: buf[HDR_BALL_HOLD_TICKS],
     },
+    aftertouch: {
+      owner: buf[HDR_AFTERTOUCH_OWNER],
+      ticks: buf[HDR_AFTERTOUCH_TICKS],
+    },
+    griefLock: { team: buf[HDR_GRIEF_TEAM], ticks: buf[HDR_GRIEF_TICKS] },
     players,
   };
 }
@@ -567,6 +1248,11 @@ export function place(world, target, x, z, vx = 0, vz = 0) {
   world.buf[o + P_VZ] = fxFromNumber(vz);
 }
 
+/** Authoring helper: set the ball's curve scalar directly. Tests only. */
+export function setCurve(world, curve) {
+  world.buf[HDR_BALL_CURVE] = fxFromNumber(curve);
+}
+
 export const FIELD = {
   P_X,
   P_Z,
@@ -575,5 +1261,19 @@ export const FIELD = {
   P_TEAM,
   P_KICK_ARM,
   P_KICK_CD,
-  P_PREV_KICK,
+  P_PREV_BUTTONS,
+  P_PREV_KICK: P_PREV_BUTTONS, // back-compat alias: bit 0 of the mask
+  P_ROLE,
+  P_CHARGE,
+  P_CHARGE_REL,
+  P_CHARGE_PWR,
+  P_TACKLE_ACTIVE,
+  P_TACKLE_RECOV,
+  P_TACKLE_CD,
+  P_DIVE_ACTIVE,
+  P_DIVE_LOCK,
+  P_DIVE_DIR,
+  P_CLEAR_CHARGE,
+  P_FLAGS,
+  P_TOUCH_CD,
 };
