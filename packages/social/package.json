@@ -1,0 +1,14 @@
+{
+  "name": "@goalnet/social",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Social and competitive systems: OpenSkill rating with placement and decay, season soft reset and badges, a bounded spectator budget, clan tags with a homoglyph-aware name filter, and quick chat with cooldown/spam/mute. No runtime dependencies.",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node test/run.mjs"
+  }
+}
