@@ -1,0 +1,7 @@
+# Placeholder clips are DERIVED, not authored: regenerate them with
+#   npm run present:clips
+# Real recordings (see brain/40-progress/HUMAN-QUEUE.md) arrive as .opus or
+# .mp3 with the same base names and ARE committed, which is why only the
+# generated .wav files and the generated manifest are ignored here.
+*.wav
+manifest.json
