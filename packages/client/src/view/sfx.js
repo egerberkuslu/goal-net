@@ -206,6 +206,11 @@ export class Sfx {
       case 'ooh':
         this.#noise(t, 0.6, 600, 0.4, 0.22, 0.06);
         break;
+      case 'save': // glove on leather, then a short relieved swell
+        this.#noise(t, 0.07, 1500, 1.1, 0.3, 0.004);
+        this.#tone(t, 0.11, 180, 'sine', 0.22, 120);
+        this.#noise(t + 0.05, 0.55, 700, 0.4, 0.2, 0.08);
+        break;
       default:
         break;
     }
