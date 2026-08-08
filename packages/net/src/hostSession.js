@@ -412,7 +412,12 @@ export function createHostSession(options = {}) {
       startNow = now - (world.buf[HDR_TICK] * 1000) / tickRate;
     }
 
-    const targetSnapshot = Math.floor((elapsed * snapshotHz) / 1000);
+    // Read the clock again AFTER a possible re-anchor. Using the pre-anchor
+    // elapsed here would push snapshotIndex to a tick the world never reached,
+    // and the broadcast would then go silent for exactly as long as the stall
+    // lasted — a stutter turning into a blackout.
+    const snapshotElapsed = Math.max(0, now - startNow);
+    const targetSnapshot = Math.floor((snapshotElapsed * snapshotHz) / 1000);
     if (targetSnapshot <= snapshotIndex || peers.size === 0) {
       if (targetSnapshot > snapshotIndex) snapshotIndex = targetSnapshot;
       return [];
