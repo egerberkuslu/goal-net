@@ -50,7 +50,7 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 17 | Kamera: vuruş sarsıntısı + gol replay | 1.3 | Kozmetik; core'a dokunmaz | ☐ |
 | 18 | Stadyum + dekor asset'leri | 1.4 | Sahne <150k üçgen; GLB Draco+KTX2 | ☐ |
 | 19 | Performans bütçesi | 1.4 | Draw call mobil <50 / masaüstü <100; 60 FPS orta donanım | ☐ |
-| 20 | Bot arayüzü soyutlama | 1.5 | Scripted ve ONNX bot aynı observe→action interface'i | ☐ |
+| 20 | Bot arayüzü soyutlama | 1.5 | Scripted ve ONNX bot aynı observe→action interface'i | ☑ |
 | 21 | Seyirci (instanced + VAT) | 1.6 | Tek-birkaç draw call; idle/dalga/gol coşkusu | ☐ |
 | 22 | Top toplayıcı çocuk sahneleri | 1.6 | Top dışarı → kozmetik sahne; core sadece T sn restart | ☐ |
 | 23 | Kale ağı + bayrak Verlet cloth | 1.6 | Top ağı dalgalandırır; top ağdan geçmez (post-correction) | ☐ |

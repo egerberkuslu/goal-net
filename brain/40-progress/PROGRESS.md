@@ -12,7 +12,7 @@ Sıradaki hedef: Matris #7-#11 (saf fizik dribbling, şarj, falso, tackle, kalec
 | 1.2 | ☐ | — | |
 | 1.3 | ☐ | — | |
 | 1.4 | ☐ | — | |
-| 1.5 | ☐ | — | |
+| 1.5 | ☑ | faz1.5-bots | #20 observe→action; scripted 3 kademe + ONNX aynı arayüz (enjekte runtime) |
 | 1.6 | ☐ | — | |
 | 1.7a | ☐ | — | |
 | 1.7b | ☐ | — | |
@@ -36,6 +36,14 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-08-08 (4): Faz 1.5 (#20) KAPANDI — `packages/bots`: 100 özellikli
+  egosentrik observation (takım 1 için 180° döndürme, mirror değil), 18
+  ayrık / 7 sürekli aksiyon, scripted politika 3 kademe (ölçülen: tepki
+  24/8/4 tick, nişan sapması 0.023/0.012/0.004, zor kolayı 10-0 yendi),
+  ONNX politikası enjekte edilen runtime ile aynı arayüzde. Ajan gerçek bir
+  hata yakaladı: core vuruşu yalnız yükselen kenarda tetikliyor, bot tuşu
+  basılı tutunca tek vuruş oluyordu (4 tick bas / 8 tick bırak ile düzeldi).
+  Faz 1.2 oynanış ajanı hâlâ çalışıyor.
 - 2026-08-08 (3): Faz 1.1 KAPANDI. `packages/net`: host-otorite oturum
   (60 Hz sim, peer-başı delta baseline'ı, input limitleri, bot hook'u),
   istemci oturumu (100 ms interpolasyon, tahmin + uzlaştırma) ve ikili wire
