@@ -28,6 +28,8 @@ import {
   chargePower,
   inPenaltyArea,
   keeperEmpowered,
+  pitchOf,
+  worldSettings,
   BTN,
   BALL_BASE,
   FIELD,
@@ -38,6 +40,45 @@ import {
   toHex32,
   fx,
   CORE_VERSION,
+  STATE_VERSION,
+  HDR_BALL_HOLDER,
+  HDR_BALL_HOLD_TICKS,
+  HDR_GRIEF_TEAM,
+  HDR_GRIEF_TICKS,
+  HDR_PITCH,
+  HDR_SETTINGS_HASH,
+  HDR_DURATION_TICKS,
+  HDR_SCORE_LIMIT,
+  HDR_RULE_FLAGS,
+  HDR_MATCH_STATE,
+  DEFAULT_SETTINGS,
+  PITCH_PRESETS,
+  PITCH_PRESET_LIST,
+  PITCH_KUCUK,
+  PITCH_ORTA,
+  PITCH_BUYUK,
+  MERCY_GOAL_DIFF,
+  MATCH_RUNNING,
+
+  MATCH_FINISHED,
+  RULE_GOLDEN_GOAL,
+  RULE_MERCY,
+  RULE_KEEPERS,
+  SETTINGS_WORDS,
+  SettingsError,
+  normaliseSettings,
+  isCanonicalSettings,
+  serializeSettings,
+  settingsHash,
+  settingsHashInt,
+  settingsFlags,
+  sameSettings,
+  assertSameSettings,
+  encodeSettings,
+  decodeSettings,
+  durationTicks,
+  pitchCodeOf,
+  pitchPreset,
 } from '../src/index.js';
 import {
   straightRun,
@@ -228,6 +269,123 @@ function chainDigest(chain) {
   return toHex32(fnv1aString(chain.join('')));
 }
 
+// ------------------------------------------------------- match-rule scenarios
+
+/**
+ * Put the ball over `team`'s target line, from outside every player's reach and
+ * clear of the posts, so the next step() has to award a goal. Used to drive the
+ * scoreline deterministically without waiting for the wander script to oblige.
+ */
+function forceGoal(world, team) {
+  const buf = world.buf;
+  buf[HDR_BALL_HOLDER] = -1;
+  buf[HDR_BALL_HOLD_TICKS] = 0;
+  buf[HDR_GRIEF_TEAM] = -1;
+  buf[HDR_GRIEF_TICKS] = 0;
+  const P = pitchOf(world);
+  const beyond = P.halfZ / FX_ONE + 20; // 10 past the goal line, 20 clear of any player
+  place(world, 'ball', 0, team === 0 ? beyond : -beyond, 0, 0);
+}
+
+/** Score `n` goals for `team`, one step at a time. Returns every event seen. */
+function driveGoals(world, team, n) {
+  const events = [];
+  for (let k = 0; k < n; k++) {
+    forceGoal(world, team);
+    for (const e of step(world, [])) events.push(e);
+  }
+  return events;
+}
+
+/** A world with nothing but two still players, for rule checks in isolation. */
+function ruleWorld(settings) {
+  return createWorld({ playerCount: 2, settings });
+}
+
+/**
+ * The Phase 1.7a determinism scenarios: the same wander/chase script as the
+ * Phase 1.2 chain, on a non-default pitch, with the scoreline forced at fixed
+ * ticks so the run walks the golden-goal period, a match ending and the frozen
+ * world that follows.
+ */
+const RULES_SCENARIOS = [
+  {
+    name: 'golden-goal-kucuk',
+    seed: 0x5eed1234,
+    ticks: 1200,
+    playerCount: 4,
+    roles: [1, 1, 0, 0],
+    settings: {
+      durationSeconds: 10, // 600 ticks
+      scoreLimit: 0,
+      pitch: 'kucuk',
+      goldenGoal: true,
+      mercyRule: true,
+      keepers: true,
+    },
+    // 2-2 by tick 460, level at full time -> golden goal, settled at tick 700
+    script: [[100, 0], [220, 1], [340, 0], [460, 1], [700, 0]],
+  },
+  {
+    name: 'mercy-buyuk',
+    seed: 0x0dd1e,
+    ticks: 900,
+    playerCount: 4,
+    roles: [0, 0, 0, 0],
+    settings: {
+      durationSeconds: 0, // untimed: only the mercy rule can stop this one
+      scoreLimit: 0,
+      pitch: 'buyuk',
+      goldenGoal: false,
+      mercyRule: true,
+      keepers: false,
+    },
+    script: [[80, 0], [160, 0], [240, 0], [320, 0]],
+  },
+];
+
+function rulesTrace(scn) {
+  const wander = wanderScript(scn);
+  const world = createWorld({
+    playerCount: scn.playerCount,
+    roles: scn.roles,
+    settings: scn.settings,
+  });
+  const chain = [checksum(world)];
+  const tally = { goal: 0, 'golden-goal': 0, 'match-end': 0 };
+  let end = null;
+  for (let t = 0; t < scn.ticks; t++) {
+    if (world.buf[HDR_MATCH_STATE] !== MATCH_FINISHED) {
+      for (const [at, team] of scn.script) if (at === t) forceGoal(world, team);
+    }
+    const inputs = [];
+    for (let p = 0; p < scn.playerCount; p++) {
+      const d = wander[t][p] >= 0 ? wander[t][p] : dirTowardBall(world.buf, p);
+      inputs.push(decodeInput(d | (wantsButtons(world.buf, p, t) << 4)));
+    }
+    for (const e of step(world, inputs)) {
+      if (tally[e.type] != null) tally[e.type]++;
+      if (e.type === 'match-end') end = e;
+    }
+    chain.push(checksum(world));
+  }
+  return { world, chain, tally, end };
+}
+
+function rulesChains() {
+  const out = {};
+  for (const scn of RULES_SCENARIOS) {
+    const r = rulesTrace(scn);
+    out[scn.name] = {
+      digest: chainDigest(r.chain),
+      tally: r.tally,
+      end: r.end ? { reason: r.end.reason, winner: r.end.winner, tick: r.end.tick } : null,
+      score: [r.world.buf[5], r.world.buf[6]],
+    };
+  }
+  return out;
+}
+
 function firstDiff(a, b) {
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) if (a[i] !== b[i]) return i;
@@ -251,6 +409,7 @@ if (process.argv.includes('--dump-trace')) {
       goals,
       kicks,
       chainDigest: chainDigest(chain),
+      rules: rulesChains(),
       final: readState(world),
       inputs: codes,
       ticks: chain.map((c, i) => ({ t: i, c })),
@@ -557,14 +716,17 @@ const runB = runTrace();
   );
 }
 
-{
-  // Fresh interpreter: if any module-level mutable state leaked into the sim,
-  // a cold process would drift from a warm one.
-  const raw = execFileSync(process.execPath, [SELF, '--dump-trace'], {
+// Fresh interpreter: if any module-level mutable state leaked into the sim,
+// a cold process would drift from a warm one. Kept at file scope because the
+// match-rule section re-uses the same child run.
+const child = JSON.parse(
+  execFileSync(process.execPath, [SELF, '--dump-trace'], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
-  });
-  const child = JSON.parse(raw);
+  }),
+);
+
+{
   const childChain = child.ticks.map((e) => e.c);
   const d = firstDiff(runA.chain, childChain);
   check(
@@ -1596,7 +1758,826 @@ function keeperWorld() {
   );
 }
 
-// ----------------------------------------------------- 5. constantsHash
+// ------------------------------------- 5. match rules (rows #26, #27, #28, #29)
+
+section('pitch presets (row #28)');
+
+const U = (raw) => raw / FX_ONE;
+
+{
+  check(
+    'there are exactly three presets, coded 1..3',
+    PITCH_PRESET_LIST.length === 3 &&
+      PITCH_PRESET_LIST.map((p) => p.code).join(',') === '1,2,3' &&
+      PITCH_PRESET_LIST.map((p) => p.id).join(',') === 'kucuk,orta,buyuk',
+    PITCH_PRESET_LIST.map((p) => `${p.code}:${p.id}`).join(' '),
+  );
+  check(
+    'preset code 0 is not a preset, so an uninitialised state cannot pass for one',
+    PITCH_PRESETS[0] === null && pitchCodeOf(0) === 0 && pitchCodeOf(4) === 0,
+  );
+  check(
+    'pitchPreset resolves ids, aliases and codes, and throws on anything else',
+    pitchPreset('small') === PITCH_PRESETS[PITCH_KUCUK] &&
+      pitchPreset(PITCH_BUYUK) === PITCH_PRESETS[PITCH_BUYUK] &&
+      (() => {
+        try {
+          pitchPreset('__proto__');
+          return false;
+        } catch (err) {
+          return err instanceof SettingsError && err.code === 'bad-pitch';
+        }
+      })(),
+  );
+  const orta = PITCH_PRESETS[PITCH_ORTA];
+  check(
+    'the medium preset is bit-for-bit the LOCKED Phase 1.2 geometry',
+    orta.halfX === CONSTANTS.PITCH_HALF_X &&
+      orta.halfZ === CONSTANTS.PITCH_HALF_Z &&
+      orta.goalHalfX === CONSTANTS.GOAL_HALF_X &&
+      orta.penaltyHalfX === CONSTANTS.PENALTY_HALF_X &&
+      orta.penaltyDepth === CONSTANTS.PENALTY_DEPTH &&
+      orta.spawnZ === CONSTANTS.SPAWN_Z &&
+      orta.spawnXStep === CONSTANTS.SPAWN_X_STEP,
+  );
+  check(
+    'the preset table is not in the physics table, so constantsHash is untouched',
+    CONSTANTS.PITCH_PRESET === undefined && constantsHash === '7f502ae2',
+    constantsHash,
+  );
+}
+
+{
+  // every length is the same multiple of the medium preset, checked by exact
+  // cross-multiplication so no float ever decides whether a ratio holds
+  const base = PITCH_PRESETS[PITCH_ORTA];
+  const fields = [
+    'halfX',
+    'halfZ',
+    'goalHalfX',
+    'penaltyHalfX',
+    'penaltyDepth',
+    'spawnZ',
+    'spawnXStep',
+    'keeperGuardZ',
+  ];
+  const bad = [];
+  for (const p of PITCH_PRESET_LIST) {
+    // p[f] / base[f] must be exactly p.scaleNum / p.scaleDen, for every length
+    for (const f of fields) {
+      if (p[f] * p.scaleDen !== base[f] * p.scaleNum) bad.push(`${p.id}.${f}`);
+    }
+  }
+  check(
+    'every preset is one uniform scale of the medium one — no shape changes',
+    bad.length === 0,
+    bad.join(' '),
+  );
+  check(
+    'the three presets really are different sizes',
+    PITCH_PRESETS[PITCH_KUCUK].halfZ < base.halfZ &&
+      base.halfZ < PITCH_PRESETS[PITCH_BUYUK].halfZ,
+    PITCH_PRESET_LIST.map((p) => `${p.id} ${U(p.halfX) * 2}x${U(p.halfZ) * 2}`).join(', '),
+  );
+}
+
+{
+  // Coherence, preset by preset. These are the inversions that a naive scale
+  // would produce at the small end: a goal wider than its penalty area, a
+  // penalty area deeper than the half, a spawn row outside the walls.
+  const bad = [];
+  for (const p of PITCH_PRESET_LIST) {
+    const note = (why) => bad.push(`${p.id}: ${why}`);
+    if (!(p.goalHalfX > 0 && p.goalHalfX < p.penaltyHalfX)) note('goal not inside the box');
+    if (!(p.penaltyHalfX < p.halfX)) note('box wider than the pitch');
+    if (!(p.goalHalfX > CONSTANTS.POST_RADIUS + CONSTANTS.BALL_RADIUS)) {
+      note('goal mouth too narrow for the ball to pass the posts');
+    }
+    if (!(p.penaltyDepth > 0 && p.halfZ - p.penaltyDepth > 0)) note('box crosses the halfway line');
+    if (!(p.spawnZ > 0 && p.spawnZ < p.halfZ - CONSTANTS.PLAYER_RADIUS)) {
+      note('kickoff row outside the pitch');
+    }
+    if (!(p.keeperGuardZ < p.halfZ && p.keeperGuardZ > p.halfZ - p.penaltyDepth)) {
+      note('keeper guard line outside its own box');
+    }
+    if (p.spawnXStep % 2 !== 0) note('spawn step is odd, so the row cannot be centred');
+    // widest legal team is MAX_PLAYERS/2; its outermost player must fit
+    const widest = ((CONSTANTS.MAX_PLAYERS / 2 - 1) * p.spawnXStep) / 2;
+    if (!(widest < p.halfX - CONSTANTS.PLAYER_RADIUS)) note('a full team does not fit on the row');
+    if (!(p.halfX < p.halfZ)) note('the long axis is no longer z');
+  }
+  check('every preset is a coherent arena, smallest included', bad.length === 0, bad.join('; '));
+}
+
+{
+  // kickoff is the centre spot on every preset, and the two sides mirror
+  const bad = [];
+  for (const p of PITCH_PRESET_LIST) {
+    const w = createWorld({ playerCount: 12, settings: { pitch: p.id } });
+    const s = readState(w);
+    if (s.ball.x !== 0 || s.ball.z !== 0) bad.push(`${p.id}: ball off the centre spot`);
+    let sum = 0;
+    let mirrored = true;
+    for (const pl of s.players) {
+      sum += pl.x;
+      const want = pl.team === 0 ? -U(p.spawnZ) : U(p.spawnZ);
+      if (pl.z !== want) mirrored = false;
+      if (Math.abs(pl.x) > U(p.halfX) - U(CONSTANTS.PLAYER_RADIUS)) {
+        bad.push(`${p.id}: player outside the wall`);
+      }
+      if (pl.team === 0 ? pl.z >= 0 : pl.z <= 0) bad.push(`${p.id}: player in the wrong half`);
+    }
+    if (sum !== 0) bad.push(`${p.id}: spawn row not centred (${sum})`);
+    if (!mirrored) bad.push(`${p.id}: spawn rows not mirrored`);
+    if (pitchOf(w) !== p) bad.push(`${p.id}: world reads a different preset`);
+  }
+  check('a 12-player kickoff is centred and legal on every preset', bad.length === 0, bad.join('; '));
+}
+
+{
+  // the SAME relative shot scores on every preset: 40% of the way to the post,
+  // 10 units past the goal line in that preset's own units
+  const scored = [];
+  for (const p of PITCH_PRESET_LIST) {
+    for (const team of [0, 1]) {
+      const w = createWorld({ playerCount: 2, settings: { pitch: p.id, scoreLimit: 0 } });
+      const x = (U(p.goalHalfX) * 2) / 5;
+      const z = (U(p.halfZ) + U(CONSTANTS.BALL_RADIUS) + 10) * (team === 0 ? 1 : -1);
+      place(w, 'ball', x, z, 0, 0);
+      const goal = step(w, []).find((e) => e.type === 'goal');
+      scored.push(goal && goal.team === team);
+    }
+  }
+  check(
+    'the same relative shot is a goal on all three presets, both ends',
+    scored.length === 6 && scored.every(Boolean),
+    scored.join(','),
+  );
+}
+
+{
+  // a shot at the same relative x but OUTSIDE the mouth must miss everywhere
+  const missed = [];
+  for (const p of PITCH_PRESET_LIST) {
+    const w = createWorld({ playerCount: 2, settings: { pitch: p.id, scoreLimit: 0 } });
+    place(w, 'ball', U(p.goalHalfX) + 12, U(p.halfZ) + 30, 0, 0);
+    missed.push(!step(w, []).some((e) => e.type === 'goal'));
+  }
+  check('a shot wide of the post is no goal on any preset', missed.every(Boolean), missed.join(','));
+}
+
+{
+  // the walls the sim actually enforces move with the preset
+  const bad = [];
+  for (const p of PITCH_PRESET_LIST) {
+    const w = createWorld({ playerCount: 2, settings: { pitch: p.id } });
+    place(w, 'ball', U(p.halfX) - 1, 0, 8, 0);
+    for (let t = 0; t < 4; t++) step(w, []);
+    const b = readState(w).ball;
+    if (b.x > U(p.halfX) - U(CONSTANTS.BALL_RADIUS) + 1e-4) bad.push(`${p.id}: ball left the pitch`);
+    if (b.vx >= 0) bad.push(`${p.id}: ball did not bounce back`);
+  }
+  check('side walls sit at the preset half width on every preset', bad.length === 0, bad.join('; '));
+}
+
+{
+  const small = PITCH_PRESETS[PITCH_KUCUK];
+  const big = PITCH_PRESETS[PITCH_BUYUK];
+  check(
+    'the penalty-area predicate follows the preset it is given',
+    inPenaltyArea(0, -small.halfZ, 0, small) &&
+      !inPenaltyArea(0, -small.halfZ, 0, big) &&
+      inPenaltyArea(0, -big.halfZ, 0, big),
+    'a point on the small goal line is not in the big box',
+  );
+}
+
+section('golden goal (row #26)');
+
+const LEVEL = { durationSeconds: 1, scoreLimit: 0, mercyRule: false, keepers: false };
+
+{
+  // 60 ticks of clock; nobody scores; the rule is off
+  const w = ruleWorld({ ...LEVEL, goldenGoal: false });
+  let end = null;
+  for (let t = 0; t < 60; t++) for (const e of step(w, [])) if (e.type === 'match-end') end = e;
+  const s = readState(w);
+  check(
+    'golden goal OFF: a level match ends drawn at full time',
+    end !== null && end.reason === 'full-time' && end.winner === -1 && s.match.over,
+    JSON.stringify(end),
+  );
+  check(
+    'the clock ends the match on exactly the last tick of the duration',
+    end !== null && end.tick === 59 && s.tick === 60,
+    end ? `tick ${end.tick}` : 'no end',
+  );
+}
+
+{
+  const w = ruleWorld({ ...LEVEL, goldenGoal: true });
+  const seen = [];
+  for (let t = 0; t < 60; t++) for (const e of step(w, [])) seen.push(e.type);
+  const s = readState(w);
+  check(
+    'golden goal ON: a level match does not end at full time, it goes golden',
+    seen.includes('golden-goal') && !seen.includes('match-end') && !s.match.over,
+    `${seen.join(',')} phase=${s.match.phase}`,
+  );
+  check('the golden-goal phase is visible in the state', s.match.phase === 'golden-goal');
+
+  // the clock keeps running and the match keeps simulating
+  for (let t = 0; t < 30; t++) step(w, []);
+  check(
+    'play continues past full time while the tie is unbroken',
+    readState(w).tick === 90 && !readState(w).match.over,
+  );
+
+  const events = driveGoals(w, 1, 1);
+  const end = events.find((e) => e.type === 'match-end');
+  const after = readState(w);
+  check(
+    'the first golden goal ends the match immediately, to the scorer',
+    end != null && end.reason === 'golden-goal' && end.winner === 1 && after.match.over,
+    JSON.stringify(end),
+  );
+  check(
+    'the golden goal is the only goal on the board',
+    after.score[0] === 0 && after.score[1] === 1,
+    after.score.join('-'),
+  );
+}
+
+{
+  // leading at full time is a normal full-time win even with golden goal on
+  const w = ruleWorld({ ...LEVEL, goldenGoal: true, durationSeconds: 2 });
+  driveGoals(w, 0, 1);
+  let end = null;
+  const seen = [];
+  while (readState(w).tick < 120) {
+    for (const e of step(w, [])) {
+      seen.push(e.type);
+      if (e.type === 'match-end') end = e;
+    }
+  }
+  check(
+    'golden goal ON but a side is leading: full time still ends the match',
+    end != null && end.reason === 'full-time' && end.winner === 0 && !seen.includes('golden-goal'),
+    JSON.stringify(end),
+  );
+}
+
+{
+  // a goal on the very last tick that levels the scores must still open the
+  // golden-goal period — the full-time test has to run after the goal, not
+  // instead of it
+  const w = ruleWorld({ ...LEVEL, goldenGoal: true, durationSeconds: 1 });
+  driveGoals(w, 0, 1);
+  while (readState(w).tick < 59) step(w, []);
+  forceGoal(w, 1);
+  const seen = step(w, []).map((e) => e.type);
+  check(
+    'a levelling goal on the final tick opens the golden-goal period',
+    seen.includes('goal') && seen.includes('golden-goal') && !seen.includes('match-end'),
+    seen.join(','),
+  );
+}
+
+{
+  // finished means finished: the world freezes
+  const w = ruleWorld({ durationSeconds: 1, scoreLimit: 0, goldenGoal: false, mercyRule: false, keepers: false });
+  while (!readState(w).match.over) step(w, []);
+  const frozen = checksum(w);
+  const before = readState(w);
+  const events = driveGoals(w, 0, 3);
+  const after = readState(w);
+  check(
+    'a finished match ignores further play: no goals, no events',
+    events.length === 0 && after.score.join() === before.score.join(),
+    `${events.length} events, ${after.score.join('-')}`,
+  );
+  check(
+    'a finished match still advances its clock, so the net layer keeps ticking',
+    after.tick === before.tick + 3,
+    `${before.tick} -> ${after.tick}`,
+  );
+  check(
+    'a finished match freezes everything except the clock',
+    frozen !== checksum(w) && after.ball.vx === 0 && after.players[0].x === before.players[0].x,
+  );
+}
+
+section('mercy rule (row #27)');
+
+const MERCY_BASE = { durationSeconds: 0, scoreLimit: 0, goldenGoal: false, keepers: false };
+
+{
+  const w = ruleWorld({ ...MERCY_BASE, mercyRule: true });
+  const atThree = driveGoals(w, 0, MERCY_GOAL_DIFF - 1);
+  check(
+    `mercy ON: a ${MERCY_GOAL_DIFF - 1}-goal gap does not stop the match`,
+    !atThree.some((e) => e.type === 'match-end') && !readState(w).match.over,
+    readState(w).score.join('-'),
+  );
+  const fourth = driveGoals(w, 0, 1);
+  const end = fourth.find((e) => e.type === 'match-end');
+  check(
+    `mercy ON: the match ends the moment the gap reaches ${MERCY_GOAL_DIFF}`,
+    end != null && end.reason === 'mercy' && end.winner === 0,
+    JSON.stringify(end),
+  );
+  check(
+    'mercy ends on the goal that reaches the gap, not a tick later',
+    readState(w).score.join('-') === `${MERCY_GOAL_DIFF}-0`,
+    readState(w).score.join('-'),
+  );
+}
+
+{
+  // the gap, not the total: 3-0 then a reply then three more is still a 4 gap
+  const w = ruleWorld({ ...MERCY_BASE, mercyRule: true });
+  driveGoals(w, 0, 3);
+  driveGoals(w, 1, 1);
+  const mid = readState(w);
+  driveGoals(w, 0, 1);
+  const stillOn = !readState(w).match.over;
+  const end = driveGoals(w, 0, 1).find((e) => e.type === 'match-end');
+  check(
+    'mercy reads the GAP, not the score: 3-1 and 4-1 keep playing, 5-1 does not',
+    mid.score.join('-') === '3-1' && stillOn && end != null && end.reason === 'mercy',
+    JSON.stringify(end),
+  );
+}
+
+{
+  const w = ruleWorld({ ...MERCY_BASE, mercyRule: true });
+  const end = driveGoals(w, 1, MERCY_GOAL_DIFF).find((e) => e.type === 'match-end');
+  check(
+    'mercy fires the same way for either team',
+    end != null && end.reason === 'mercy' && end.winner === 1,
+    JSON.stringify(end),
+  );
+}
+
+{
+  const w = ruleWorld({ ...MERCY_BASE, mercyRule: false });
+  const events = driveGoals(w, 0, MERCY_GOAL_DIFF + 2);
+  const s = readState(w);
+  check(
+    'mercy OFF: a six-goal rout never ends the match',
+    !events.some((e) => e.type === 'match-end') && !s.match.over && s.score[0] === 6,
+    `${s.score.join('-')} phase=${s.match.phase}`,
+  );
+}
+
+{
+  // the two goal-triggered rules are independent of each other
+  const w = ruleWorld({ durationSeconds: 0, scoreLimit: 2, goldenGoal: false, mercyRule: false, keepers: false });
+  const end = driveGoals(w, 0, 2).find((e) => e.type === 'match-end');
+  check(
+    'the score limit still ends a match with mercy switched off',
+    end != null && end.reason === 'score-limit' && end.winner === 0,
+    JSON.stringify(end),
+  );
+  const w2 = ruleWorld({ ...MERCY_BASE, mercyRule: true, scoreLimit: 9 });
+  const end2 = driveGoals(w2, 0, MERCY_GOAL_DIFF).find((e) => e.type === 'match-end');
+  check(
+    'mercy beats a score limit it reaches first',
+    end2 != null && end2.reason === 'mercy',
+    JSON.stringify(end2),
+  );
+}
+
+section('room settings (row #29)');
+
+{
+  check(
+    'the defaults are canonical and normalisation is idempotent',
+    isCanonicalSettings(DEFAULT_SETTINGS) &&
+      settingsHash(normaliseSettings(normaliseSettings(DEFAULT_SETTINGS))) ===
+        settingsHash(DEFAULT_SETTINGS),
+    serializeSettings(DEFAULT_SETTINGS),
+  );
+  check(
+    'normaliseSettings returns a frozen object callers cannot corrupt',
+    Object.isFrozen(normaliseSettings({})),
+  );
+}
+
+{
+  // garbage of every shape must produce the defaults, never a throw
+  const junk = [
+    undefined,
+    null,
+    0,
+    42,
+    'orta',
+    true,
+    [],
+    [1, 2, 3],
+    () => {},
+    new Map(),
+    JSON.parse('{"__proto__":{"pitch":"buyuk"}}'),
+  ];
+  const bad = [];
+  for (const j of junk) {
+    let out;
+    try {
+      out = normaliseSettings(j);
+    } catch (err) {
+      bad.push(`threw on ${typeof j}: ${err.message}`);
+      continue;
+    }
+    if (settingsHash(out) !== settingsHash(DEFAULT_SETTINGS)) bad.push(`${String(j)} -> ${serializeSettings(out)}`);
+  }
+  check('hostile or absent input normalises to the defaults without throwing', bad.length === 0, bad.join('; '));
+  check(
+    'a poisoned prototype cannot smuggle a setting through',
+    normaliseSettings(JSON.parse('{"__proto__":{"pitch":"buyuk"}}')).pitch === 'orta' &&
+      ({}).pitch === undefined,
+  );
+}
+
+{
+  const hostile = [
+    ['durationSeconds', [-1, 1e9, 1.5, NaN, Infinity, -Infinity, '180', true, null, {}]],
+    ['scoreLimit', [-1, 100, 2.5, NaN, Infinity, '3', false, null, []]],
+    ['pitch', ['huge', '', '__proto__', 'constructor', 'toString', 0, 4, -1, 1.5, null, {}, true]],
+    ['goldenGoal', ['yes', 2, -1, '', null, {}, NaN]],
+    ['mercyRule', ['true', 2, null, [], NaN]],
+    ['keepers', ['off', 7, null, {}, NaN]],
+  ];
+  const leaked = [];
+  const notStrict = [];
+  for (const [key, values] of hostile) {
+    for (const v of values) {
+      const out = normaliseSettings({ [key]: v });
+      if (out[key] !== DEFAULT_SETTINGS[key]) leaked.push(`${key}=${String(v)} -> ${String(out[key])}`);
+      let threw = false;
+      try {
+        normaliseSettings({ [key]: v }, { strict: true });
+      } catch (err) {
+        threw = err instanceof SettingsError && err.issues.length > 0;
+      }
+      if (!threw) notStrict.push(`${key}=${String(v)}`);
+    }
+  }
+  check('every out-of-range or wrong-typed field falls back to its default', leaked.length === 0, leaked.join('; '));
+  check('strict mode refuses the same values loudly, with an issue list', notStrict.length === 0, notStrict.join('; '));
+}
+
+{
+  const accepted = normaliseSettings({
+    durationSeconds: 0,
+    scoreLimit: 0,
+    pitch: 'LARGE',
+    goldenGoal: 1,
+    mercyRule: 0,
+    keepers: false,
+  });
+  check(
+    'the legal edges of every range are accepted, aliases and 0/1 included',
+    accepted.durationSeconds === 0 &&
+      accepted.scoreLimit === 0 &&
+      accepted.pitch === 'buyuk' &&
+      accepted.goldenGoal === true &&
+      accepted.mercyRule === false &&
+      accepted.keepers === false,
+    serializeSettings(accepted),
+  );
+  check(
+    'the far edges of the ranges are accepted too',
+    normaliseSettings({ durationSeconds: 3600, scoreLimit: 99 }).durationSeconds === 3600 &&
+      normaliseSettings({ scoreLimit: 99 }).scoreLimit === 99,
+  );
+  check(
+    'unknown keys are ignored in lenient mode and refused in strict mode',
+    normaliseSettings({ cheat: true, pitch: 'kucuk' }).pitch === 'kucuk' &&
+      !isCanonicalSettings({ cheat: true }),
+  );
+}
+
+{
+  // settingsHash moves for a change and only for a change
+  const base = normaliseSettings({});
+  const variants = {
+    durationSeconds: { durationSeconds: 181 },
+    scoreLimit: { scoreLimit: 4 },
+    pitch: { pitch: 'kucuk' },
+    goldenGoal: { goldenGoal: true },
+    mercyRule: { mercyRule: false },
+    keepers: { keepers: false },
+  };
+  const hashes = new Map([['base', settingsHash(base)]]);
+  for (const [k, v] of Object.entries(variants)) hashes.set(k, settingsHash({ ...base, ...v }));
+  check(
+    'settingsHash changes when any one of the six settings changes',
+    new Set(hashes.values()).size === hashes.size,
+    [...hashes].map(([k, h]) => `${k}:${h}`).join(' '),
+  );
+  const reordered = {
+    keepers: base.keepers,
+    pitch: base.pitch,
+    scoreLimit: base.scoreLimit,
+    mercyRule: base.mercyRule,
+    durationSeconds: base.durationSeconds,
+    goldenGoal: base.goldenGoal,
+  };
+  check(
+    'settingsHash ignores key order and unknown extras',
+    settingsHash(reordered) === settingsHash(base) &&
+      settingsHash({ ...base, nonsense: 1 }) === settingsHash(base),
+  );
+  check(
+    'settingsHash is a stable 32-bit hex digest and sameSettings agrees with it',
+    /^[0-9a-f]{8}$/.test(settingsHash(base)) &&
+      sameSettings(base, reordered) &&
+      !sameSettings(base, { ...base, pitch: 'buyuk' }),
+    settingsHash(base),
+  );
+  check(
+    'assertSameSettings passes on a match and throws on a mismatch',
+    (() => {
+      assertSameSettings(base, reordered);
+      try {
+        assertSameSettings(base, { ...base, goldenGoal: true });
+        return false;
+      } catch (err) {
+        return err instanceof SettingsError && err.code === 'settings-mismatch';
+      }
+    })(),
+  );
+}
+
+{
+  // the wire form the net layer broadcasts
+  const s = normaliseSettings({ durationSeconds: 300, scoreLimit: 5, pitch: 'buyuk', goldenGoal: true, mercyRule: false, keepers: false });
+  const words = encodeSettings(s);
+  check(
+    'encodeSettings is six Int32 words and decodeSettings is its exact inverse',
+    words.length === SETTINGS_WORDS && sameSettings(decodeSettings(words), s),
+    Array.from(words).join(','),
+  );
+  const refusals = [];
+  const expectThrow = (label, fn) => {
+    try {
+      fn();
+      refusals.push(label);
+    } catch (err) {
+      if (!(err instanceof SettingsError)) refusals.push(`${label}: wrong error type`);
+    }
+  };
+  expectThrow('short payload', () => decodeSettings(words.slice(0, 3)));
+  expectThrow('no payload', () => decodeSettings(null));
+  expectThrow('pitch code 0', () => {
+    const w = Int32Array.from(words);
+    w[2] = 0;
+    decodeSettings(w);
+  });
+  expectThrow('pitch code 9', () => {
+    const w = Int32Array.from(words);
+    w[2] = 9;
+    decodeSettings(w);
+  });
+  expectThrow('unknown rule bit', () => {
+    const w = Int32Array.from(words);
+    w[3] |= 8;
+    decodeSettings(w);
+  });
+  expectThrow('duration out of range', () => {
+    const w = Int32Array.from(words);
+    w[0] = 999999;
+    decodeSettings(w);
+  });
+  expectThrow('tampered hash word', () => {
+    const w = Int32Array.from(words);
+    w[4] ^= 1;
+    decodeSettings(w);
+  });
+  expectThrow('tampered payload, stale hash', () => {
+    const w = Int32Array.from(words);
+    w[1] = 7;
+    decodeSettings(w);
+  });
+  check('decodeSettings refuses every malformed settings payload', refusals.length === 0, refusals.join('; '));
+}
+
+{
+  const s = { durationSeconds: 90, scoreLimit: 7, pitch: 'kucuk', goldenGoal: true, mercyRule: false, keepers: true };
+  const w = createWorld({ playerCount: 4, roles: [1, 1, 0, 0], settings: s });
+  const buf = w.buf;
+  check(
+    'createWorld writes the settings into the state header',
+    buf[HDR_PITCH] === PITCH_KUCUK &&
+      buf[HDR_DURATION_TICKS] === durationTicks(s) &&
+      buf[HDR_SCORE_LIMIT] === 7 &&
+      buf[HDR_RULE_FLAGS] === settingsFlags(s) &&
+      buf[HDR_SETTINGS_HASH] === settingsHashInt(s) &&
+      buf[HDR_MATCH_STATE] === MATCH_RUNNING,
+    `${buf[HDR_PITCH]} ${buf[HDR_DURATION_TICKS]} ${buf[HDR_RULE_FLAGS]}`,
+  );
+  check(
+    'worldSettings reads back exactly what went in',
+    sameSettings(worldSettings(w), s) && readState(w).pitch === 'kucuk',
+    serializeSettings(worldSettings(w)),
+  );
+  check(
+    'rule flags are the documented bits',
+    (buf[HDR_RULE_FLAGS] & RULE_GOLDEN_GOAL) !== 0 &&
+      (buf[HDR_RULE_FLAGS] & RULE_MERCY) === 0 &&
+      (buf[HDR_RULE_FLAGS] & RULE_KEEPERS) !== 0,
+  );
+  check(
+    'createWorld accepts a raw lobby object and clamps it on the way in',
+    createWorld({ playerCount: 2, settings: { pitch: 'nonsense', scoreLimit: -5 } }).buf[HDR_PITCH] ===
+      PITCH_ORTA,
+  );
+}
+
+{
+  const withGk = createWorld({ playerCount: 4, roles: [1, 1, 0, 0], settings: { keepers: true } });
+  const without = createWorld({ playerCount: 4, roles: [1, 1, 0, 0], settings: { keepers: false } });
+  check(
+    'keepers OFF strips every keeper role at match start (ADR-0001 still holds)',
+    readState(withGk).players.filter((p) => p.role === 1).length === 2 &&
+      readState(without).players.every((p) => p.role === 0) &&
+      !keeperEmpowered(without, 0),
+  );
+}
+
+section('settings and snapshots');
+
+{
+  const small = { pitch: 'kucuk', scoreLimit: 0 };
+  const big = { pitch: 'buyuk', scoreLimit: 0 };
+  const w = createWorld({ playerCount: 4, settings: big });
+  for (let t = 0; t < 30; t++) step(w, []);
+  const snap = serialize(w);
+
+  check(
+    'a snapshot round-trips when the caller expects the settings it was made under',
+    checksum(deserialize(snap, { settings: big })) === checksum(w),
+  );
+  let refused = null;
+  try {
+    deserialize(snap, { settings: small });
+  } catch (err) {
+    refused = err;
+  }
+  check(
+    'a big-pitch snapshot is REFUSED by a small-pitch client, not rescaled',
+    refused instanceof SettingsError && refused.code === 'settings-mismatch',
+    refused ? refused.message : 'accepted',
+  );
+
+  const others = [
+    ['duration', { ...big, durationSeconds: 60 }],
+    ['score limit', { ...big, scoreLimit: 5 }],
+    ['golden goal', { ...big, goldenGoal: true }],
+    ['mercy', { ...big, mercyRule: false }],
+    ['keepers', { ...big, keepers: false }],
+  ];
+  const accepted = [];
+  for (const [label, s] of others) {
+    try {
+      deserialize(snap, { settings: s });
+      accepted.push(label);
+    } catch {
+      /* expected */
+    }
+  }
+  check(
+    'every other settings difference is refused just as loudly',
+    accepted.length === 0,
+    accepted.join(', '),
+  );
+}
+
+{
+  const w = createWorld({ playerCount: 2, settings: { pitch: 'kucuk' } });
+  const tamper = (mutate) => {
+    const snap = serialize(w);
+    mutate(snap);
+    try {
+      deserialize(snap);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  check(
+    'a tampered settings word is caught by the header hash, with no expectation passed',
+    tamper((s) => {
+      s[HDR_PITCH] = PITCH_BUYUK;
+    }) &&
+      tamper((s) => {
+        s[HDR_SCORE_LIMIT] = 9;
+      }) &&
+      tamper((s) => {
+        s[HDR_RULE_FLAGS] ^= RULE_MERCY;
+      }) &&
+      tamper((s) => {
+        s[HDR_DURATION_TICKS] += 1;
+      }),
+  );
+  check(
+    'an impossible pitch code or match state is refused outright',
+    tamper((s) => {
+      s[HDR_PITCH] = 0;
+    }) &&
+      tamper((s) => {
+        s[HDR_MATCH_STATE] = 7;
+      }),
+  );
+  check(
+    'a Phase 1.2 (v2) snapshot is refused rather than read on the wrong header',
+    STATE_VERSION === 3 &&
+      tamper((s) => {
+        s[1] = 2;
+      }),
+  );
+}
+
+section('determinism with the new rules');
+
+{
+  const first = RULES_SCENARIOS.map(rulesTrace);
+  const second = RULES_SCENARIOS.map(rulesTrace);
+  const bad = [];
+  for (let i = 0; i < first.length; i++) {
+    const d = firstDiff(first[i].chain, second[i].chain);
+    if (d !== -1) bad.push(`${RULES_SCENARIOS[i].name} diverges at tick ${d}`);
+  }
+  check('two rules runs in one process agree tick for tick', bad.length === 0, bad.join('; '));
+
+  const golden = first[0];
+  check(
+    'the golden-goal scenario really walks the rule: goals, a golden period, an ending',
+    golden.tally.goal === 5 &&
+      golden.tally['golden-goal'] === 1 &&
+      golden.tally['match-end'] === 1 &&
+      golden.end.reason === 'golden-goal',
+    JSON.stringify(golden.tally) + JSON.stringify(golden.end),
+  );
+  const mercy = first[1];
+  check(
+    'the mercy scenario ends on the fourth unanswered goal, on the big pitch',
+    mercy.tally.goal === 4 && mercy.end && mercy.end.reason === 'mercy' && mercy.end.winner === 0,
+    JSON.stringify(mercy.tally) + JSON.stringify(mercy.end),
+  );
+  check(
+    'both rules scenarios end well before their last tick, so the freeze is exercised',
+    golden.end.tick < RULES_SCENARIOS[0].ticks - 100 &&
+      mercy.end.tick < RULES_SCENARIOS[1].ticks - 100,
+    `${golden.end.tick} / ${mercy.end.tick}`,
+  );
+
+  const childRules = child.rules;
+  const mismatched = [];
+  for (const scn of RULES_SCENARIOS) {
+    const mine = chainDigest(first[RULES_SCENARIOS.indexOf(scn)].chain);
+    if (!childRules[scn.name] || childRules[scn.name].digest !== mine) {
+      mismatched.push(scn.name);
+    }
+  }
+  check(
+    'a fresh child process reproduces both rules chains',
+    mismatched.length === 0,
+    mismatched.join(', '),
+  );
+}
+
+{
+  // a snapshot taken in the middle of a golden-goal period resumes into the
+  // same chain, settings and all
+  const scn = RULES_SCENARIOS[0];
+  const reference = rulesTrace(scn);
+  const wander = wanderScript(scn);
+  const settings = normaliseSettings(scn.settings);
+  let w = createWorld({ playerCount: scn.playerCount, roles: scn.roles, settings });
+  const chain = [checksum(w)];
+  for (let t = 0; t < scn.ticks; t++) {
+    if (t === 650) w = deserialize(serialize(w), { settings }); // inside the golden period
+    if (w.buf[HDR_MATCH_STATE] !== MATCH_FINISHED) {
+      for (const [at, team] of scn.script) if (at === t) forceGoal(w, team);
+    }
+    const inputs = [];
+    for (let p = 0; p < scn.playerCount; p++) {
+      const d = wander[t][p] >= 0 ? wander[t][p] : dirTowardBall(w.buf, p);
+      inputs.push(decodeInput(d | (wantsButtons(w.buf, p, t) << 4)));
+    }
+    step(w, inputs);
+    chain.push(checksum(w));
+  }
+  const d = firstDiff(reference.chain, chain);
+  check(
+    'a serialize/deserialize seam inside the golden-goal period rejoins the chain',
+    d === -1,
+    d >= 0 ? `first divergence at tick ${d}` : '',
+  );
+}
+
+// ----------------------------------------------------- 6. constantsHash
 
 section('constantsHash');
 
