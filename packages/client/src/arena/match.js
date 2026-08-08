@@ -32,7 +32,7 @@ export class ArenaMatch {
    * @param {{role:'host'|'guest', roster:object, settings:object,
    *          localIndex:number, transport:object, hostPeerId?:string,
    *          view:object, input:object, hud:object,
-   *          onEnd?:(result:object)=>void}} options
+   *          present?:object, onEnd?:(result:object)=>void}} options
    */
   constructor(options) {
     this.role = options.role;
@@ -44,6 +44,11 @@ export class ArenaMatch {
     this.view = options.view;
     this.input = options.input;
     this.hud = options.hud || {};
+    // The presentation layer (matrix #38-#41) is optional and strictly
+    // downstream: it is handed the events and the state and hands nothing back.
+    // A null `present` removes commentary, tension and the stats screen and
+    // changes nothing else, which is the property that keeps it cosmetic.
+    this.present = options.present || null;
     this.onEnd = options.onEnd || (() => {});
 
     this.host = null;
@@ -84,6 +89,11 @@ export class ArenaMatch {
       snapshotHz: SNAPSHOT_HZ,
       botSlots: this.roster.botSlots,
       botPolicy: this.botPolicy,
+      // One read per simulated tick, for the cosmetic layer only. The core's
+      // event list is consumed inside hostSession and would otherwise be lost.
+      onEvents: this.present
+        ? (events) => this._observe(events)
+        : null,
     });
     // Every human slot that is not ours belongs to a connected peer, and the
     // lobby id IS the transport peer id, so the mapping needs no side table.
@@ -228,6 +238,17 @@ export class ArenaMatch {
     if (draw && visible) {
       this.view.update(state, dt, { state: this.flow, me: this.localIndex });
     }
+    if (this.present) {
+      // A guest owns no world and sees no events, so it feeds the layer its
+      // sampled state and lets bus.deriveEvents() find the goals in it.
+      if (this.role === 'guest') {
+        const status = matchStatus(this.client.tick, state.score, this.settings);
+        this.present.feed(null, state, {
+          secondsLeft: status.secondsLeft, golden: status.golden, nowMs: nowMs,
+        });
+      }
+      this.present.render(dt, state, nowMs);
+    }
     this._paintHud(state);
   }
 
@@ -299,6 +320,22 @@ export class ArenaMatch {
   // ----------------------------------------------------------- presentation
 
   /**
+   * Host only: one simulated tick, handed to the presentation layer. Called
+   * from inside hostSession's step loop, so `readState` here is the state of
+   * exactly that tick and not of the last one in a catch-up burst.
+   */
+  _observe(events) {
+    if (!this.present) return;
+    const state = readState(this.host.world);
+    const status = matchStatus(state.tick, state.score, this.settings);
+    this.present.feed(events, state, {
+      secondsLeft: status.secondsLeft,
+      golden: status.golden,
+      nowMs: now(),
+    });
+  }
+
+  /**
    * The core's events do not cross the wire, so the two visible reactions are
    * derived from the authoritative state instead: a score that moved is a goal,
    * a kick cooldown that jumped to full is a strike. Both are true on a guest's
@@ -367,6 +404,7 @@ export class ArenaMatch {
     if (this.finished) return;
     this.finished = result;
     this.flow = 'end';
+    this.present?.showEnd(result);
     this.onEnd(result);
   }
 

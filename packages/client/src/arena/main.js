@@ -32,6 +32,12 @@ import { normalizeCode, sanitizeName } from '../mp/protocol.js';
 // Social layer (feature matrix #33-#37). Everything it owns lives under
 // ./social/; this file only builds it and hands it frames it did not recognise.
 import { attachSocial } from './social/index.js';
+// Presentation layer (feature matrix #38-#41): commentary, tension, stadium
+// variants and the end-of-match stats screen. Everything it owns lives under
+// ./present/; this file only builds it, hands it to the match loop and throws
+// it away again. It reads state and never writes any.
+import { attachPresentation } from './present/index.js';
+import { applyStadium } from './present/sky.js';
 
 const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
@@ -85,6 +91,7 @@ let myId = HOST_ID;
 let lobby = createLobby(params.get('name') || 'Oyuncu', settingsFromParams());
 let match = null;
 let view = null;
+let present = null;
 let matchInput = null;
 let myRoster = null;
 
@@ -338,6 +345,20 @@ function localIsKeeper(roster, index) {
 function startMatch(roster, settings, localIndex, opts = {}) {
   myRoster = roster;
   buildView(roster);
+  present?.dispose();
+  present = attachPresentation({
+    view,
+    endHost: dom.end,
+    before: dom.endBack,
+    slots: roster.slots,
+    settings,
+    roomCode: transport?.code || null,
+    params,
+    applyStadium,
+  });
+  // The first gesture is the only moment iOS lets an AudioContext start.
+  addEventListener('pointerdown', resumeAudio, { once: true });
+  addEventListener('keydown', resumeAudio, { once: true });
   matchInput = new ArenaInput({
     held,
     isKeeper: () => localIsKeeper(roster, localIndex),
@@ -353,6 +374,7 @@ function startMatch(roster, settings, localIndex, opts = {}) {
     view,
     input: matchInput,
     hud,
+    present,
     onEnd: (result) => showEnd(result),
   });
   show(null);
@@ -427,6 +449,12 @@ function arenaHandle() {
     match: () => match,
     press: (code, down = true) => { if (down) held.add(code); else held.delete(code); },
     releaseAll: () => held.clear(),
+    // matrix #38-#41: what the commentator said, the tension, the stadium
+    // variant and its draw-call cost. Read-only, for the headless probes.
+    present: () => (present ? present.diag() : null),
+    stadium: (variant) => present?.stadium?.setVariant(variant) || null,
+    quality: (q) => present?.stadium?.setQuality(q) || null,
+    lang: (l) => present?.setLanguage(l) || null,
   };
 }
 window.__arena = arenaHandle();
@@ -553,6 +581,8 @@ dom.leave.addEventListener('click', () => {
 dom.endBack.addEventListener('click', () => {
   match?.stop();
   match = null;
+  present?.dispose();
+  present = null;
   view?.dispose();
   view = null;
   show(role ? dom.lobby : dom.entry);
@@ -562,6 +592,10 @@ dom.endBack.addEventListener('click', () => {
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyV' && view) view.cycleCamera();
 });
+
+function resumeAudio() {
+  present?.player?.resume?.();
+}
 
 // -------------------------------------------------------------- automation
 
