@@ -206,6 +206,50 @@ function addStadium(scene, p) {
   }
 }
 
+/**
+ * Real grass on top of the drawn pitch.
+ *
+ * The canvas texture owns the layout — the mown stripes, the lines, the arcs —
+ * and it has to, because those are metres measured off the pitch spec. What it
+ * cannot do is look like grass from two metres away: it is flat colour with a
+ * noise dither. So a photographed CC0 grass tile (ambientCG, fetched by
+ * tools/fetch-textures.mjs) is laid over it as normal and roughness detail,
+ * repeated once per metre, which is what puts blades under the light without
+ * touching a single line.
+ *
+ * Loads late and applies when it lands; a checkout that never ran the fetch
+ * script gets exactly the pitch it got before.
+ */
+function addGrassDetail(material, spanX, spanZ) {
+  if (typeof fetch !== 'function') return;
+  const base = '/dist-assets/textures/Grass005/Grass005_1K-JPG';
+  const loader = new THREE.TextureLoader();
+  const tile = (url, onto) => new Promise((done) => {
+    loader.load(url, (tex) => {
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      // one tile per metre: any coarser and the blades read as a pattern
+      tex.repeat.set(spanX, spanZ);
+      tex.anisotropy = 8;
+      onto(tex);
+      done(true);
+    }, undefined, () => done(false));
+  });
+  // A HEAD first, so a missing pack is one 404 instead of three console errors.
+  fetch(`${base}_NormalGL.jpg`, { method: 'HEAD' }).then((r) => {
+    if (!r.ok) return;
+    tile(`${base}_NormalGL.jpg`, (t) => {
+      material.normalMap = t;
+      material.normalScale = new THREE.Vector2(0.35, 0.35);
+      material.needsUpdate = true;
+    });
+    tile(`${base}_Roughness.jpg`, (t) => {
+      material.roughnessMap = t;
+      material.needsUpdate = true;
+    });
+  }).catch(() => { /* no pack, no grass, no noise */ });
+}
+
 export function createScene(container, opts = {}) {
   const p = { ...DEFAULT_PITCH, ...(opts.pitch || {}) };
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -234,10 +278,16 @@ export function createScene(container, opts = {}) {
   sun.shadow.camera.far = 90;
   scene.add(sun);
 
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(p.halfW * 2 + APRON_X * 2, p.halfL * 2 + APRON_Z * 2),
-    new THREE.MeshLambertMaterial({ map: makePitchTexture(p) }),
-  );
+  // Standard, not Lambert: the grass detail below needs a normal and a
+  // roughness map, and Lambert has neither. The pitch looked identical the
+  // frame before the maps arrive.
+  const spanX = p.halfW * 2 + APRON_X * 2;
+  const spanZ = p.halfL * 2 + APRON_Z * 2;
+  const groundMat = new THREE.MeshStandardMaterial({
+    map: makePitchTexture(p), roughness: 0.92, metalness: 0,
+  });
+  addGrassDetail(groundMat, spanX, spanZ);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
