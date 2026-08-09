@@ -44,12 +44,12 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 | 11 | Kaleci: maç başı seçim + tutma + degaj + 4 yön dalış | 1.2 | Rol lobide seçilir, maç boyu sabit; tutma ~200 tick; dalış whiff → ~60 tick kilit; dalış sonucu host onaylı | ☑ (core tarafı; lobi UI #13'te) |
 | 12 | Modlar: insan vs bot, 3v3, kalecili 4v4 | 1.2 | Her mod baştan sona oynanabilir | ☑ (/arena.html) |
 | 13 | Lobi + oda + zorluk seçimi UI | 1.2 | Oda kur/katıl/başlat akışı çalışır | ☑ |
-| 14 | 8 yönlü locomotion + prosedürel katmanlar | 1.3 | Blend tree + aim/lean/foot-IK/tap; tek klip koşu yok | ☑ (8×3 blend, 24 anchor ayrı) |
-| 15 | Kaleci animasyon seti | 1.3 | Bekleme, yan adım, 4 dalış+kalkış, tutma, degaj | ☑ |
-| 16 | Vuruş varyantları + kutlamalar (3-5) | 1.3 | State machine'de geçişler temiz | ☑ (5 vuruş, 5 kutlama, 15 state) |
+| 14 | 8 yönlü locomotion + prosedürel katmanlar | 1.3 | Blend tree + aim/lean/foot-IK/tap; tek klip koşu yok | ⚠ YAZILDI, BAĞLANMADI |
+| 15 | Kaleci animasyon seti | 1.3 | Bekleme, yan adım, 4 dalış+kalkış, tutma, degaj | ⚠ YAZILDI, BAĞLANMADI |
+| 16 | Vuruş varyantları + kutlamalar (3-5) | 1.3 | State machine'de geçişler temiz | ⚠ YAZILDI, BAĞLANMADI |
 | 17 | Kamera: vuruş sarsıntısı + gol replay | 1.3 | Kozmetik; core'a dokunmaz | ☑ |
 | 18 | Stadyum + dekor asset'leri | 1.4 | Sahne <150k üçgen; GLB Draco+KTX2 | ☑ (44.8k üçgen; 440→272 KB) |
-| 19 | Performans bütçesi | 1.4 | Draw call mobil <50 / masaüstü <100; 60 FPS orta donanım | ☑ (20 / 19 call, 60 FPS) |
+| 19 | Performans bütçesi | 1.4 | Draw call mobil <50 / masaüstü <100; 60 FPS orta donanım | ☑ (20 / 19 call) — instancing #14 ile birlikte bağlanacak |
 | 20 | Bot arayüzü soyutlama | 1.5 | Scripted ve ONNX bot aynı observe→action interface'i | ☑ |
 | 21 | Seyirci (instanced + VAT) | 1.6 | Tek-birkaç draw call; idle/dalga/gol coşkusu | ☑ (1387 seyirci, 1 draw call) |
 | 22 | Top toplayıcı çocuk sahneleri | 1.6 | Top dışarı → kozmetik sahne; core sadece T sn restart | ☑ |
@@ -81,3 +81,19 @@ Durum: ☐ bekliyor · ⏳ sürüyor · ☑ GEÇTİ · ⛔ BLOKE
 Turnuva bracket, kozmetik mağaza, zıplama/kafa vuruşu, host migration,
 ragdoll, stadyum editörü/paylaşımı (ADR-0002), sweeper etiketi,
 training packs, tactical pings, sinematik replay FX.
+
+## ⚠ 2026-08-09 · matrisin ölçtüğü şey ile oyunun gösterdiği şey
+
+Satır #14, #15, #16 "☑" işaretliydi ve 104 testi geçiyordu. Testler
+`packages/client/src/arena/anim/` içindeki katmanı DOĞRUDAN import ediyor;
+oyunun görüntü katmanı (`arena/view.js`) ise o dizini hiç import etmiyor —
+hâlâ eski `view/playerView.js` ile çiziyor. Yani katman yazıldı, test edildi
+ve bağlanmadı. Kabul kriteri "geçişler temiz" olduğu için test yeşildi ve
+kullanıcı ekranda hiçbirini görmedi.
+
+Bağlanması için gereken tek gerçek iş: forma sistemi (#25) bugün oyuncu
+başına bir materyal + uniform ile çalışıyor, `InstancedBodies` ise tüm sahayı
+tek materyalle çiziyor. Desen/numara instance attribute'a taşınmadan geçiş
+formaları düz renge düşürür. Karar ve iş: brain/40-progress/PROGRESS.md.
+
+Ders: kabul kriteri "modül çalışıyor" değil, "oyunda görünüyor" olmalı.
