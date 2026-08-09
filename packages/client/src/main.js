@@ -116,14 +116,29 @@ let replayDone = false;
 
 buildMatch(makeConfig());
 
+// Squad size for the local modes. game.js has built 1v1 up to 4v4 rosters from
+// config.teamSize since it was written and nothing could ask for anything but
+// the default, so this is a menu control for a feature that already existed.
+// Multiplayer is untouched: its sides come from who joined, not from a number.
+let teamSize = 1;
+document.getElementById('menuSettings')?.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-teamsize]');
+  if (!btn) return;
+  teamSize = Number(btn.dataset.teamsize);
+  for (const b of document.querySelectorAll('button[data-teamsize]')) {
+    b.classList.toggle('on', b === btn);
+  }
+});
+const localConfig = () => makeConfig({ teamSize });
+
 dom.btn1p.addEventListener('click', () => {
   if (session.inMatch) return;
-  buildMatch(makeConfig()); // fresh default roster (training may have run)
+  buildMatch(localConfig()); // fresh roster (training may have run)
   app.game.startMatch('1p');
 });
 dom.btn2p.addEventListener('click', () => {
   if (session.inMatch) return;
-  buildMatch(makeConfig());
+  buildMatch(localConfig());
   app.game.startMatch('2p');
 });
 document.getElementById('btnTrain').addEventListener('click', () => {

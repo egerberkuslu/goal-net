@@ -124,6 +124,18 @@
       <button id="btnMp">Çok Oyunculu</button>
       <button id="btnTrain" class="mp-ghost">Antrenman</button>
     </div>
+    <!-- Squad size for the local modes. Multiplayer takes its sides from who
+         actually joined, so this belongs on the menu rather than in the lobby:
+         it is the one place a 3v3 against bots can be asked for. -->
+    <div class="mp-settings" id="menuSettings">
+      <span class="mp-setlabel">Takım</span>
+      <span class="mp-seg">
+        <button data-teamsize="1" class="on">1v1</button>
+        <button data-teamsize="2">2v2</button>
+        <button data-teamsize="3">3v3</button>
+        <button data-teamsize="4">4v4</button>
+      </span>
+    </div>
     <div class="controls">
       <div><b>Kırmızı:</b> WASD veya Yön tuşları · Boşluk / X şut · Sol Shift / C kayma<br>(basılı tut = güçlü + yüksek; kesik çizgi nereye gideceğini gösterir)</div>
       <div><b>Mavi (2P):</b> Yön tuşları · Enter şut · Sağ Shift kayma<br><b>V:</b> kamera açısı (Yayın / Çapraz / Oyuncu)</div>
