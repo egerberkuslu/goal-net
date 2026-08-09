@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { vendorMesh } from './vendorModel.js';
 
 // Stadium crowd: ~2.3k spectators seated on the stand tiers built by
 // scene.js addStadium(). Two InstancedMesh draw calls total (bodies + heads).
@@ -43,6 +44,21 @@ const ROW_OFFSETS = [-0.62, 0, 0.62]; // three rows across each 2.2-deep tier
 const EMPTY_SEAT_CHANCE = 0.08;
 
 const BODY_W = 0.34, BODY_H = 0.62, BODY_D = 0.28;
+/**
+ * Sitting height of the chair in dist-assets/vendor/stadium-seat.glb.
+ *
+ * Measured off the model rather than assumed: its vertices cluster at
+ * y = 0.00-0.16 and again at 0.55-0.60, so the pan is the top of the lower
+ * cluster and the backrest is the upper one. Guessing a "chair-like" 0.45 would
+ * have left the whole crowd floating a hand's width above the seats.
+ *
+ * It is a constant here rather than read from the file because the crowd has to
+ * sit at the right height on the frame before the chairs have loaded.
+ */
+export const SEAT_PAN_H = 0.16;
+
+/** Plastic colour per block: neutral, red end, blue end. */
+const SEAT_COLORS = [0x2b3550, 0x6d2230, 0x22386d];
 const HEAD_R = 0.14, HEAD_Y = BODY_H + HEAD_R + 0.015;
 
 const SEC_NEUTRAL = 0, SEC_RED = 1, SEC_BLUE = 2;
@@ -104,8 +120,9 @@ transformed.z += sad * 0.14 * max(transformed.y, 0.0);
 export class CrowdView {
   constructor(scene) {
     const rnd = mulberry32(0x5eed17);
-    const seats = buildSeats(rnd);
+    const { seats, chairs } = buildSeats(rnd);
     this.count = seats.length;
+    this.chairs = chairs;
 
     this.uniforms = {
       uTime: { value: 0 },
@@ -163,7 +180,10 @@ export class CrowdView {
 
     for (let i = 0; i < this.count; i++) {
       const s = seats[i];
-      pos.set(s.x, s.y, s.z);
+      // On the pan, not on the step: these are torsos with no legs, so putting
+      // them at floor height read as standing on the terrace. Raised by the
+      // seat height they read as sitting in it.
+      pos.set(s.x, s.y + SEAT_PAN_H, s.z);
       quat.setFromAxisAngle(axis, s.rot);
       scl.setScalar(s.scale);
       mat4.compose(pos, quat, scl);
@@ -175,6 +195,8 @@ export class CrowdView {
       sec.setX(i, s.sec);
       rate.setX(i, s.rate);
     }
+
+    this.#buildChairs(scene);
 
     for (const m of [this.bodies, this.heads]) {
       m.instanceMatrix.needsUpdate = true;
@@ -239,12 +261,72 @@ export class CrowdView {
     if (this._cheer > 0) return; // a celebration already owns the crowd
     this._ooh = OOH_TIME;
   }
+
+  /**
+   * One instanced chair per seat in the ground, occupied or not.
+   *
+   * A real stadium chair (vendor-assets/CREDITS.md), conditioned in Blender to
+   * 0.56 m across so a row of them meets at this file's 0.6 m seat pitch
+   * without overlapping. It arrives asynchronously and is optional: no file, no
+   * chairs, and the crowd still sits at the same height because the pan height
+   * is a constant here.
+   *
+   * Seat colour comes from the block, not from the spectator — a stand is one
+   * colour of plastic with people of every colour in it.
+   */
+  async #buildChairs(scene) {
+    if (!this.chairs || !this.chairs.length) return;
+    let part = null;
+    try {
+      part = await vendorMesh('stadium-seat');
+    } catch {
+      part = null;
+    }
+    if (!part || this.disposed) return;
+
+    const mat = new THREE.MeshLambertMaterial();
+    const mesh = new THREE.InstancedMesh(part.geometry, mat, this.chairs.length);
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(
+      new Float32Array(this.chairs.length * 3), 3,
+    );
+    mesh.frustumCulled = false;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.name = 'crowd:seats';
+
+    const m4 = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const one = new THREE.Vector3(1, 1, 1);
+    const col = new THREE.Color();
+    for (let i = 0; i < this.chairs.length; i++) {
+      const c = this.chairs[i];
+      p.set(c.x, c.y, c.z);
+      q.setFromAxisAngle(up, c.rot);
+      m4.compose(p, q, one);
+      mesh.setMatrixAt(i, m4);
+      mesh.setColorAt(i, col.setHex(SEAT_COLORS[c.sec] ?? SEAT_COLORS[0]));
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor.needsUpdate = true;
+    scene.add(mesh);
+    this.seatMesh = mesh;
+    this.seatMaterial = mat;
+  }
+
 }
 
 function buildSeats(rnd) {
   const seats = [];
+  // Every chair in the ground, occupied or not. An empty seat that still has a
+  // chair in it is what makes a stand read as a stand rather than as a crowd
+  // floating on a step — and the gaps are the detail the eye actually notices.
+  const chairs = [];
 
   const place = (x, y, z, sec) => {
+    const rot = Math.atan2(-x, -z);
+    chairs.push({ x, y, z, rot, sec });
     if (rnd() < EMPTY_SEAT_CHANCE) return;
     let palette, scarves;
     if (sec === SEC_RED) { palette = RED_COLORS; scarves = RED_SCARVES; }
@@ -298,5 +380,5 @@ function buildSeats(rnd) {
     }
   }
 
-  return seats;
+  return { seats, chairs };
 }

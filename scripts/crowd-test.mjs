@@ -5,7 +5,7 @@
 //   node scripts/crowd-test.mjs      (or: npm run test:crowd)
 
 import * as THREE from 'three';
-import { CrowdView } from '../packages/client/src/view/crowdView.js';
+import { SEAT_PAN_H, CrowdView } from '../packages/client/src/view/crowdView.js';
 
 let failures = 0;
 function check(name, ok, detail = '') {
@@ -42,7 +42,11 @@ for (let i = 0; i < crowd.count; i++) {
   crowd.bodies.getMatrixAt(i, m);
   if (m.elements.some((v) => !Number.isFinite(v))) { badMatrix++; continue; }
   m.decompose(p, q, s);
-  if (!TIER_TOPS.some((y) => Math.abs(p.y - y) < 1e-6)) badY++;
+  // Spectators sit ON the chairs now, so their torsos are one seat-pan above
+  // the tier they are bolted to. Checking the pan height rather than the step
+  // is the stronger statement: it fails both if they float and if the seat
+  // height and the crowd height ever drift apart.
+  if (!TIER_TOPS.some((y) => Math.abs(p.y - (y + SEAT_PAN_H)) < 1e-6)) badY++;
   const onSide = Math.abs(p.x) > 12.5 && Math.abs(p.x) < 20.5;
   const onEnd = Math.abs(p.z) > 21.5 && Math.abs(p.z) < 30;
   if (!onSide && !onEnd) badXZ++;
@@ -51,7 +55,8 @@ for (let i = 0; i < crowd.count; i++) {
   else sectionSeen.side++;
 }
 check('no NaN/Inf in any instance matrix', badMatrix === 0, `${badMatrix} bad`);
-check('every spectator sits on a stand tier top', badY === 0, `${badY} off-tier`);
+check('every spectator sits on a chair, one pan above its tier',
+  badY === 0, `${badY} off-seat`);
 check('every spectator sits within the stand footprint', badXZ === 0, `${badXZ} outside`);
 check('instance scales within jitter range', badScale === 0, `${badScale} out of range`);
 check('all three sections populated',

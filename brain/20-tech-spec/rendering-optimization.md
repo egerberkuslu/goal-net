@@ -7,7 +7,13 @@ status: active
 # Render ve Optimizasyon
 
 ## Bütçeler
-- Sahne <150k üçgen; draw call mobil <50 / masaüstü <100
+- Sahne bütçesi cihaz katmanına göre (`arena/assets/quality.js` BUDGETS):
+  - **masaüstü: 2.5M üçgen / 600 draw call**, **yüksek: 4M / 900**
+  - mobil: 200k / 60, düşük: 150k / 50 — bunlar politika değil, telefonun
+    gerçekten çizebildiği; katman sistemi zaten masaüstünü telefondan ayırıyor
+  - 2026-08-09'da yükseltildi: eski 150k tavanı orta seviye telefon için
+    konmuştu ve bütün katmanlar onu miras alıyordu, yani RTX 3060'ta oyun
+    telefon bütçesiyle çiziliyordu
   (renderer.info.render.calls ile ölç); tekstür 2K masaüstü / 1K mobil.
 - Cihaz katmanı algılama → mobilde seyirci yoğunluğu, cloth
   iterasyonu, partikül, post-processing otomatik düşer.

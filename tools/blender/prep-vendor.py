@@ -36,7 +36,11 @@ TARGETS = {
     "soccer-ball": {"size": 0.30, "axis": "max", "note": "match ball diameter"},
     "bleacher-seating": {"size": 2.00, "axis": "x", "note": "one seating block"},
     "stadium-lowpoly": {"size": 60.0, "axis": "x", "note": "reference only"},
-    "bench": {"size": 2.60, "axis": "max", "note": "substitutes' bench, seats 4"},
+    "bench": {"size": 2.60, "axis": "max", "ground": True,
+              "note": "substitutes' bench, seats 4"},
+    # sized to the crowd's row pitch in view/crowdView.js (SEAT_PITCH 0.6)
+    "stadium-seat": {"size": 0.56, "axis": "x", "ground": True,
+                     "note": "one seat in a row"},
     "scoreboard": {"size": 6.00, "axis": "max", "note": "over the far stand"},
 }
 
@@ -144,7 +148,14 @@ def prep(name, spec):
     for o in objects:
         o.parent = pivot
         o.matrix_parent_inverse = pivot.matrix_world.inverted()
-    pivot.location = -centre * k
+    # Things that stand on something want their BASE at the origin, not their
+    # middle: a seat centred on its own bounding box is half buried in the step
+    # it is bolted to. Everything else (a ball, a scoreboard) is placed by its
+    # centre and stays that way.
+    offset = -centre * k
+    if spec.get("ground"):
+        offset.z = -lo.z * k
+    pivot.location = offset
     pivot.scale = (k, k, k)
 
     bpy.context.view_layer.update()

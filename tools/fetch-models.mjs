@@ -71,6 +71,11 @@ const MANIFEST = [
     use: 'a panelled ball, instead of a sphere with a drawn texture',
   },
   {
+    uid: 'b0607a5e412043e399745703be24a33a',
+    as: 'stadium-seat',
+    use: 'the chair every spectator sits in — 80 faces x 1387 seats',
+  },
+  {
     uid: '096d4f915819409f9739326118bd5aa7',
     as: 'bench',
     use: 'the substitutes\' benches, on the camera side where real dugouts are',

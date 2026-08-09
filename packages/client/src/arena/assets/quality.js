@@ -25,11 +25,25 @@ export const TIERS = Object.freeze(['low', 'mobile', 'desktop', 'high']);
  * scripts/anim-test.mjs measures against, so they are stated here once and
  * nowhere else.
  */
+/**
+ * What each tier may spend.
+ *
+ * 2026-08-09: the desktop and high tiers were lifted off the old flat 150k /
+ * 100-call ceiling. That number was set for a mid-range phone and every tier
+ * inherited it, so the whole game was being drawn to a phone's budget on a
+ * machine with an RTX 3060 — which is why the crowd sits on a 24-triangle seat
+ * instead of the 80-triangle one that was downloaded for it, and why the
+ * players are still four primitives rather than the rigged parts that exist.
+ *
+ * The phone tiers keep their ceiling. They are not a policy about quality; they
+ * are what a phone can actually draw, and the tier system exists precisely so
+ * raising the desktop ceiling costs a phone nothing.
+ */
 export const BUDGETS = Object.freeze({
   low:     { drawCalls: 50, triangles: 150000 },
-  mobile:  { drawCalls: 50, triangles: 150000 },
-  desktop: { drawCalls: 100, triangles: 150000 },
-  high:    { drawCalls: 100, triangles: 150000 },
+  mobile:  { drawCalls: 60, triangles: 200000 },
+  desktop: { drawCalls: 600, triangles: 2500000 },
+  high:    { drawCalls: 900, triangles: 4000000 },
 });
 
 /**
