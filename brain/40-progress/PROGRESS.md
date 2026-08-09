@@ -155,6 +155,34 @@ DOKUNULMAZ — sadece envantere yazılır):
   hata yakaladı: core vuruşu yalnız yükselen kenarda tetikliyor, bot tuşu
   basılı tutunca tek vuruş oluyordu (4 tick bas / 8 tick bırak ile düzeldi).
   Faz 1.2 oynanış ajanı hâlâ çalışıyor.
+- 2026-08-09 (2): TEK OYUN kararı uygulandı ve asset hattı kuruldu.
+  Arena bir hedef olmaktan çıktı (menü girişi kaldırıldı, build tek belge
+  üretiyor); kaynakları ağaçta duruyor çünkü tek oyun onların üstüne kuruluyor.
+  ADR-0009 ile sahalar birleşti (22.03 × 36 m, 7.29 m kale) — genişletme iki
+  şeyi bozdu ve ikisi de A/B ile bulundu: slayt başarısı %47→%18 düştü (eski
+  oranın bir kısmı dar sahanın hücumcuyu köşeye sıkıştırmasıymış; TACKLE_REACH
+  12→20 ile geri geldi) ve scripted botlar 60 saniyede gol atamaz oldu (bu
+  gerileme değil, 22 m sahada normal futbol — replay fixture'ı 4→6 kişi).
+  Motor kararı bir kez TERSİNE döndü: "çekirdek motor olsun" önerisi yanlıştı,
+  çünkü çekirdek 2 BOYUTLU (topun durumu x,z,vx,vz — yükseklik yok). Uygulansa
+  kafa golü, havalanan şut, orta ve filenin uçan topu yakalaması silinecekti.
+  Karar: 3B float motor kalır, çekirdek emekli.
+  Asset hattı uçtan uca: Sketchfab token'ı → `tools/fetch-models.mjs` (lisansı
+  API'den okur, NC/ND ve gerçek kişi benzerliğini reddeder, CREDITS yazar) →
+  `tools/blender/prep-vendor.py` (metre cinsine koşullar, zemine oturtur,
+  rigged modellerde iskeleti korur) → `view/vendorModel.js`. Gelenler: panelli
+  top, stadyum koltuğu (1566 adet, boşlar dahil), projektör, kulübe + yedekler,
+  skorboard (canlı skor), stadyum kabuğu, iskeletli futbolcu ve kaleci.
+  Boru hattında dört tuzak ölçerek bulundu ve kapatıldı: üst düğümdeki inç→metre
+  ölçeği, Blender'ın Z-yukarı ekseni, çok-mesh modelin ilk parçasının alınması,
+  ve rigged modelde parent temizlemenin mesh'i pankeke çevirmesi.
+  Ayrıca: rüzgâr (top+file+yağmur+bayrak tek kaynaktan), kar, saha yıpranması,
+  forma sırt numarası + kaleci forması, `/numara` ve `/forma` komutları,
+  render bütçesinin telefondan ayrılması (150k → masaüstü 2.5M).
+  Bir de dürüst bir kayıt: titreme düzeltmesi ilk denemede İŞE YARAMADI —
+  unit testler yeşilken ekranda hiçbir şey değişmedi, çünkü test aritmetiği
+  ölçüyordu, bağlantıyı değil. Gerçek tarayıcıda ölçüm (`test:jitter`) eklendi.
+
 - 2026-08-08 (3): Faz 1.1 KAPANDI. `packages/net`: host-otorite oturum
   (60 Hz sim, peer-başı delta baseline'ı, input limitleri, bot hook'u),
   istemci oturumu (100 ms interpolasyon, tahmin + uzlaştırma) ve ikili wire
