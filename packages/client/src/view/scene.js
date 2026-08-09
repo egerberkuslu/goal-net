@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { VENDOR, placeVendorMesh } from './vendorModel.js';
 import { ScoreboardView } from './scoreboardView.js';
+import { bindRiggedPose } from './riggedPose.js';
 import { CornerFlags } from '../arena/atmos/flags.js';
 import { BallBoys } from '../arena/atmos/ballboy.js';
 import {
@@ -192,14 +193,17 @@ function addStadium(scene, p) {
       });
     }
   }
-  // TEMPORARY placement, to prove the rigged pipeline end to end: the skinned
-  // player and keeper stand by the tunnel until arena/anim drives their bones.
-  placeVendorMesh(scene, VENDOR.playerRig, {
-    x: p.halfW + 3.0, y: 0, z: -1.2, yaw: -Math.PI / 2,
-  });
-  placeVendorMesh(scene, VENDOR.keeperRig, {
-    x: p.halfW + 3.0, y: 0, z: 0.6, yaw: -Math.PI / 2,
-  });
+  // A rigged pair by the touchline, posed by arena/anim like everyone else
+  // will be. They are here so the retarget is visible while it is being built.
+  scene.userData.rigTest = [];
+  for (const [name, z] of [[VENDOR.playerRig, -1.2], [VENDOR.keeperRig, 0.9]]) {
+    placeVendorMesh(scene, name, { x: p.halfW + 3.0, y: 0, z, yaw: -Math.PI / 2 })
+      .then((mesh) => {
+        if (!mesh) return;
+        const bound = bindRiggedPose(mesh);
+        if (bound) scene.userData.rigTest.push({ name, mesh, bound });
+      });
+  }
 
   placeVendorMesh(scene, VENDOR.scoreboard, {
     x: 0, y: 9.5, z: -(p.halfL + 10.5), yaw: 0, shadow: false,
