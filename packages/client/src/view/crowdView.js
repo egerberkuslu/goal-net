@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { vendorMesh } from './vendorModel.js';
 
 // Stadium crowd: ~2.3k spectators seated on the stand tiers built by
@@ -43,7 +44,22 @@ const SEAT_PITCH = 0.6; // spacing along a row
 const ROW_OFFSETS = [-0.62, 0, 0.62]; // three rows across each 2.2-deep tier
 const EMPTY_SEAT_CHANCE = 0.08;
 
-const BODY_W = 0.34, BODY_H = 0.62, BODY_D = 0.28;
+/**
+ * Body silhouette: hips (a box) topped by a tapered, hexagonal torso, rather
+ * than one flat box. The taper — waist narrower than shoulders — is most of
+ * what makes a silhouette read as a person instead of a crate, and a
+ * low-side-count cylinder gets it for a handful of extra triangles (~36
+ * total against the old box's 12, comfortably inside the lifted render
+ * budget). BODY_H is the total sitting height and is unchanged from the old
+ * single box, so every seat/eye-height constant below still lines up without
+ * retuning.
+ */
+const BODY_H = 0.62;
+const HIP_W = 0.30, HIP_H = 0.20, HIP_D = 0.24;
+const TORSO_H = BODY_H - HIP_H;
+const WAIST_R = 0.115, SHOULDER_R = 0.185;
+const TORSO_SIDES = 6;
+
 /**
  * Sitting height of the chair in dist-assets/vendor/stadium-seat.glb.
  *
@@ -89,6 +105,27 @@ function mulberry32(seed) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/**
+ * The per-instance body: hips + a shoulder-wide, waist-narrow torso, merged
+ * into one geometry so it stays a single InstancedMesh (one draw call).
+ * Both parts already carry the standard position/normal/uv attributes
+ * BoxGeometry and CylinderGeometry always provide, which is what makes them
+ * mergeable without any custom vertex work.
+ */
+function buildBodyGeometry() {
+  const hips = new THREE.BoxGeometry(HIP_W, HIP_H, HIP_D);
+  hips.translate(0, HIP_H / 2, 0);
+  // Wider at the top (shoulders) than the bottom (waist) — the taper reads
+  // as a torso even at TORSO_SIDES = 6, where a straight cylinder would just
+  // read as a smoother box.
+  const torso = new THREE.CylinderGeometry(SHOULDER_R, WAIST_R, TORSO_H, TORSO_SIDES, 1);
+  torso.translate(0, HIP_H + TORSO_H / 2, 0);
+  const merged = mergeGeometries([hips, torso], false);
+  hips.dispose();
+  torso.dispose();
+  return merged;
 }
 
 const WOBBLE_DECL = /* glsl */`
@@ -140,10 +177,11 @@ export class CrowdView {
     const sec = new THREE.InstancedBufferAttribute(new Float32Array(this.count), 1);
     const rate = new THREE.InstancedBufferAttribute(new Float32Array(this.count), 1);
 
-    // Box body plus icosahedron head is 32 triangles per spectator, so the
-    // whole crowd stays under 80k triangles across two draw calls.
-    const bodyGeo = new THREE.BoxGeometry(BODY_W, BODY_H, BODY_D);
-    bodyGeo.translate(0, BODY_H / 2, 0);
+    // A tapered body plus icosahedron head is ~56 triangles per spectator —
+    // up from the old box's 32, still cheap against the lifted 2.5M-triangle
+    // desktop budget, and the taper alone is what makes the far stand read
+    // as a crowd of people instead of a wall of crates.
+    const bodyGeo = buildBodyGeometry();
     const headGeo = new THREE.IcosahedronGeometry(HEAD_R, 0);
     headGeo.translate(0, HEAD_Y, 0);
     for (const g of [bodyGeo, headGeo]) {

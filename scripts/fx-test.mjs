@@ -278,5 +278,50 @@ check('bad shake strengths are ignored', rig.shakeAmp === 0);
 
 console.log(`INFO  confetti pool: ${fx.confetti.count} quads in 1 draw call`);
 console.log(`INFO  rain: ${rainMesh.count} streaks in 1 draw call`);
+// ------------------------------------------- snow settling, rain wetting the turf
+{
+  const step = (fxi, seconds, dt = 1 / 30) => {
+    for (let t = 0; t < seconds; t += dt) fxi.update(dt);
+  };
+
+  fx.setWeather('kar');
+  check('the snow layer is built once', fx.allocations.snowGround === 1 && !!fx.snowGround,
+    `alloc ${fx.allocations.snowGround}`);
+  const bare = fx.snowGround.material.opacity;
+  step(fx, 40);
+  const settling = fx.snowGround.material.opacity;
+  check('snow settles on the pitch while it falls', settling > bare + 0.05,
+    `${bare.toFixed(3)} -> ${settling.toFixed(3)}`);
+
+  fx.setWeather('acik');
+  step(fx, 40);
+  check('it melts once the snow stops', fx.snowGround.material.opacity < settling - 0.05,
+    `${settling.toFixed(3)} -> ${fx.snowGround.material.opacity.toFixed(3)}`);
+
+  // Rain wets the grass itself, not just the gloss plane over it. The turf is
+  // found by name, so this also pins that scene.js keeps naming it.
+  const turf = {
+    isMesh: true, name: 'pitch:ground',
+    material: { roughness: 0.92, needsUpdate: false },
+  };
+  const withTurf = {
+    add() {}, remove() {},
+    traverse(fn) { fn(turf); },
+    fog: null, background: null,
+  };
+  const dry = turf.material.roughness;
+  const rainy = new Fx(withTurf);
+  rainy.setWeather('yagmur');
+  rainy.applyWeatherToScene(withTurf);
+  const wet = turf.material.roughness;
+  check('rain makes the turf itself glossier', wet < dry - 0.1,
+    `roughness ${dry} -> ${wet}`);
+  rainy.setWeather('acik');
+  rainy.applyWeatherToScene(withTurf);
+  check('the turf dries back out', Math.abs(turf.material.roughness - dry) < 1e-6,
+    String(turf.material.roughness));
+}
+
+
 console.log(failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

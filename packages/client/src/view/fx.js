@@ -42,12 +42,31 @@ const SNOW_FALL = 1.1;           // m/s downward, before the wind
 const SNOW_SWAY = 0.55;          // metres of side-to-side wander
 const SNOW_SIZE = 0.055;
 
+// Snow settling on the pitch itself, as opposed to the flakes still falling
+// through the air above it. A separate translucent plane laid just over the
+// grass (and the wear/sheen layers scene.js and this file already stack
+// there), its opacity climbing while it snows and sinking back down once it
+// stops — an accumulating drift rather than an instant white blanket.
+const SNOW_GROUND_HALF_X = RAIN_HALF_X;  // reuses the weather footprint —
+const SNOW_GROUND_HALF_Z = RAIN_HALF_Z;  // already sized to the ground + apron
+const SNOW_BUILDUP_S = 75;       // seconds of steady snow to reach full cover
+const SNOW_MELT_S = 30;          // clearing weather melts faster than it settles
+const SNOW_GROUND_OPACITY = 0.86;
+
 // Fog / light treatment applied by applyWeatherToScene().
 const RAIN_FOG_COLOR = 0x060b18;
 const RAIN_FOG_NEAR = 34;
 const RAIN_FOG_FAR = 115;
 const RAIN_HEMI_MUL = 0.55;
 const RAIN_SUN_MUL = 0.5;
+// A wet pitch loses most of its diffuse scatter and starts throwing a
+// tighter specular highlight instead — this is the actual "wet-look", on top
+// of the additive sheen plane below which reads more as pooled-water glint.
+// Multiplies scene.js's ground material roughness; found by name so this
+// file never needs to know how the ground was built.
+const RAIN_GROUND_ROUGH_MUL = 0.42;
+const RAIN_GROUND_ROUGH_MIN = 0.18;
+const PITCH_GROUND_NAME = 'pitch:ground';
 
 const ZERO_MATRIX = new THREE.Matrix4().set(
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -65,6 +84,31 @@ function mulberry32(seed) {
   };
 }
 
+/**
+ * A soft, uneven alpha mask so full snow cover reads as drifted snow rather
+ * than a flat white plane dropped on the pitch. Built once, from its own
+ * PRNG so it never disturbs the deterministic sequence #buildRain/#buildSnow
+ * already rely on for reproducible tests.
+ */
+function makeSnowDriftMask(rnd) {
+  const S = 512;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  if (!g) return null;
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 16; i++) {
+    const x = rnd() * S, y = rnd() * S, r = 45 + rnd() * 95;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, `rgba(0,0,0,${(0.18 + rnd() * 0.22).toFixed(3)})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  return new THREE.CanvasTexture(cv);
+}
+
 export const WEATHER_MODES = ['acik', 'yagmur', 'kar'];
 
 export class Fx {
@@ -75,7 +119,7 @@ export class Fx {
     this.confettiActive = 0;
     // Allocation counters: the whole point of the pools is that these stop
     // growing after the first use, so the test can assert on them.
-    this.allocations = { confetti: 0, rain: 0, sheen: 0, snow: 0 };
+    this.allocations = { confetti: 0, rain: 0, sheen: 0, snow: 0, snowGround: 0 };
     this._rnd = mulberry32(0xc0ffee);
     this._m = new THREE.Matrix4();
     this._p = new THREE.Vector3();
@@ -87,6 +131,8 @@ export class Fx {
     this.rain = null;
     this.snow = null;
     this.sheen = null;
+    this.snowGround = null;
+    this.snowCover = 0; // 0..1, how much of the pitch currently reads as snowed over
     this.#buildConfetti();
   }
 
@@ -392,6 +438,71 @@ export class Fx {
     this.#writeSnow();
   }
 
+  // ------------------------------------------------------------ snow ground
+
+  /**
+   * The plane snow settles onto, as opposed to the flakes still falling
+   * through the air (#buildSnow above). A translucent, uneven overlay laid
+   * just above the grass — same trick as scene.js's worn-earth layer, but
+   * this one grows and shrinks with #updateSnowGround rather than sitting at
+   * a fixed strength, which is what makes it read as ACCUMULATING rather
+   * than a weather filter switched on.
+   *
+   * Self-contained: it never reaches into scene.js's ground mesh (unlike the
+   * rain wet-look below), so it works whether or not scene.js ever ran, same
+   * as every other pool here.
+   */
+  #buildSnowGround() {
+    if (this.snowGround) return;
+    const geo = new THREE.PlaneGeometry(SNOW_GROUND_HALF_X * 2, SNOW_GROUND_HALF_Z * 2);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xeef2fa, roughness: 0.82, transparent: true, opacity: 0,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    // Above scene.js's worn-earth layer (0.004) and the sheen plane below
+    // (0.014) sits on top of everything — stacked in that order so nothing
+    // z-fights: bare grass, then dirt, then snow, then the wet-weather gloss.
+    mesh.position.y = 0.008;
+    mesh.receiveShadow = true;
+    mesh.renderOrder = 1;
+    mesh.name = 'fx:snowGround';
+    this.scene.add(mesh);
+    this.snowGround = mesh;
+    this.allocations.snowGround++;
+
+    // Texture and mask are optional and headless-safe: skipped without a DOM
+    // (node has no canvas), and again without a fetch, exactly like scene.js's
+    // own grass/wear layers. The plane still works as a flat pale colour.
+    if (typeof document === 'undefined' || typeof fetch !== 'function') return;
+    const url = '/dist-assets/textures/Snow010A/Snow010A_1K-JPG_Color.jpg';
+    const rnd = mulberry32(0x50a17ed);
+    fetch(url, { method: 'HEAD' }).then((r) => {
+      if (!r.ok || !this.snowGround) return;
+      new THREE.TextureLoader().load(url, (tex) => {
+        if (!this.snowGround) return;
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(SNOW_GROUND_HALF_X, SNOW_GROUND_HALF_Z); // ~2 m per tile
+        tex.colorSpace = THREE.SRGBColorSpace;
+        this.snowGround.material.map = tex;
+        this.snowGround.material.color.setHex(0xffffff);
+        this.snowGround.material.alphaMap = makeSnowDriftMask(rnd);
+        this.snowGround.material.needsUpdate = true;
+      });
+    }).catch(() => { /* the flat pale plane is a fine fallback */ });
+  }
+
+  /** Grows while it snows, melts back down once it stops. */
+  #updateSnowGround(dt) {
+    if (!this.snowGround) return;
+    const rate = this.weather === 'kar' ? 1 / SNOW_BUILDUP_S : -1 / SNOW_MELT_S;
+    this.snowCover = Math.min(1, Math.max(0, this.snowCover + rate * dt));
+    this.snowGround.material.opacity = this.snowCover * SNOW_GROUND_OPACITY;
+    this.snowGround.visible = this.snowCover > 0.003;
+  }
+
   #buildSheen() {
     if (this.sheen) return;
     const mat = new THREE.MeshBasicMaterial({
@@ -433,6 +544,7 @@ export class Fx {
       this.#buildSheen();
     } else if (next === 'kar') {
       this.#buildSnow();
+      this.#buildSnowGround();
     }
     // Meshes are never torn down: clear weather just stops drawing them.
     if (this.rain) this.rain.visible = next === 'yagmur';
@@ -442,19 +554,28 @@ export class Fx {
     return this.weather;
   }
 
-  // Darkens the sky, tightens the fog and dims the lights while it rains.
-  // Separate from setWeather so a rebuilt scene can be re-tinted on demand.
+  // Darkens the sky, tightens the fog, dims the lights and wets the pitch
+  // while it rains. Separate from setWeather so a rebuilt scene can be
+  // re-tinted on demand.
   applyWeatherToScene(scene = this.scene) {
     if (!scene || typeof scene.traverse !== 'function') return false;
     if (!this._sceneBase || this._sceneBase.scene !== scene) {
       const lights = [];
+      let ground = null;
       scene.traverse((o) => {
         if (o.isHemisphereLight || o.isDirectionalLight) {
           lights.push({ light: o, intensity: o.intensity });
         }
+        // scene.js names the pitch surface exactly this; anything else in the
+        // scene graph is ignored, so a scene built without it (a test stub, a
+        // scene under construction) just skips the wet-look untouched.
+        if (!ground && o.isMesh && o.name === PITCH_GROUND_NAME && o.material) {
+          ground = o.material;
+        }
       });
       this._sceneBase = {
-        scene, lights,
+        scene, lights, ground,
+        groundRoughness: ground ? ground.roughness : null,
         fog: scene.fog
           ? { color: scene.fog.color.getHex(), near: scene.fog.near, far: scene.fog.far }
           : null,
@@ -474,6 +595,11 @@ export class Fx {
     if (scene.background?.isColor && base.background !== null) {
       scene.background.setHex(wet ? RAIN_FOG_COLOR : base.background);
     }
+    if (base.ground && base.groundRoughness != null) {
+      base.ground.roughness = wet
+        ? Math.max(RAIN_GROUND_ROUGH_MIN, base.groundRoughness * RAIN_GROUND_ROUGH_MUL)
+        : base.groundRoughness;
+    }
     return true;
   }
 
@@ -486,17 +612,21 @@ export class Fx {
     if (this.confettiActive > 0) this.#updateConfetti(d);
     if (this.weather === 'yagmur' && this.rain) this.#updateRain(d);
     else if (this.weather === 'kar' && this.snow) this.#updateSnow(d);
+    // Runs every frame regardless of weather, so ground cover keeps melting
+    // back down after the snow itself has already stopped.
+    this.#updateSnowGround(d);
   }
 
   dispose() {
-    for (const mesh of [this.confetti, this.rain, this.sheen, this.snow]) {
+    for (const mesh of [this.confetti, this.rain, this.sheen, this.snow, this.snowGround]) {
       if (!mesh) continue;
       this.scene.remove(mesh);
       mesh.geometry.dispose();
       mesh.material.map?.dispose();
+      mesh.material.alphaMap?.dispose();
       mesh.material.dispose();
     }
-    this.confetti = this.rain = this.sheen = null;
+    this.confetti = this.rain = this.sheen = this.snowGround = null;
     this.confettiActive = 0;
   }
 }

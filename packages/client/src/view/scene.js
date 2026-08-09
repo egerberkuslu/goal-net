@@ -38,6 +38,44 @@ const DEFAULT_PITCH = Object.freeze({
 const APRON_X = 4;
 const APRON_Z = 6;
 
+/**
+ * Broadcast mowing stripes, as a shader, not a paint job.
+ *
+ * A real stripe is not a second colour of grass — it is the SAME grass, bent
+ * toward or away from the camera, throwing the sun's specular highlight back
+ * differently. Baking that into the albedo (two greens) looks identical from
+ * every angle and under every light; modulating roughness per band responds
+ * to the sun and the camera the way real turf does. This is injected into
+ * MeshStandardMaterial's fragment shader right after it samples the
+ * photographed roughness map, so the two combine: coarse mowing bands times
+ * fine photographed grain, both landing in the one roughnessMap slot three.js
+ * gives a material — one texture load, one uniform block, no extra texture
+ * memory or draw calls.
+ *
+ * vMapUv is used rather than a plain vUv because MeshStandardMaterial only
+ * ever declares vMapUv (three.js dropped the generic vUv varying except for
+ * the anisotropy extension), and `map` is always set on the ground material
+ * from construction, so it is available on the very first compile — no need
+ * to wait for the photographed detail below to have loaded.
+ */
+const STRIPE_UNIFORMS = /* glsl */`
+uniform float uSpanZ;
+uniform float uStripeW;
+uniform float uStripeLo;
+uniform float uStripeHi;
+`;
+
+// A smooth square wave in vMapUv.y rather than mod()+step(): sin() has no
+// seam at the period boundary, only a soft transition at each zero-crossing —
+// which is where a real mower actually turns around.
+const STRIPE_ROUGHNESS = /* glsl */`
+{
+  float stripePhase = sin(vMapUv.y * uSpanZ * (3.14159265 / uStripeW));
+  float stripeT = smoothstep(-0.12, 0.12, stripePhase);
+  roughnessFactor = clamp(roughnessFactor * mix(uStripeLo, uStripeHi, stripeT), 0.04, 1.0);
+}
+`;
+
 function tubeBetween(a, b, r, material) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
@@ -59,9 +97,14 @@ function makePitchTexture(p) {
   const px = (m) => m / mPerPx;
   const X = (x) => px(x + W / 2), Z = (z) => px(z + L / 2);
 
-  // base + mowing stripes along z, with a soft grain
+  // Base green. The mowing stripes themselves are no longer painted here —
+  // they are a roughness modulation the ground material's shader applies
+  // (see STRIPE_UNIFORMS/STRIPE_ROUGHNESS and createScene below), because a
+  // real stripe is a light-response difference, not a second colour. What
+  // stays here is a whisper of hue variation between bands — real cut grass
+  // has one too — deliberately too faint to read as paint on its own.
   for (let i = 0; i * 3 < L; i++) {
-    g.fillStyle = i % 2 ? '#2c8a3c' : '#33984a';
+    g.fillStyle = i % 2 ? '#2f9247' : '#31964a';
     g.fillRect(0, px(i * 3), cv.width, px(3));
   }
   const noise = g.createImageData(cv.width, cv.height);
@@ -114,16 +157,55 @@ export function buildGoalFrames(scene, config) {
   const { goalW, goalH } = config;
   const halfW = goalW / 2;
   const group = new THREE.Group();
-  const white = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.35 });
+  // A gloss-painted tube, not a matte plastic one: real posts throw a tight,
+  // bright highlight off the floodlights that a rougher surface would only
+  // spread into a dull sheen. The touch of metalness is what lets that
+  // highlight pick up a hint of the sky/turf colour around it instead of
+  // staying pure white.
+  const white = new THREE.MeshStandardMaterial({
+    color: 0xf7f7f4, roughness: 0.28, metalness: 0.06,
+  });
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+  // Rounded knuckles at every tube junction. Two cylinders of different
+  // radii meeting at a point leave a visible step, and where three tubes
+  // share a vertex (post top / crossbar end / stanchion start) the flat caps
+  // leave a gap rather than a seam — real welded box-section frames round
+  // that over. A handful of low-poly spheres costs nothing against a
+  // 2.5M-triangle budget and is what stops the frame reading as clip-art
+  // cylinders glued together.
+  const jointGeo = new THREE.SphereGeometry(POST_R * 1.05, 12, 8);
+  const kinkGeo = new THREE.SphereGeometry(0.036, 10, 7);
+  // A small socket flange where each tube meets the turf — goal frames sit
+  // in a ground sleeve, they do not simply vanish into the grass.
+  const footGeo = new THREE.CylinderGeometry(POST_R * 1.55, POST_R * 1.75, 0.03, 14);
+
   for (const end of [-1, 1]) {
     const gz = end * PITCH_HALF_L;
     const back = end * (PITCH_HALF_L + NET_BOT_DEPTH);
     const kink = end * (PITCH_HALF_L + NET_TOP_DEPTH);
     for (const s of [-1, 1]) {
-      group.add(tubeBetween(V(s * halfW, 0, gz), V(s * halfW, goalH + POST_R, gz), POST_R, white));
-      group.add(tubeBetween(V(s * halfW, goalH + POST_R, gz), V(s * halfW, goalH - 0.1, kink), 0.028, white));
-      group.add(tubeBetween(V(s * halfW, goalH - 0.1, kink), V(s * halfW, 0, back), 0.028, white));
+      const base = V(s * halfW, 0, gz);
+      const top = V(s * halfW, goalH + POST_R, gz);
+      const kinkPt = V(s * halfW, goalH - 0.1, kink);
+      const foot = V(s * halfW, 0, back);
+
+      group.add(tubeBetween(base, top, POST_R, white));
+      group.add(tubeBetween(top, kinkPt, 0.028, white));
+      group.add(tubeBetween(kinkPt, foot, 0.028, white));
+
+      for (const p of [top, kinkPt]) {
+        const knuckle = new THREE.Mesh(p === top ? jointGeo : kinkGeo, white);
+        knuckle.position.copy(p);
+        knuckle.castShadow = true;
+        group.add(knuckle);
+      }
+      for (const p of [base, foot]) {
+        const flange = new THREE.Mesh(footGeo, white);
+        flange.position.set(p.x, 0.015, p.z);
+        flange.receiveShadow = true;
+        group.add(flange);
+      }
     }
     group.add(tubeBetween(V(-halfW - POST_R, goalH, gz), V(halfW + POST_R, goalH, gz), POST_R, white));
   }
@@ -132,6 +214,9 @@ export function buildGoalFrames(scene, config) {
     group,
     dispose() {
       scene.remove(group);
+      // jointGeo/kinkGeo/footGeo are shared across several meshes; disposing
+      // the same geometry more than once is a documented no-op in three.js,
+      // so looping every child rather than tracking uniques stays correct.
       for (const m of group.children) m.geometry.dispose();
       group.clear();
       white.dispose();
@@ -454,10 +539,32 @@ export function createScene(container, opts = {}) {
   const groundMat = new THREE.MeshStandardMaterial({
     map: makePitchTexture(p), roughness: 0.92, metalness: 0,
   });
+  // Wire the mowing-stripe roughness modulation described above into this
+  // specific material's shader. shader.uniforms is a fresh object every
+  // compile (including the recompile addGrassDetail triggers once the
+  // photographed roughness map lands), so this callback re-runs and
+  // re-wires the uniforms each time rather than going stale.
+  groundMat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, {
+      uSpanZ: { value: spanZ },
+      uStripeW: { value: 3 },   // metres — matches makePitchTexture's bands
+      uStripeLo: { value: 0.8 },  // grass bent toward the camera: shinier
+      uStripeHi: { value: 1.15 }, // grass bent away: more diffuse
+    });
+    shader.fragmentShader = STRIPE_UNIFORMS + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <roughnessmap_fragment>',
+      `#include <roughnessmap_fragment>\n${STRIPE_ROUGHNESS}`,
+    );
+  };
   addGrassDetail(groundMat, spanX, spanZ);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
+  // Named so fx.js can find the pitch surface and lower its roughness while
+  // it rains — a real specular boost, on top of the additive wet-sheen plane
+  // fx.js already lays over it. Nothing else in this module reads the name.
+  ground.name = 'pitch:ground';
   scene.add(ground);
   addPitchWear(scene, p);
   const apron = new THREE.Mesh(

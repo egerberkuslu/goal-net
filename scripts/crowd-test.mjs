@@ -122,5 +122,22 @@ check('instance matrices untouched by update()', m.elements.every(Number.isFinit
 
 console.log(`INFO  instances: ${crowd.count} (${crowd.count * 2} across 2 draw calls)`);
 console.log(`INFO  update() average: ${avgMs.toFixed(5)} ms/frame over ${FRAMES} frames`);
+// ------------------------------------------------- silhouette cost (2026-08-09)
+//
+// The box body became a hips box plus a hexagonal torso so a shoulder line
+// reads from the far stand. That is worth triangles, but 1436 spectators means
+// every triangle is spent 1436 times, so the ceiling is asserted rather than
+// trusted.
+{
+  const tris = (g) => (g.index ? g.index.count : g.attributes.position.count) / 3;
+  const body = tris(crowd.bodies.geometry);
+  const head = tris(crowd.heads.geometry);
+  check('a spectator stays under 60 triangles', body + head <= 60,
+    `${body} body + ${head} head = ${body + head}`);
+  check('the crowd is still two draw calls',
+    crowd.bodies.isInstancedMesh && crowd.heads.isInstancedMesh);
+}
+
+
 console.log(failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
