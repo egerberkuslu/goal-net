@@ -5,7 +5,9 @@ import { DT } from './core/constants.js';
 import { createScene, buildGoalFrames } from './view/scene.js';
 import { NetView } from './view/netView.js';
 import { BallView } from './view/ballView.js';
-import { PlayerView } from './view/playerView.js';
+// The rigged character, falling back to the primitive one when the model is
+// missing or fails to bind. Same interface either way.
+import { RiggedPlayerView as PlayerView } from './view/riggedPlayerView.js';
 import { AimView } from './view/aimView.js';
 import { CrowdView } from './view/crowdView.js';
 import { Fx } from './view/fx.js';

@@ -198,6 +198,12 @@ def prep_rigged(name, spec, objects):
     if not objects:
         print(f"  {name}: no skinned mesh")
         return False
+
+    # NOTE: flattening the wrapper empties here (parent_clear + transform_apply
+    # on the armature) was tried and is WRONG: applying a transform to an
+    # armature that has skinned children rebinds nothing, and both characters
+    # came out several times their size and still not standing. The orientation
+    # problem is fixed at export, not by rewriting the rig — see below.
     root = arms[0]
     while root.parent is not None:
         root = root.parent
@@ -264,6 +270,12 @@ def prep_rigged(name, spec, objects):
     )
     kb = os.path.getsize(out) / 1024
     lo3, hi3 = deformed_bounds()
+    size3 = hi3 - lo3
+    if size3.z < max(size3.x, size3.y):
+        print(f"  {name}: FAILED — not standing up: "
+              f"{size3.x:.2f} x {size3.y:.2f} x {size3.z:.2f} "
+              f"(z is height in Blender; a person must be tallest in z)")
+        return False
     print(
         f"  {name:18s} {tris:6d} tris  {bones} bones  "
         f"{hi3.x - lo3.x:.2f} x {hi3.y - lo3.y:.2f} x {hi3.z - lo3.z:.2f} m  "

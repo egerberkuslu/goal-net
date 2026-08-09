@@ -10,6 +10,9 @@
 //   locomotion.js      the 8 x 3 blend space and the additive layers
 //   kicks.js           five kick variants, the windup, slide and stumble
 //   keeper.js          stance, shuffle, four dives, get-up, catch, throw, clear
+//   jump.js            the vertical leap, for headers
+//   ragdoll.js         the knockdown tumble, as pose channels rather than a
+//                       one-off transform, so a rigged skeleton gets it too
 //   celebrations.js    five celebrations, two dejections, derived selection
 //   stateMachine.js    the transition graph, its crossfades and its router
 //   animator.js        core state -> state request -> layered pose
@@ -44,10 +47,15 @@ export {
 } from './rig.js';
 
 export {
-  ANCHORS, ANCHOR_DIRS, ANCHOR_NAMES, MAX_CHEST_TWIST, MAX_HEAD_TWIST, MAX_LEAN,
-  SPEED_TIERS, TAP_DURATION, blendParams, blendWeights, footTarget, layerAim,
-  layerBreath, layerLean, layerTap, writeGait,
+  ANCHORS, ANCHOR_DIRS, ANCHOR_NAMES, CONTACT_DURATION, MAX_CHEST_TWIST,
+  MAX_HEAD_TWIST, MAX_LEAN, SPEED_TIERS, TAP_DURATION, blendParams,
+  blendWeights, footTarget, layerAim, layerBreath, layerContact, layerLean,
+  layerTap, writeGait,
 } from './locomotion.js';
+
+export { JUMP_REFERENCE_HEIGHT, writeJump } from './jump.js';
+
+export { writeRagdoll } from './ragdoll.js';
 
 export {
   CURVE_THRESHOLD, DRIVEN_CHARGE, KICKS, KICK_IDS, kickFoot, selectKick,

@@ -393,3 +393,39 @@ export function layerTap(out, t, side, strength = 1) {
 export function hipDrop(p) {
   return HIP_HEIGHT - p.crouch;
 }
+
+/** Seconds a shoulder-to-shoulder contact lean takes to die away. */
+export const CONTACT_DURATION = 0.35;
+
+/**
+ * Layer: brace into a shoulder-to-shoulder challenge.
+ *
+ * The same decaying-impulse shape as layerTap (a jostle is also a contact
+ * event, not a state to sit in), but shaped for the upper body rather than
+ * the kicking foot: the near shoulder drops and braces, the far arm swings
+ * out for balance, and the torso leans a little into whoever is pushing back.
+ *
+ * @param {number} t seconds since the contact, 0 at the moment of contact
+ * @param {number} side -1 contact from the left, +1 from the right
+ * @param {number} strength 0..1
+ */
+export function layerContact(out, t, side, strength = 1) {
+  if (!(t >= 0) || t >= CONTACT_DURATION || strength <= 0) return out;
+  const u = t / CONTACT_DURATION;
+  // a fast brace, a slower settle: envelope peaks early and releases
+  const env = Math.sin(Math.min(1, u / 0.35) * Math.PI * 0.5)
+    * Math.exp(-2.4 * u) * strength;
+  const nearShoulder = side < 0 ? 'shoulderL' : 'shoulderR';
+  const farShoulder = side < 0 ? 'shoulderR' : 'shoulderL';
+  const nearThigh = side < 0 ? 'thighL' : 'thighR';
+  out[ch('hips', CH_RZ)] += -side * env * 0.16;
+  out[ch('hips', CH_RY)] += -side * env * 0.08;
+  out[ch('spine', CH_RX)] += env * 0.14;
+  out[ch('chest', CH_RZ)] += -side * env * 0.22;
+  out[ch('chest', CH_RY)] += side * env * 0.10;
+  out[ch(nearShoulder, CH_RX)] += env * 0.35;
+  out[ch(nearShoulder, CH_RZ)] += -side * env * 0.30;
+  out[ch(farShoulder, CH_RZ)] += side * env * 0.40;
+  out[ch(nearThigh, CH_RZ)] += -side * env * 0.10;
+  return out;
+}

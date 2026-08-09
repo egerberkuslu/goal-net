@@ -37,8 +37,11 @@
 //     slide -> stumble                       the tackle's recovery window
 //     slide,stumble -> idle,locomotion       back on the feet
 //     idle,locomotion -> stumble             dispossessed
-//     ANY -> celebrate,dejected              the score changed
+//     idle,locomotion,keeperStance,keeperShuffle -> jump   a leap for a header
+//     jump -> idle,locomotion,keeperStance   lands wherever core state sends it
+//     ANY -> celebrate,dejected,ragdoll      the score changed / a hard hit
 //     celebrate,dejected -> idle,locomotion  the goal window closes
+//     ragdoll -> idle,locomotion             back on their feet
 //
 //   KEEPER
 //     keeperStance <-> keeperShuffle         moving along the line
@@ -67,6 +70,8 @@ export const STATES = Object.freeze([
   'kick',
   'slide',
   'stumble',
+  'jump',
+  'ragdoll',
   'celebrate',
   'dejected',
   'keeperStance',
@@ -80,9 +85,16 @@ export const STATES = Object.freeze([
 
 const S = new Set(STATES);
 
-/** States that any other state may be yanked into, because the whole pitch
- *  reacts to a goal at once and waiting for a swing to finish would look daft. */
-export const INTERRUPTS = Object.freeze(['celebrate', 'dejected']);
+/**
+ * States that any other state may be yanked into.
+ *
+ * celebrate/dejected: the whole pitch reacts to a goal at once and waiting
+ * for a swing to finish would look daft. ragdoll joins them for the same
+ * reason from the other direction — a shot to the back of the head does not
+ * wait for a kick animation to finish either; it happens on the tick the core
+ * says it happens, from whatever the player was doing.
+ */
+export const INTERRUPTS = Object.freeze(['celebrate', 'dejected', 'ragdoll']);
 
 /**
  * from -> { to: crossfadeSeconds }. A missing edge is an illegal jump.
@@ -91,24 +103,30 @@ export const INTERRUPTS = Object.freeze(['celebrate', 'dejected']);
 export const TRANSITIONS = Object.freeze({
   idle: {
     locomotion: 0.18, windup: 0.12, kick: 0.08, slide: 0.08, stumble: 0.10,
-    keeperStance: 0.24,
+    jump: 0.10, keeperStance: 0.24,
   },
   locomotion: {
     idle: 0.18, windup: 0.12, kick: 0.08, slide: 0.08, stumble: 0.10,
-    keeperStance: 0.24,
+    jump: 0.10, keeperStance: 0.24,
   },
   windup: { kick: 0.06, idle: 0.20, locomotion: 0.20 },
   kick: { idle: 0.16, locomotion: 0.16, keeperStance: 0.20 },
   slide: { stumble: 0.14, idle: 0.22, locomotion: 0.22 },
   stumble: { idle: 0.25, locomotion: 0.25 },
+  // a leap is brief and self-timed by the jumper's own height, not by a fixed
+  // clock, so it lands wherever core state says to go next (a player jumps for
+  // a header mid-run and comes back down still running).
+  jump: { idle: 0.12, locomotion: 0.12, keeperStance: 0.14 },
+  ragdoll: { idle: 0.30, locomotion: 0.30 },
   celebrate: { idle: 0.35, locomotion: 0.35, keeperStance: 0.35 },
   dejected: { idle: 0.35, locomotion: 0.35, keeperStance: 0.35 },
   keeperStance: {
-    keeperShuffle: 0.16, keeperDive: 0.05, keeperCatch: 0.10,
+    keeperShuffle: 0.16, keeperDive: 0.05, keeperCatch: 0.10, jump: 0.10,
     idle: 0.24, locomotion: 0.24,
   },
   keeperShuffle: {
-    keeperStance: 0.16, keeperDive: 0.05, keeperCatch: 0.10, locomotion: 0.20,
+    keeperStance: 0.16, keeperDive: 0.05, keeperCatch: 0.10, jump: 0.10,
+    locomotion: 0.20,
   },
   keeperDive: { keeperGetUp: 0.10, keeperCatch: 0.10, keeperStance: 0.22 },
   keeperGetUp: { keeperStance: 0.28 },

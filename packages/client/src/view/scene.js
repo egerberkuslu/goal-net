@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { VENDOR, placeVendorMesh } from './vendorModel.js';
 import { ScoreboardView } from './scoreboardView.js';
-import { bindRiggedPose } from './riggedPose.js';
+import { seatSubstitutes } from './benchView.js';
 import { CornerFlags } from '../arena/atmos/flags.js';
 import { BallBoys } from '../arena/atmos/ballboy.js';
 import {
@@ -37,6 +37,12 @@ const DEFAULT_PITCH = Object.freeze({
 /** Grass beyond the touchlines, so the pitch never runs to the texture edge. */
 const APRON_X = 4;
 const APRON_Z = 6;
+
+// Bench kits. The two dugouts belong to the two sides, so the substitutes wear
+// the same red and blue the HUD and the scoreboard already use for them — this
+// module builds the ground before any match exists and so cannot read the
+// running config's teamColors.
+const SUB_KIT = [0xe23b3b, 0x3b6de2];
 
 /**
  * Broadcast mowing stripes, as a shader, not a paint job.
@@ -76,6 +82,47 @@ const STRIPE_ROUGHNESS = /* glsl */`
 }
 `;
 
+/**
+ * The photographed grass, in the ALBEDO, without losing the pitch layout.
+ *
+ * The normal and roughness maps put blades under the light, but the colour was
+ * still a canvas fill: from two metres the pitch read as a flat green sheet
+ * with lines on it, which is exactly the complaint. A real pitch is not one
+ * green — it is thousands of blades of a dozen greens, with soil and clippings
+ * showing through.
+ *
+ * Blending the photo in naively would drag the mown bands and the white paint
+ * toward the tile's own average and wash both out. So the photo is applied as a
+ * MULTIPLICATIVE detail around its own mean luminance: where the tile is
+ * lighter than its average the pitch brightens, where darker it darkens, and a
+ * tile of perfectly uniform colour would change nothing at all. The canvas
+ * keeps ownership of what colour the grass is and where the lines run; the
+ * photo only says how the surface breaks up.
+ *
+ * The paint is protected by saturation. Grass is the saturated part of the
+ * canvas and the markings are near-white, so chroma separates them with no
+ * second mask texture: full detail on the turf, none on a goal line, a soft
+ * ramp across the antialiased edge between them.
+ */
+const GRASS_UNIFORMS = /* glsl */`
+uniform sampler2D uGrassMap;
+uniform vec2 uGrassRepeat;
+uniform float uGrassAmt;
+uniform float uGrassMean;
+`;
+
+const GRASS_ALBEDO = /* glsl */`
+{
+  vec3 blade = texture2D(uGrassMap, vMapUv * uGrassRepeat).rgb;
+  float hi = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
+  float lo = min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
+  float turf = smoothstep(0.05, 0.15, hi - lo);   // chroma: grass yes, paint no
+  float lum = dot(blade, vec3(0.2126, 0.7152, 0.0722));
+  float detail = mix(1.0, lum / uGrassMean, uGrassAmt * turf);
+  diffuseColor.rgb *= clamp(detail, 0.5, 1.7);
+}
+`;
+
 function tubeBetween(a, b, r, material) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
@@ -104,7 +151,14 @@ function makePitchTexture(p) {
   // stays here is a whisper of hue variation between bands — real cut grass
   // has one too — deliberately too faint to read as paint on its own.
   for (let i = 0; i * 3 < L; i++) {
-    g.fillStyle = i % 2 ? '#2f9247' : '#31964a';
+    // Bent toward the camera the blades show their faces: lighter AND shinier.
+    // Bent away they show their shadowed backs: darker and more diffuse. So the
+    // albedo difference and the roughness swing below are the SAME cue and must
+    // agree; splitting them apart is what made the first attempt vanish.
+    //
+    // This was 2f9247/31964a, four values apart out of 255 — invisible on
+    // screen, which is how a pitch ended up with no stripes at all.
+    g.fillStyle = i % 2 ? '#2b8a3d' : '#35a151';
     g.fillRect(0, px(i * 3), cv.width, px(3));
   }
   const noise = g.createImageData(cv.width, cv.height);
@@ -263,31 +317,26 @@ function addStadium(scene, p) {
     placeVendorMesh(scene, VENDOR.bench, {
       x: p.halfW + 2.6, y: 0, z: sz * 6.5, yaw: -Math.PI / 2,
     });
-    // Substitutes beside it. A downloaded static figure is exactly right here
-    // and wrong on the pitch: one of these never moves, while a pitch player
-    // needs limbs the animation layer can drive separately.
+    // Substitutes ON the bench, in their own team's colours.
     //
-    // Standing rather than sitting, because the model is posed upright — the
-    // honest placement for a mesh is the one its pose already is. The -0.18
-    // lifts his feet onto the grass: the bake left his origin that far above
-    // his soles and the conditioning step measures the bind pose, not the feet.
-    for (let i = 0; i < 3; i++) {
-      placeVendorMesh(scene, VENDOR.substitute, {
-        x: p.halfW + 3.4 + (i % 2) * 0.5, y: -0.18,
-        z: sz * 6.5 + (i - 1) * 0.9, yaw: -Math.PI / 2 + (i - 1) * 0.25,
-      });
-    }
-  }
-  // A rigged pair by the touchline, posed by arena/anim like everyone else
-  // will be. They are here so the retarget is visible while it is being built.
-  scene.userData.rigTest = [];
-  for (const [name, z] of [[VENDOR.playerRig, -1.2], [VENDOR.keeperRig, 0.9]]) {
-    placeVendorMesh(scene, name, { x: p.halfW + 3.0, y: 0, z, yaw: -Math.PI / 2 })
-      .then((mesh) => {
-        if (!mesh) return;
-        const bound = bindRiggedPose(mesh);
-        if (bound) scene.userData.rigTest.push({ name, mesh, bound });
-      });
+    // They were the downloaded static figure, stood beside the dugout, and the
+    // broadcast camera showed all six of them lying flat on the grass:
+    // substitute.glb's bones span 7 m, so the measured stand-up had nothing
+    // sane to work with. benchView.js seats the clean rig instead — see the
+    // note there — which also makes a bench player and a pitch player visibly
+    // the same footballer.
+    //
+    // The seat is the bench's own top face (0.5 m) and its long axis runs in z,
+    // so three men fit at 0.75 m centres facing the pitch.
+    const teamColor = sz < 0 ? SUB_KIT[0] : SUB_KIT[1];
+    seatSubstitutes(scene, [0, 1, 2].map((i) => ({
+      x: p.halfW + 2.6,
+      y: 0.5,
+      z: sz * 6.5 + (i - 1) * 0.75,
+      yaw: -Math.PI / 2,
+      color: teamColor,
+      lean: 0.12 + i * 0.06,
+    })));
   }
 
   placeVendorMesh(scene, VENDOR.scoreboard, {
@@ -362,14 +411,20 @@ function addStadium(scene, p) {
  * and it has to, because those are metres measured off the pitch spec. What it
  * cannot do is look like grass from two metres away: it is flat colour with a
  * noise dither. So a photographed CC0 grass tile (ambientCG, fetched by
- * tools/fetch-textures.mjs) is laid over it as normal and roughness detail,
- * repeated once per metre, which is what puts blades under the light without
- * touching a single line.
+ * tools/fetch-textures.mjs) is laid over it — as normal and roughness detail,
+ * and as the albedo break-up described at GRASS_ALBEDO — repeated once per
+ * metre, which is what puts blades under the light without touching a line.
  *
  * Loads late and applies when it lands; a checkout that never ran the fetch
  * script gets exactly the pitch it got before.
+ *
+ * @param {object} material the ground material
+ * @param {number} spanX metres across
+ * @param {number} spanZ metres along
+ * @param {object} grassUniforms the SAME uniform objects the shader was
+ *   compiled with, so the colour tile can be dropped in after the fact
  */
-function addGrassDetail(material, spanX, spanZ) {
+function addGrassDetail(material, spanX, spanZ, grassUniforms) {
   if (typeof fetch !== 'function') return;
   const base = '/dist-assets/textures/Grass005/Grass005_1K-JPG';
   const loader = new THREE.TextureLoader();
@@ -394,6 +449,17 @@ function addGrassDetail(material, spanX, spanZ) {
     });
     tile(`${base}_Roughness.jpg`, (t) => {
       material.roughnessMap = t;
+      material.needsUpdate = true;
+    });
+    // The colour tile goes through the uniform rather than through material.map:
+    // map is the canvas that owns the lines and the layout, and there is only
+    // one of it. repeat/wrap live on the texture, so the shader multiplies
+    // vMapUv by uGrassRepeat itself and this sampler is left at 1:1.
+    tile(`${base}_Color.jpg`, (t) => {
+      t.repeat.set(1, 1);
+      t.colorSpace = THREE.SRGBColorSpace;
+      grassUniforms.uGrassMap.value = t;
+      grassUniforms.uGrassAmt.value = 0.75;
       material.needsUpdate = true;
     });
   }).catch(() => { /* no pack, no grass, no noise */ });
@@ -544,20 +610,35 @@ export function createScene(container, opts = {}) {
   // compile (including the recompile addGrassDetail triggers once the
   // photographed roughness map lands), so this callback re-runs and
   // re-wires the uniforms each time rather than going stale.
+  //
+  // These uniform objects are created ONCE and shared into every compile, not
+  // rebuilt per callback: the grass colour tile arrives seconds later and
+  // writes into uGrassMap.value, and a fresh object each compile would leave
+  // that write pointing at a uniform nothing is reading.
+  const grassUniforms = {
+    uGrassMap: { value: null },
+    uGrassRepeat: { value: new THREE.Vector2(spanX, spanZ) },
+    uGrassAmt: { value: 0 },     // 0 until the tile lands: identity, no-op
+    uGrassMean: { value: 0.2 },  // Grass005's measured mean linear luminance
+  };
   groundMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
       uSpanZ: { value: spanZ },
       uStripeW: { value: 3 },   // metres — matches makePitchTexture's bands
-      uStripeLo: { value: 0.8 },  // grass bent toward the camera: shinier
-      uStripeHi: { value: 1.15 }, // grass bent away: more diffuse
-    });
-    shader.fragmentShader = STRIPE_UNIFORMS + shader.fragmentShader;
+      uStripeLo: { value: 0.55 }, // grass bent toward the camera: shinier
+      uStripeHi: { value: 1.22 }, // grass bent away: more diffuse
+    }, grassUniforms);
+    shader.fragmentShader = STRIPE_UNIFORMS + GRASS_UNIFORMS + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <roughnessmap_fragment>',
       `#include <roughnessmap_fragment>\n${STRIPE_ROUGHNESS}`,
     );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `#include <map_fragment>\n${GRASS_ALBEDO}`,
+    );
   };
-  addGrassDetail(groundMat, spanX, spanZ);
+  addGrassDetail(groundMat, spanX, spanZ, grassUniforms);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;

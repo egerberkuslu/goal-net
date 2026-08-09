@@ -37,14 +37,18 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import * as THREE from 'three';
+
 import { CONSTANTS } from '../packages/core/src/index.js';
 import {
-  ANCHORS, AnimClock, AnimStateMachine, CELEBRATION_IDS, CameraShake, DIVE_IDS,
-  GoalReplay, JITTER_MAX, KICK_IDS, PlayerAnimator, REPLAY_DELAY, REPLAY_LENGTH,
+  ANCHORS, AnimClock, AnimStateMachine, CELEBRATION_IDS, CH_PY, CH_RX, CH_RY,
+  CH_RZ, CameraShake, CONTACT_DURATION, DIVE_IDS, GoalReplay, JITTER_MAX,
+  JUMP_REFERENCE_HEIGHT, KICK_IDS, PlayerAnimator, REPLAY_DELAY, REPLAY_LENGTH,
   SHAKE_CUTOFF, SHAKE_MAX, STATES, TRANSITIONS, blendParams, blendWeights,
-  canTransition, celebrationHash, createPose, describePose, diveIdOf, graph,
-  poseDelta, posesEqual, route, selectCelebration, selectDejection, selectKick,
-  solveTwoBoneIK, strideRate, successors, transitionTime, writeGait,
+  canTransition, celebrationHash, ch, createPose, describePose, diveIdOf,
+  graph, layerContact, poseDelta, posesEqual, route, selectCelebration,
+  selectDejection, selectKick, solveTwoBoneIK, strideRate, successors,
+  transitionTime, writeGait, writeJump, writeRagdoll,
 } from '../packages/client/src/arena/anim/index.js';
 import { GOAL_WINDOW_SECONDS } from '../packages/client/src/arena/anim/camera.js';
 import { createIKResult, lateralReach, SHIN_LEN, THIGH_LEN } from '../packages/client/src/arena/anim/rig.js';
@@ -53,6 +57,8 @@ import {
   BUDGETS, QUALITY, buildStadiumSpec, detectTier, qualityFor,
 } from '../packages/client/src/arena/assets/index.js';
 import { toMetres } from '../packages/client/src/arena/units.js';
+import { bindRiggedPose } from '../packages/client/src/view/riggedPose.js';
+import { RiggedPlayerView } from '../packages/client/src/view/riggedPlayerView.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -792,7 +798,422 @@ if (!skipAssets) {
   console.log('\n--- F2. asset pipeline: SKIPPED (--skip-assets)');
 }
 
-// ==================================================== G. the browser budget
+// ============================================ G. new movements (animation)
+
+section('G1. jump, ragdoll, contact — the movements the layer was missing');
+
+{
+  // JUMP: height goes straight into root PY at full scale (not normalised —
+  // it composes with the world y offset exactly like a dive's root PY does).
+  const grounded = writeJump(createPose(), 0, 0);
+  const airborne = writeJump(createPose(), 0.8, 0);
+  near('writeJump(h=0) leaves root PY at 0', grounded[ch('root', CH_PY)], 0, 1e-9);
+  near('writeJump(h=0.8) lifts root PY by exactly 0.8 m',
+    airborne[ch('root', CH_PY)], 0.8, 1e-9);
+  check('a higher jump tucks the legs up more than a low one',
+    Math.abs(writeJump(createPose(), 1.2, 0)[ch('thighL', CH_RX)])
+      > Math.abs(writeJump(createPose(), 0.2, 0)[ch('thighL', CH_RX)]));
+
+  // the header nod is a SEPARATE signal from height: a flick near the ground
+  // must still show a head snap, and a standing leap with no header must not.
+  const noHeader = writeJump(createPose(), 0.9, 0)[ch('head', CH_RX)];
+  const midHeader = writeJump(createPose(), 0.05, 0.5)[ch('head', CH_RX)];
+  check('a header snap moves the head even at almost no jump height',
+    Math.abs(midHeader) > Math.abs(noHeader) + 0.05,
+    `no-header ${noHeader.toFixed(3)} vs mid-header ${midHeader.toFixed(3)}`);
+
+  // JUMP is in the state graph and reachable both ways from idle, locomotion
+  // and both keeper states, plus its own crossfades are non-zero (covered
+  // generically in section B, reasserted here for the specific edges the user
+  // asked for so a future edit to TRANSITIONS cannot silently drop one).
+  for (const from of ['idle', 'locomotion', 'keeperStance', 'keeperShuffle']) {
+    check(`${from} -> jump is a legal, non-zero hop`,
+      canTransition(from, 'jump') && transitionTime(from, 'jump') > 0);
+  }
+  for (const to of ['idle', 'locomotion']) {
+    check(`jump -> ${to} is a legal, non-zero hop`,
+      canTransition('jump', to) && transitionTime('jump', to) > 0);
+  }
+}
+
+{
+  // RAGDOLL: the same fall/flail/rise shape playerView.js already used,
+  // expressed as pose channels so a rigged skeleton gets it too.
+  const start = writeRagdoll(createPose(), 0, 1);
+  const mid = writeRagdoll(createPose(), 0.5, 1);
+  const end = writeRagdoll(createPose(), 1, 1);
+  check('a knockdown starts upright (t=0 is close to the bind pose)',
+    Math.abs(start[ch('root', CH_RX)]) < 0.05, start[ch('root', CH_RX)].toFixed(3));
+  check('mid-fall the body is well past horizontal',
+    Math.abs(mid[ch('root', CH_RX)]) > 1.2, mid[ch('root', CH_RX)].toFixed(3));
+  check('by t=1 the player is back upright, not still on the ground',
+    Math.abs(end[ch('root', CH_RX)]) < 0.05, end[ch('root', CH_RX)].toFixed(3));
+  check('no channel goes NaN across the whole fall', [start, mid, end].every(
+    (p) => p.every(Number.isFinite)));
+  const spinPos = writeRagdoll(createPose(), 0.4, 2.5)[ch('root', CH_RY)];
+  const spinNeg = writeRagdoll(createPose(), 0.4, -2.5)[ch('root', CH_RY)];
+  check('the tumble spin sign is honoured, not just its magnitude',
+    spinPos > 0 && spinNeg < 0, `+spin ${spinPos.toFixed(2)}, -spin ${spinNeg.toFixed(2)}`);
+
+  // RAGDOLL is a proper interrupt: reachable from ANY state in one hop, same
+  // guarantee celebrate/dejected already have, and it is NOT stuck once there.
+  const stuck = STATES.filter((s) => s !== 'ragdoll' && !canTransition(s, 'ragdoll'));
+  check('a knockdown interrupts every state in one hop', stuck.length === 0, stuck.join(', '));
+  check('ragdoll can return to idle or locomotion',
+    canTransition('ragdoll', 'idle') && canTransition('ragdoll', 'locomotion'));
+
+  // and it really does pre-empt a state in flight through the animator, not
+  // just in the static graph: mid-kick, a knockdown must win next frame.
+  // The FIRST advance() only seeds edge detection (animator.js: nothing fires
+  // on frame one, on purpose, so a freshly-built animator cannot fire an event
+  // off whatever garbage the caller's very first snapshot happens to carry);
+  // the kick has to be requested on the frame AFTER that, exactly the same
+  // two-frame shape scriptedFrames() already uses elsewhere in this file.
+  const a = new PlayerAnimator(SLOTS[1], { toMetres: (u) => u });
+  a.advance(1 / 60, { x: 0, z: 0, charge: 0, kickCooldown: 0 }, { ball: CORE_BALL });
+  a.evaluate(createPose());
+  a.advance(1 / 60, { x: 0, z: 0, charge: 0, kickCooldown: 8 }, { ball: CORE_BALL });
+  a.evaluate(createPose());
+  eq('mid-swing, before the knockdown, the machine really is mid-kick',
+    a.machine.to, 'kick');
+  a.advance(1 / 60, { x: 0, z: 0, ragdollActive: 1.4, ragdoll01: 0 }, { ball: CORE_BALL });
+  eq('the very next frame, a knockdown pre-empts the swing', a.machine.to, 'ragdoll');
+}
+
+{
+  // CONTACT: an additive layer (like lean/aim), not a state — a jostle does
+  // not stop a player walking, it just braces them for a moment.
+  //
+  // The envelope is sin(ramp) * exp(decay), the same shape layerTap already
+  // uses — which means it is, deliberately, EXACTLY ZERO at t=0 (sin(0)=0)
+  // and rises from there; that is what "a snap building over the first
+  // couple of frames" looks like, not a discontinuous jump to full strength.
+  // Sampling at t=0 would be testing for a jump this layer intentionally does
+  // not have, so every sample below is a hair past the instant of contact.
+  const before = createPose();
+  const after = createPose();
+  layerContact(after, 0.06, 1, 1);
+  check('a contact just after the hit (t>0) visibly braces the near shoulder',
+    poseDelta(before, after) > 0.05, `delta ${poseDelta(before, after).toFixed(3)}`);
+  const zero = createPose();
+  layerContact(zero, 0, 1, 1);
+  check('at the exact instant of contact (t=0) the envelope has not snapped yet',
+    poseDelta(before, zero) === 0);
+  const late = createPose();
+  layerContact(late, CONTACT_DURATION * 2, 1, 1);
+  check('the contact lean has fully decayed well past its own duration',
+    poseDelta(before, late) === 0);
+  const left = createPose();
+  const right = createPose();
+  layerContact(left, 0.06, -1, 1);
+  layerContact(right, 0.06, 1, 1);
+  check('a contact from the left and one from the right are mirrored, not identical',
+    poseDelta(left, right) > 0.05, `delta ${poseDelta(left, right).toFixed(3)}`);
+
+  // notifyContact() is a real, callable trigger on the animator (the honest
+  // hook view/riggedPlayerView.js's best-effort proxy — and, eventually, a
+  // real collidePlayers() signal — calls into).
+  const a = new PlayerAnimator(SLOTS[1], { toMetres: (u) => u });
+  a.advance(1 / 60, { x: 0, z: 0 }, { ball: CORE_BALL });
+  a.evaluate(createPose());
+  a.notifyContact(1, 0.8);
+  eq('notifyContact() latches the contact clock to zero', a.contactT, 0);
+  // advance the clock a little so the envelope has actually risen off zero
+  // before comparing — evaluating at contactT exactly 0 would, correctly,
+  // show no difference yet (see the ramp-from-zero note above).
+  a.advance(0.06, { x: 0, z: 0 }, { ball: CORE_BALL });
+  const withContact = a.evaluate(createPose());
+  a.contactT = 999;
+  const withoutContact = a.evaluate(createPose());
+  check('the contact layer actually reaches the evaluated pose',
+    poseDelta(withContact, withoutContact) > 0.03);
+}
+
+// ================================================= G2. rigged retarget
+
+if (!skipAssets) {
+  section('G2. rigged retarget (view/riggedPose.js, measured against the real GLBs)');
+
+  const RIG_FILES = {
+    player: resolve(root, 'dist-assets/vendor/player-rig.glb'),
+    keeper: resolve(root, 'dist-assets/vendor/keeper-rig.glb'),
+  };
+  const haveRigs = Object.values(RIG_FILES).every(existsSync);
+
+  if (!haveRigs) {
+    check('vendor rig GLBs are present to verify against', false,
+      'run tools/fetch-models.mjs + tools/blender/prep-vendor.py first');
+  } else {
+    // GLTFLoader reaches for `self.URL` when it decodes an embedded texture,
+    // which only exists in a browser/worker global. Headless Node has no
+    // `self`; this is the one shim that lets a real, unmodified GLTFLoader
+    // parse a real, unmodified conditioned GLB outside a browser. Texture
+    // decoding still fails (harmlessly, printed as a loader warning) — the
+    // skeleton, hierarchy and skin weights this section measures do not
+    // depend on it.
+    if (typeof globalThis.self === 'undefined') globalThis.self = globalThis;
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+
+    async function loadGlbFile(path) {
+      const buf = readFileSync(path);
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      return new Promise((ok, fail) => new GLTFLoader().parse(ab, '', ok, fail));
+    }
+
+    /** Total skin weight a named bone actually carries, summed over every
+     *  SkinnedMesh in the file. Zero means the bone is a control/root joint
+     *  with no vertices assigned to it — rotating it moves nothing on screen,
+     *  which is exactly the failure this coordinate catches: a correction
+     *  quaternion can be computed perfectly and still animate nothing. */
+    function totalSkinWeight(root3d, boneName) {
+      let total = 0;
+      root3d.traverse((o) => {
+        if (!o.isSkinnedMesh) return;
+        const names = o.skeleton.bones.map((b) => b.name);
+        const idx = names.indexOf(boneName);
+        if (idx < 0) return;
+        const skinIndex = o.geometry.attributes.skinIndex;
+        const skinWeight = o.geometry.attributes.skinWeight;
+        if (!skinIndex || !skinWeight) return;
+        for (let i = 0; i < skinIndex.count; i++) {
+          for (let k = 0; k < 4; k++) {
+            if (skinIndex.getComponent(i, k) === idx) total += skinWeight.getComponent(i, k);
+          }
+        }
+      });
+      return total;
+    }
+
+    /** The angle-axis of the rotation `apply()` actually put on a bone,
+     *  relative to its rest pose — the thing a "does it swing the right way"
+     *  assertion has to read, since the ROTATION ANGLE alone is invariant
+     *  under conjugation and proves nothing (see the file header of
+     *  riggedPose.js and the report: this is exactly how the old single
+     *  hardcoded OUR_DIR passed an angle-only check while inverting a chest
+     *  twist outright). */
+    function localAxis(restQuat, currentQuat) {
+      const rel = restQuat.clone().invert().multiply(currentQuat);
+      const s = Math.sqrt(Math.max(0, 1 - rel.w * rel.w));
+      return s < 1e-8 ? new THREE.Vector3(0, 0, 0) : new THREE.Vector3(rel.x / s, rel.y / s, rel.z / s);
+    }
+
+    const gltfPlayer = await loadGlbFile(RIG_FILES.player);
+    const gltfKeeper = await loadGlbFile(RIG_FILES.keeper);
+
+    // --- coverage ---------------------------------------------------------
+    const bindingPlayer = bindRiggedPose(gltfPlayer.scene);
+    const bindingKeeper = bindRiggedPose(gltfKeeper.scene);
+    check('player-rig.glb binds', !!bindingPlayer);
+    check('keeper-rig.glb binds', !!bindingKeeper);
+
+    if (bindingPlayer) {
+      // player-rig.glb has no dedicated lower-back bone (BIND's own comment:
+      // "which is how `spine` behaves on a rig that has no lower back"), and
+      // its 'FootL'/'FootR' bones are an unresolved IK end-effector sitting
+      // ~3.7 m from their own declared parent — see plausibleOffset()'s own
+      // comment in riggedPose.js. 11 of 14 is therefore the CORRECT coverage
+      // for THIS asset, not a shortfall: the regression this guards against
+      // is any of the three silently grabbing a bone that belongs to
+      // something else, or one that swings the mesh across the pitch,
+      // instead of honestly going unmapped.
+      eq('player-rig binds 11 of 14 joints (no spine bone, and the foot bones fail the plausibility gate)',
+        bindingPlayer.joints, 11);
+      check('spine, footL and footR are honestly reported missing, not mis-bound',
+        ['spine', 'footL', 'footR'].every((j) => bindingPlayer.missing.includes(j) && !bindingPlayer.bones[j]));
+
+      // the specific bug: 'hips' used to land on a zero-weight control bone
+      // (MASTER_06), so every hip bob/yaw/roll animated nothing on screen.
+      const hipsWeight = totalSkinWeight(gltfPlayer.scene, bindingPlayer.bones.hips.name);
+      check('hips binds to a bone that actually deforms the mesh',
+        hipsWeight > 1, `${bindingPlayer.bones.hips.name} carries ${hipsWeight.toFixed(1)} total weight`);
+      check('hips is not bound to the known-decorative MASTER control bone',
+        !/master/i.test(bindingPlayer.bones.hips.name));
+
+      // the other half of the same bug: with 'spine' correctly unmapped, no
+      // two of our joints can still be silently fighting over one bone.
+      const boundNames = Object.values(bindingPlayer.bones).map((b) => b.name);
+      eq('no two joints on player-rig drive the same bone',
+        boundNames.length, new Set(boundNames).size);
+
+      // the knee-swings-the-foot-across-the-pitch regression, quantified
+      // directly: 'FootMasterL' is the ankle-adjacent bone the rejected
+      // 'FootL' hangs off (it is not one of our 15 joints, so it is read
+      // straight off the loaded scene, not through the binding), and a
+      // moderate knee bend must move it a plausible fraction of a shin
+      // length — not the 2.26 m this file's own report measured against
+      // 'FootL' before the plausibility gate rejected it.
+      const ankleBone = gltfPlayer.scene.getObjectByName('FootMasterL_038');
+      if (ankleBone) {
+        gltfPlayer.scene.updateWorldMatrix(true, true);
+        const ankleRest = new THREE.Vector3();
+        ankleBone.getWorldPosition(ankleRest);
+        const kneePose = createPose();
+        kneePose[ch('kneeL', CH_RX)] = 0.5;
+        bindingPlayer.apply(kneePose);
+        gltfPlayer.scene.updateWorldMatrix(true, true);
+        const ankleAfter = new THREE.Vector3();
+        ankleBone.getWorldPosition(ankleAfter);
+        const moved = ankleRest.distanceTo(ankleAfter);
+        check('a knee bend moves the ankle a plausible sub-metre distance, not metres',
+          moved > 0.02 && moved < SHIN_LEN, `${moved.toFixed(3)} m (shin length ${SHIN_LEN} m)`);
+        bindingPlayer.reset();
+      }
+    }
+
+    if (bindingKeeper) {
+      eq('keeper-rig binds all 14 mapped joints (it has a real spine chain)',
+        bindingKeeper.joints, 14);
+      check('keeper-rig leaves nothing unmapped', bindingKeeper.missing.length === 0,
+        bindingKeeper.missing.join(', '));
+      check('hips and spine are distinct bones on keeper-rig',
+        bindingKeeper.bones.hips !== bindingKeeper.bones.spine);
+      const hipsWeight = totalSkinWeight(gltfKeeper.scene, bindingKeeper.bones.hips.name);
+      check('keeper-rig hips also binds to a real, deforming bone',
+        hipsWeight > 1, `${bindingKeeper.bones.hips.name} carries ${hipsWeight.toFixed(1)} total weight`);
+    }
+
+    // --- direction, not just magnitude -------------------------------------
+    // This is the measurement the coordinator asked for: "the world position
+    // of the foot bone moves in the expected direction for a known pose."
+    // Rotation ANGLE survives any correction quaternion by construction
+    // (conjugation preserves angle) — the AXIS does not, and the axis is
+    // exactly what determines which way the character actually moves. This
+    // caught a real bug: the single hardcoded OUR_DIR this file used to use
+    // put 'chest' at 0.4 rad of INPUT angle but a rotation axis with
+    // dot(newAxis, oldAxis) = -1.000 against the per-joint-corrected version
+    // for a pure RY twist — a full inversion, not a small twist error. The
+    // per-joint OUR_JOINT_DIR fix restores it to 1.000. 'hips' does not reach
+    // the same 1.000: its target bone's own child (on THIS rig) is a leg, not
+    // an upward continuation, so a real ~40-degree correction survives even
+    // after the fix — reported honestly with a looser bound, not hidden.
+    if (bindingPlayer) {
+      for (const [joint, channel, label, bound] of [
+        ['chest', CH_RY, 'twist (aim, kick torso rotation, locomotion counter-swing)', 0.95],
+        ['chest', CH_RZ, 'roll', 0.95],
+        ['hips', CH_RY, 'hip yaw (looser bound: this rig has no clean vertical child off hips)', 0.6],
+      ]) {
+        const bone = bindingPlayer.bones[joint];
+        const rest = bone.quaternion.clone();
+        const pose = createPose();
+        pose[ch(joint, channel)] = 0.5;
+        bindingPlayer.apply(pose);
+        const axis = localAxis(rest, bone.quaternion);
+        const expected = channel === CH_RY ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+        const alignment = axis.dot(expected);
+        check(`${joint} ${label} rotates the SAME way the pose asked, not inverted`,
+          alignment > bound, `axis (${axis.x.toFixed(2)}, ${axis.y.toFixed(2)}, ${axis.z.toFixed(2)}), alignment ${alignment.toFixed(3)}`);
+        bindingPlayer.reset();
+      }
+
+      // a full walk-cycle pose, end to end, still lands every driven joint's
+      // rotation angle at exactly what the pose asked for (conjugation-safe
+      // by construction, reasserted here as a determinism/no-NaN guard on
+      // the real GLB rather than on a synthetic skeleton).
+      const gait = writeGait(createPose(), blendParams(0, 4.5), 0.25, 0);
+      bindingPlayer.apply(gait);
+      let anyNaN = false;
+      for (const name of Object.keys(bindingPlayer.bones)) {
+        const b = bindingPlayer.bones[name];
+        if (!Number.isFinite(b.quaternion.x + b.quaternion.y + b.quaternion.z + b.quaternion.w)) anyNaN = true;
+      }
+      check('a full running pose leaves every bound bone with a finite quaternion', !anyNaN);
+      bindingPlayer.reset();
+    }
+
+    // --- a known leg swing moves the foot a plausible, bounded distance ----
+    // keeper-rig, not player-rig: player-rig's foot bones are the ones
+    // plausibleOffset() correctly excludes (see above), so this measures the
+    // rig where a foot really is bound — keeper-rig's own diving, shuffling
+    // and clearing all depend on the same footL/footR channels.
+    if (bindingKeeper) {
+      const footR = bindingKeeper.bones.footR;
+      const restPos = new THREE.Vector3();
+      gltfKeeper.scene.updateWorldMatrix(true, true);
+      footR.getWorldPosition(restPos);
+
+      const kick = createPose();
+      kick[ch('thighR', CH_RX)] = -0.8; // kicks.js: rx<0 swings the leg forward
+      kick[ch('kneeR', CH_RX)] = 0.6;
+      bindingKeeper.apply(kick);
+      gltfKeeper.scene.updateWorldMatrix(true, true);
+      const swungPos = new THREE.Vector3();
+      footR.getWorldPosition(swungPos);
+      const moved = restPos.distanceTo(swungPos);
+      const legSpan = THIGH_LEN + SHIN_LEN; // ~0.84 m — the physical ceiling
+      check('a kicking-leg pose moves keeper-rig\'s foot bone a real, bounded distance',
+        moved > 0.05 && moved < legSpan * 2.2,
+        `${moved.toFixed(3)} m (leg span ${legSpan.toFixed(2)} m)`);
+      bindingKeeper.reset();
+    }
+  }
+
+  // NOT verified here, and said so rather than assumed: whether the
+  // character actually stands upright on screen. player-rig.glb's raw bone
+  // tree carries an extra "Sketchfab_model" ancestor node with its own -90
+  // degree X rotation (npm run prep:vendor's own comment: "the glTF importer
+  // has already converted the file into Blender's Z-up" — this looks like
+  // that conversion plus a second one already baked into the downloaded
+  // source, though a script cannot tell the difference between a harmless
+  // double-Y-up-conversion and a genuine orientation bug without rendering
+  // it). Bone WORLD POSITIONS taken straight off this file do not read as a
+  // standing human (hips, chest and head cluster within 5 cm of each other
+  // on the axis this script expected to be height, with a ~30-unit offset on
+  // a different axis instead) — which is either this rig's own coordinate
+  // convention read correctly, or a real defect. THIS IS EXACTLY THE
+  // "eyeball it in a browser" item the brief asked to flag rather than paper
+  // over: the coordinator's visual pass should look at player-rig.glb (the
+  // scene.js `rigTest` pair already places one at the touchline) and confirm
+  // it stands upright before trusting anything above about its silhouette.
+
+  section('G3. RiggedPlayerView — smoke test (no browser, no Playwright)');
+
+  {
+    // A minimal stand-in for packages/client/src/core/player.js's Player,
+    // exercising every branch the adapter reads. This cannot reach the real
+    // GLB headlessly (vendorModel.js fetches a relative URL, which Node's
+    // fetch rejects), so it is exactly the fallback path — which is the path
+    // every player is on for the first few frames of a real match too, and
+    // the path that must never throw if a checkout has no dist-assets/ at all.
+    function fakePlayer(team, role) {
+      return {
+        team, role, mpName: 'Test Öykü',
+        pos: { x: 3, z: -4 }, vel: { x: 1.5, z: -0.8 }, input: { x: 0, z: 0 },
+        facing: 0.4, charge: 0, kickAnim: 0, headerAnim: 0, celebrate: 0,
+        down: 0, downTotal: 1.5, tumbleSpin: 0, jumpY: 0, jumpVy: 0,
+        dive: 0, diveTotal: 0.55, diveKind: 'dive', diveRecover: 0,
+        diveDir: { x: 1, z: 0 }, number: 9,
+        speed() { return Math.hypot(this.vel.x, this.vel.z); },
+      };
+    }
+
+    const scene = new THREE.Scene();
+    let threw = null;
+    try {
+      const view = new RiggedPlayerView(fakePlayer(0, 'field'), scene, [0xe23b3b, 0x3b6de2]);
+      for (let i = 0; i < 30; i++) {
+        view.update(1 / 60);
+        view.player.pos.x += 0.05;
+      }
+      view.setKit({ number: 11 });
+      view.dispose();
+
+      const keeperView = new RiggedPlayerView(fakePlayer(1, 'keeper'), scene, null);
+      keeperView.player.down = 0.9; keeperView.player.downTotal = 1.5;
+      keeperView.player.tumbleSpin = 2;
+      for (let i = 0; i < 10; i++) keeperView.update(1 / 60);
+      keeperView.dispose();
+    } catch (err) {
+      threw = err;
+    }
+    check('constructing, updating and disposing a RiggedPlayerView never throws',
+      threw === null, threw ? `${threw.message}\n${threw.stack}` : '');
+    check('the same is true for a keeper mid-knockdown, with no GLB reachable', threw === null);
+  }
+} else {
+  console.log('\n--- G. rigged retarget: SKIPPED (--skip-assets)');
+}
+
+// ==================================================== H. the browser budget
 
 async function loadPlaywright() {
   for (const name of ['playwright', 'playwright-core', '@playwright/test']) {
@@ -955,9 +1376,9 @@ async function measure(browser, { name, width, height, tier, dpr }) {
 }
 
 if (skipBrowser) {
-  console.log('\n--- G. browser budget: SKIPPED (--skip-browser)');
+  console.log('\n--- H. browser budget: SKIPPED (--skip-browser)');
 } else {
-  section('G. render budget in a real browser (#19)');
+  section('H. render budget in a real browser (#19)');
   const playwright = await loadPlaywright();
   if (!playwright) {
     console.log('SKIP playwright is not installed in this checkout');

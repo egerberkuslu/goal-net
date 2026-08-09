@@ -26,7 +26,8 @@ import {
 } from './pose.js';
 import { AnimClock, RUN_SPEED, WALK_SPEED, angleDelta, approach, gaitBlend } from './clock.js';
 import {
-  blendParams, layerAim, layerBreath, layerLean, layerTap, writeGait, TAP_DURATION,
+  blendParams, CONTACT_DURATION, layerAim, layerBreath, layerContact, layerLean,
+  layerTap, writeGait, TAP_DURATION,
 } from './locomotion.js';
 import {
   KICKS, kickFoot, selectKick, writeKick, writeSlide, writeStumble, writeWindup,
@@ -39,6 +40,8 @@ import {
   diveIdOf, writeCatch, writeClearWindup, writeDive, writeGetUp, writeShuffle,
   writeStance, writeThrow,
 } from './keeper.js';
+import { writeJump } from './jump.js';
+import { writeRagdoll } from './ragdoll.js';
 import { AnimStateMachine } from './stateMachine.js';
 
 const TICK_HZ = CONSTANTS.TICK_RATE;
@@ -118,6 +121,40 @@ export class PlayerAnimator {
     this.clear01 = 0;
     this.curve = 0;
     this.aimYaw = 0;
+
+    // knockdown ragdoll: 0..1 progress read straight off the core's own
+    // "seconds down" field, same convention as slideT/stumbleT above.
+    this.ragdollT = 0;
+    this.ragdollSpin = 0;
+    // the vertical leap: metres of height and header-snap progress, both read
+    // directly off core state rather than timed locally, so the pose tracks
+    // the actual jump arc instead of a canned duration.
+    this.jumpHeightM = 0;
+    this.headerU = 0;
+    // the contact lean is an EVENT, not a continuous core field (nothing in
+    // either core exposes "this player was just jostled"), so it is triggered
+    // by notifyContact() rather than read in _detectEvents, the same way a
+    // caller outside this file already triggers a goal reaction.
+    this.contactT = Infinity;
+    this.contactSide = 1;
+    this.contactStrength = 0;
+  }
+
+  /**
+   * External event: this player was jostled shoulder-to-shoulder. Not core
+   * state — nothing in either core exposes a soft-contact signal today — so a
+   * caller (view/riggedPlayerView.js) infers it and calls this directly,
+   * exactly as a UI layer already infers "a save just happened" in
+   * arena/view.js without a core event for it.
+   *
+   * @param {number} side -1 the contact came from the left, +1 from the right
+   * @param {number} strength 0..1
+   */
+  notifyContact(side, strength = 1) {
+    this.contactSide = side < 0 ? -1 : 1;
+    this.contactStrength = Math.max(0, Math.min(1, strength));
+    this.contactT = 0;
+    return this;
   }
 
   // ------------------------------------------------------------- advance ---
@@ -252,6 +289,14 @@ export class PlayerAnimator {
     const lock = p.diveLock || 0;
     this.getUpU = lock > 0 ? Math.min(1, lock / DIVE_LOCK) : 0;
 
+    // knockdown ragdoll and the vertical leap are both read straight off
+    // whatever 0..1 progress / metres the caller already computed — there is
+    // no packages/core tick budget to divide by here, unlike the fields above.
+    if ((p.ragdollActive || 0) > 0) this.ragdollT = Math.max(0, Math.min(1, p.ragdoll01 ?? 0));
+    this.ragdollSpin = p.ragdollSpin || 0;
+    this.jumpHeightM = p.jumpHeightM || 0;
+    this.headerU = p.headerU || 0;
+
     // The goal reaction. The score change is spotted by the caller (arena's
     // match loop already does it); we just latch the choice once.
     if (ctx.goal && ctx.goal.tick !== this.lastGoalTick) {
@@ -287,6 +332,7 @@ export class PlayerAnimator {
       if (this.kickT > (KICKS[this.kickId]?.seconds ?? 0.4)) this.kickId = null;
     }
     if (this.tapT < TAP_DURATION) this.tapT += d;
+    if (this.contactT < CONTACT_DURATION) this.contactT += d;
     if (this.throwT < 1) this.throwT += d;
     if (this.reactionKind !== 0) {
       this.reactionT += d;
@@ -301,9 +347,16 @@ export class PlayerAnimator {
   _wantedState(p, ctx) {
     if (this.reactionKind > 0) return 'celebrate';
     if (this.reactionKind < 0) return 'dejected';
+    // A knockdown pre-empts everything, including a tackle already in
+    // progress: a slide tackle that flattens its target ends the tackler's
+    // OWN slide pose too on the very next frame if the shove flattens them
+    // back, which is exactly what should happen — nobody stays mid-swing
+    // while lying on the grass.
+    if ((p.ragdollActive || 0) > 0) return 'ragdoll';
 
     if ((p.tackleActive || 0) > 0) return 'slide';
     if ((p.tackleRecovery || 0) > 0) return 'stumble';
+    if (this.jumpHeightM > 0.02) return 'jump';
 
     if (this.isKeeper) {
       if ((p.diveActive || 0) > 0) return 'keeperDive';
@@ -380,11 +433,14 @@ export class PlayerAnimator {
     // on the grass does not swivel their chest at the ball, and a celebration
     // has its own head direction.
     const grounded = st === 'slide' || st === 'keeperDive' || st === 'keeperGetUp'
-      || st === 'celebrate' || st === 'dejected' || st === 'stumble';
+      || st === 'celebrate' || st === 'dejected' || st === 'stumble' || st === 'ragdoll';
     if (!grounded) {
       const aimWeight = st === 'kick' || st === 'windup' ? 0.55 : 1;
       layerAim(out, this.aimYaw, 0, aimWeight);
       layerLean(out, c.accelF, c.accelR, 1);
+      if (this.contactT < CONTACT_DURATION) {
+        layerContact(out, this.contactT, this.contactSide, this.contactStrength);
+      }
     }
     layerBreath(out, c.breath, grounded ? 0.35 : 1 - gaitBlend(this.speed) * 0.6);
     if (this.tapT < TAP_DURATION) layerTap(out, this.tapT, this.tapSide, 1);
@@ -425,6 +481,10 @@ export class PlayerAnimator {
       case 'stumble':
         writeStumble(out, this.stumbleT);
         return out;
+      case 'ragdoll':
+        return writeRagdoll(out, this.ragdollT, this.ragdollSpin);
+      case 'jump':
+        return writeJump(out, this.jumpHeightM, this.headerU);
       case 'celebrate': {
         const id = this.reactionId || CELEBRATIONS[0].id;
         return writeCelebration(out, id, this.reactionT);
@@ -482,6 +542,10 @@ export class PlayerAnimator {
       diveId: this.diveId, diveU: this.diveU, getUpU: this.getUpU,
       charge01: this.charge01, clear01: this.clear01, curve: this.curve,
       aimYaw: this.aimYaw,
+      ragdollT: this.ragdollT, ragdollSpin: this.ragdollSpin,
+      jumpHeightM: this.jumpHeightM, headerU: this.headerU,
+      contactT: this.contactT, contactSide: this.contactSide,
+      contactStrength: this.contactStrength,
     };
   }
 
