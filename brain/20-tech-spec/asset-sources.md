@@ -103,3 +103,67 @@ açtıktan sonra:
    eksen, üçgen bütçesi, birim kutu.
 
 Adım 3'ün script'i token gelene kadar yazılmadı; yazması yarım saat.
+
+---
+
+## Derin tarama — çim, futbolcu, kale, file (2026-08-09)
+
+Bir futbol oyununda en çok bakılan dört şey. Her biri için kaynaklar tarandı,
+lisanslar API'den okundu, sonuçlar ve **öneri** aşağıda.
+
+### 1. Çim
+
+| kaynak | ne var | hesap | lisans |
+|---|---|---|---|
+| ambientCG | **Grass001…Grass008** (8 farklı çim), Ground013/020/030/037/075 | yok | CC0 |
+| Poly Haven | `aerial_grass_rock`, `grass_path_2/3`, `grassy_cobblestone` | yok | CC0 |
+
+Poly Haven'ınkiler **yabani/uzun çim** — futbol sahası değil, patika ve kır.
+ambientCG'nin Grass serisi prosedürel ve kısa; şu an Grass005'in yalnızca
+normal + roughness haritası kullanılıyor.
+
+**Öneri:** doku değiştirmek en küçük kazanç. Bir yayın sahasının görünüşünü
+yapan şey dokunun kendisi değil, üç şey: (a) **biçme şeritleri renk farkı değil
+parlaklık farkıdır** — çim kameraya doğru ya da ters yatırıldığı için ışığı
+farklı yansıtır, yani şeritler roughness/anisotropy ile yapılmalı, boyayla
+değil; (b) döşeme ölçeği ve anisotropic filtreleme; (c) tekrarı kırmak için
+ikinci bir ölçekte detay katmanı. Bunlar dosya indirmeden, mevcut CC0 setiyle
+yapılır.
+
+### 2. Futbolcu — animasyonlu adaylar
+
+| yüz | klip | ad | yazar | uid |
+|---|---|---|---|---|
+| 6152 | **5** | Soap soccer player | luccacatalan | `5ae4bf9d6a324cfda79ce1298ea2d333` |
+| 17420 | 1 | **Goalkeeper Stylized - Rig and Animation** | P-Vi.Art | `7de86f9c36f84152a777f27a73646ada` |
+| 3296 | 11 | Low poly ordinary man (shirt/trousers) | Agor_2012 | `f658b9e1bb324f2ab1e9f00d7d6b4065` |
+| 2628 | 11 | Animated Minimal Human | sethgordon | `a27b8cd70e3449598d113de2c9e35a8b` |
+| 636 | 2 | Ukrainian football player.01 | Alexander.Xas | (indirildi, yedeklerde) |
+
+**Kullanılamayacaklar:** Ronaldo, CR7, Lamine Yamal, Pelé adlı modeller. Bunlar
+**gerçek kişi benzerliği** taşıyor; yükleyenin CC etiketi koyması ne kişilik
+hakkını ne de kulüp formasının tasarımını devretmez.
+
+**Mimari uyarı:** bugünkü oyuncu, ayrı ayrı sürülen parçalardan oluşuyor ve
+ragdoll (`playerView.js:316`) bu parçaları tek tek deviriyor, kolları savuruyor.
+Hazır *skinned* bir karakteri klipleriyle oynatmak ragdoll'u, nişan pozunu ve
+şarj duruşunu kaybettirir — çünkü onlar klip değil, o an hesaplanan pozlar.
+
+### 3. Kale
+
+| yüz | ad | not |
+|---|---|---|
+| 21236 | Soccer Goal (TepidGames) | yüksek poligon, filesi geometri |
+| 9958 | Ball & Net – Game Engine Optimized | file dahil |
+
+Bizim çerçevemiz prosedürel ve **kale genişliğinden ölçülü**; indirilen bir kale
+sabit ölçüde gelir ve lobiden kale boyutu değişince uymaz. İndirilenin tek
+katkısı direk profili ve arka destek detayı olur.
+
+### 4. File
+
+Piyasadaki filelerin tamamı ya statik geometri ya da **düz levhaya basılmış
+file dokusu**. Bizimki XPBD ile simüle ediliyor: topu yutuyor, şişiyor, gole
+tepki veriyor — projenin ilk cümlesi buydu. **İndirilen hiçbir file bunu
+yapamaz**, dolayısıyla file için doğru iş indirmek değil, kordonun görünümünü
+(kalınlık, örgü deseni, sarkma, direğe bağlanma) iyileştirmek.
