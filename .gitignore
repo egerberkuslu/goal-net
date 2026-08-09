@@ -13,3 +13,4 @@ docker/coturn/certs/
 haxball3d-brain.zip
 tools/vendor/
 dist-assets/
+vendor-assets/

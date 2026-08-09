@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { VENDOR, useVendorMesh } from './vendorModel.js';
 import { BALL_R } from '../core/constants.js';
 
 function makeBallTexture() {
@@ -68,6 +69,10 @@ export class BallView {
     );
     this.mesh.castShadow = true;
     scene.add(this.mesh);
+    // A real panelled ball if one has been downloaded and conditioned; the
+    // drawn-texture sphere above if not. Both are 0.30 m across, so the swap
+    // changes what the ball looks like and nothing about where it is.
+    useVendorMesh(this.mesh, VENDOR.ball);
     this.spinAxis = new THREE.Vector3();
   }
 

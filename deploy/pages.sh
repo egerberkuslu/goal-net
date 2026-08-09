@@ -15,6 +15,20 @@ git push -u origin main
 # 2) Pages tabanıyla build
 npx vite build --base="/${REPO}/"
 
+# 2b) indirilen asset'ler ve LİSANSLARI
+#
+# vendor-assets/ CC-BY modeller içeriyor: atıf, dağıtılan yapıyla birlikte
+# gitmek ZORUNDA. Bu satırı silmek bir temizlik değil, lisans ihlalidir.
+# dist-assets/ ise üretilmiş/CC0 olan taraf; ikisi de vite kökünün dışında
+# olduğu için build onları kendiliğinden almıyor.
+if [ -d dist-assets ]; then
+  mkdir -p dist/dist-assets
+  cp -r dist-assets/* dist/dist-assets/
+fi
+for credits in vendor-assets/CREDITS.md dist-assets/textures/CREDITS.md; do
+  [ -f "$credits" ] && cat "$credits" >> dist/CREDITS.md && echo >> dist/CREDITS.md
+done
+
 # 3) dist'i gh-pages dalı olarak it
 cd dist
 rm -rf .git

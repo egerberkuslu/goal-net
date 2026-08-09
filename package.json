@@ -42,7 +42,9 @@
     "build:parts": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/make-parts.py",
     "test:jitter": "node scripts/jitter-test.mjs",
     "build:viewparts": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/make-view-parts.py",
-    "fetch:textures": "node tools/fetch-textures.mjs"
+    "fetch:textures": "node tools/fetch-textures.mjs",
+    "fetch:models": "node tools/fetch-models.mjs",
+    "prep:vendor": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/prep-vendor.py"
   },
   "dependencies": {
     "peerjs": "^1.5.0",
