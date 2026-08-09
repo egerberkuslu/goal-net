@@ -691,8 +691,13 @@ const runB = runTrace();
     d >= 0 ? `first divergence at tick ${d}` : '',
   );
   check(
+    // A rough "did anything happen" proxy. The real coverage guarantee is the
+    // branch tally below, which requires every Phase 1.2 mechanic to fire. The
+    // threshold was 50 on the 400-unit pitch; widening it to the shipping
+    // game's 514 (ADR-0009) means the same chase script spends more of its
+    // 3000 ticks running and less of it kicking, and lands at 29.
     'the scenario actually exercises the sim (kicks and goals happen)',
-    runA.kicks > 50 && runA.goals > 0 && runA.chain.length === SCENARIO.ticks + 1,
+    runA.kicks > 25 && runA.goals > 0 && runA.chain.length === SCENARIO.ticks + 1,
     `kicks=${runA.kicks} goals=${runA.goals}`,
   );
   {
@@ -919,15 +924,20 @@ check(
   const e = (CONSTANTS.BALL_BCOEF / FX_ONE) * (CONSTANTS.WALL_BCOEF / FX_ONE);
   const bd = CONSTANTS.BALL_DAMPING / FX_ONE;
   const w = createWorld({ playerCount: 2 });
+  // Derived, not hardcoded: this test sat on a literal 189 that meant "one
+  // tick short of the touchline" only while the pitch was 400 units wide.
+  const wallX = CONSTANTS.PITCH_HALF_X / FX_ONE;
+  const ballR = CONSTANTS.BALL_RADIUS / FX_ONE;
   place(w, 0, -150, -200);
   place(w, 1, 150, 200);
-  place(w, 'ball', 189, 0, 10, 0);
+  place(w, 'ball', wallX - ballR - 1, 0, 10, 0);
   step(w, [null, null]);
   const b = readState(w).ball;
   check(
     'wall bounce returns bCoef * incoming speed',
-    near(b.vx, -10 * e * bd, 2e-3) && near(b.x, 190, 1e-3),
-    `vx ${b.vx.toFixed(4)} want ${(-10 * e * bd).toFixed(4)}, x ${b.x}`,
+    near(b.vx, -10 * e * bd, 2e-3) && near(b.x, wallX - ballR, 1e-3),
+    `vx ${b.vx.toFixed(4)} want ${(-10 * e * bd).toFixed(4)}, `
+    + `x ${b.x} want ${wallX - ballR}`,
   );
 }
 
@@ -985,10 +995,16 @@ check(
       worstZ = Math.max(worstZ, Math.abs(p.z));
     }
   });
+  // The z bound carries 11 units of slack for the goal mouth, where a ball is
+  // legally past the line. Both are read off the pitch so widening it does not
+  // turn this into a failure about nothing.
+  const limitX = CONSTANTS.PITCH_HALF_X / FX_ONE;
+  const limitZ = CONSTANTS.PITCH_HALF_Z / FX_ONE + 11;
   check(
     'nothing tunnels out of the arena over 1500 contact-heavy ticks',
-    worstX <= 200 && worstZ <= 431,
-    `|x|max ${worstX.toFixed(2)} |z|max ${worstZ.toFixed(2)}`,
+    worstX <= limitX && worstZ <= limitZ,
+    `|x|max ${worstX.toFixed(2)} |z|max ${worstZ.toFixed(2)} `
+    + `(limits ${limitX} / ${limitZ})`,
   );
 }
 
@@ -1802,7 +1818,10 @@ const U = (raw) => raw / FX_ONE;
   );
   check(
     'the preset table is not in the physics table, so constantsHash is untouched',
-    CONSTANTS.PITCH_PRESET === undefined && constantsHash === '7f502ae2',
+    // ADR-0009 widened the pitch and the goal and retuned TACKLE_REACH, so the
+    // physics table changed on purpose and this hash moved with it. That is
+    // exactly what the hash is for: an accidental edit shows up here.
+    CONSTANTS.PITCH_PRESET === undefined && constantsHash === '6c3972cb',
     constantsHash,
   );
 }

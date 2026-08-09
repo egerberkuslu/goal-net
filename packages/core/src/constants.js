@@ -53,9 +53,15 @@ export const CONSTANTS = Object.freeze({
   POST_BCOEF: 32768, //  0.5
 
   // --- pitch: z is the long axis, goals sit on the +/-z lines
-  PITCH_HALF_X: 13107200, // 200
-  PITCH_HALF_Z: 27525120, // 420
-  GOAL_HALF_X: 3604480, // 55
+  //
+  // 2026-08-09 (ADR-0009): the width and the goal mouth were widened so this
+  // core plays the same field the shipping game does. At 23.333 units/m the
+  // old 400 x 840 was 17.1 x 36 m with a 4.71 m goal, against the shipping
+  // 22 x 36 m and FIFA's 7.32 m — same grass, same lights, and a pitch that
+  // felt like a different sport. The length was already right and is untouched.
+  PITCH_HALF_X: 16842752, // 257  = 11.01 m, the shipping game's 11
+  PITCH_HALF_Z: 27525120, // 420  = 18.00 m
+  GOAL_HALF_X: 5570560, //  85  =  3.64 m, FIFA's 3.66
 
   // --- kickoff layout
   SPAWN_Z: 6553600, // 100  (distance from the centre line)
@@ -95,14 +101,19 @@ export const CONSTANTS = Object.freeze({
   TACKLE_ACTIVE_TICKS: 12,
   TACKLE_RECOVERY_TICKS: 24, // 2x the active window, movement locked
   TACKLE_COOLDOWN_TICKS: 20, // spam tax on top of the recovery
-  TACKLE_REACH: 786432, // 12  extra radius while the slide is active
+  // 2026-08-09 (ADR-0009): 12 on the old 400-unit pitch, and the 47% success
+  // it measured was partly the touchline doing the tackling — an evading
+  // attacker ran out of room. On the real 514-unit width the same reach caught
+  // 18% of trials, which makes sliding pointless. 20 restores 47.2% exactly,
+  // and 20-24 is a plateau, so it is not a number balanced on a knife edge.
+  TACKLE_REACH: 1310720, // 20  extra radius while the slide is active
   TACKLE_IMPULSE: 196608, //  3  lunge along the aim direction
   TACKLE_BALL_DAMP: 16384, //  0.25 of the ball's speed survives a clean win
   TACKLE_POKE: 98304, //  1.5 poke away from the tackler on a clean win
   TACKLE_KNOCK: 131072, //  2  shove applied to an OPPONENT caught by the slide
 
   // --- keeper (matrix #11, ADR-0001: role fixed at match start)
-  PENALTY_HALF_X: 8388608, // 128  (same share of the width as the 3D pitch box)
+  PENALTY_HALF_X: 10682368, // 163  = 6.99 m, the shipping game's 7 m box
   PENALTY_DEPTH: 6881280, // 105  measured in from the goal line
   CATCH_REACH: 131072, //   2  extra grab reach on top of the radii
   CATCH_HOLD_TICKS: 210, // 3.5 s, inside the designed 180-240 band

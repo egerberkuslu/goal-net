@@ -53,10 +53,16 @@ import {
 import { playAndRecord } from './match.mjs';
 
 // The match under test: 2v2, one keeper, hard against easy, 60 seconds at 60 Hz.
+// Six, not four. ADR-0009 widened the pitch to the shipping game's 22 m, and
+// four scripted players on a full-size field spend a minute passing it around
+// without scoring — which is realistic football and useless as a fixture,
+// because the highlight reel needs something to find. Six fills the space.
 const SHAPE = {
-  teams: [0, 1, 0, 1],
+  teams: [0, 1, 0, 1, 0, 1],
   roles: { 1: 'keeper' },
-  difficulty: { 0: 'zor', 1: 'kolay', 2: 'zor', 3: 'kolay' },
+  difficulty: {
+    0: 'zor', 1: 'kolay', 2: 'zor', 3: 'kolay', 4: 'zor', 5: 'kolay',
+  },
 };
 const SETTINGS = { durationSeconds: 180, scoreLimit: 0, pitch: 'orta', mercyRule: false };
 const TICKS = 3600;
@@ -127,7 +133,9 @@ const liveChain = Int32Array.from(recorded.rec.chain());
 check('the match produced goals to find', recorded.stats.goals[0] + recorded.stats.goals[1] > 0,
   JSON.stringify(recorded.stats));
 check('every tick was recorded', container.tickCount === TICKS, `${container.tickCount}`);
-check('the roster carries team and role', container.roster.length === 4 && container.roster[1].role === 1);
+check('the roster carries team and role',
+  container.roster.length === SHAPE.teams.length && container.roster[1].role === 1,
+  `${container.roster.length} slots`);
 check(
   'keyframes land on the cadence',
   container.keyframes.length === Math.ceil(TICKS / DEFAULT_KEYFRAME_INTERVAL) &&
@@ -188,10 +196,14 @@ check(
 const reference = new Map();
 {
   const w = createWorld({ players: container.roster, settings: container.settings });
-  const scratch = new Array(4);
+  // The input arrays are one entry per player per tick, so the stride is the
+  // roster size. It was written as a literal 4 and quietly read every sixth
+  // player's input as the first player's the moment the fixture grew.
+  const seats = container.roster.length;
+  const scratch = new Array(seats);
   for (let t = 0; t < TICKS; t++) {
-    for (let i = 0; i < 4; i++) {
-      const j = t * 4 + i;
+    for (let i = 0; i < seats; i++) {
+      const j = t * seats + i;
       scratch[i] = {
         moveXFx: container.inputs.mx[j],
         moveZFx: container.inputs.mz[j],

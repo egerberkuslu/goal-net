@@ -65,8 +65,11 @@ check('UNITS_PER_METRE is the core\'s own 840/36', Math.abs(UNITS_PER_METRE - 84
   UNITS_PER_METRE.toFixed(6));
 check('the long axis maps onto the renderer\'s +/-18 m goal lines',
   Math.abs(PITCH_M.halfZ - 18) < 1e-3, `${PITCH_M.halfZ.toFixed(4)} m`);
-check('the short axis is the core\'s 400 units, not the texture\'s 22 m',
-  Math.abs(PITCH_M.halfX - 200 / UNITS_PER_METRE) < 1e-6, `${PITCH_M.halfX.toFixed(4)} m`);
+// This used to assert the OPPOSITE — that the core's short axis was 400 units
+// and deliberately not the 22 m the renderer drew. ADR-0009 ended that split:
+// the two are the same pitch now, which is the whole point of the merge.
+check('the short axis is the shipping game\'s 22 m, to a centimetre',
+  Math.abs(PITCH_M.halfX * 2 - 22) < 0.05, `${(PITCH_M.halfX * 2).toFixed(3)} m`);
 check('metres round-trip back to units', Math.abs(toUnits(toMetres(12345)) - 12345) < 1e-6);
 eq('the core ticks at 60 Hz', TICK_HZ, 60);
 
