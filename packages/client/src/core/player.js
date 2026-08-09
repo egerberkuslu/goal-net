@@ -31,6 +31,16 @@ export class Player {
     this.diveRecover = 0;   // scramble-up time after the action
     this.diveDir = { x: 1, z: 0 };
     this.shoveCooldown = 0; // shoulder-to-shoulder: dead time before this player can shove/be shoved again
+    // The last shoulder contact, for anyone drawing this player. A counter
+    // rather than a flag: a view samples once a frame while the world steps
+    // several times, so "has it changed since I last looked" is the only
+    // question it can answer correctly — a boolean would be missed or read
+    // twice. The direction is world space and points the way the contact
+    // pushed; converting it into a left or a right shoulder needs the facing,
+    // which is the view's business, not the simulation's.
+    this.contactSeq = 0;
+    this.contactDir = { x: 0, z: 0 };
+    this.contactForce = 0;
   }
 
   // Vertical leap: straight up with the arms raised, for balls over the head.

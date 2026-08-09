@@ -34,14 +34,12 @@
 //     readState().ball.holder is real, catch/clear are the genuine mechanic.
 //   - curve is always read as 0 (the classic core does not track it), so a
 //     charged shot never selects the 'curler' kick variant on this path.
-//   - the shoulder-to-shoulder contact lean has no real trigger: nothing in
-//     either core stamps "this player was just jostled" onto a Player. It is
-//     inferred from a sudden, otherwise-unexplained lateral kick in the
-//     player's own velocity (see _detectContact below) — a genuine proxy
-//     from real per-frame data, not a fabrication, but a proxy nonetheless.
-//     The honest fix is a one-line addition to collidePlayers() in
-//     packages/client/src/core/world.js calling view.notifyContact(); that
-//     file is outside this agent's write scope.
+//
+// The shoulder lean used to be on that list — inferred from a sudden lateral
+// kick in velocity, which cannot tell a jostle from a hard change of direction.
+// collidePlayers() now stamps the contact on the Player itself, so it is a real
+// trigger with the real direction; the guess survives only for a Player that
+// carries no such field.
 
 import * as THREE from 'three';
 import { CONSTANTS } from '../../../core/src/index.js';
@@ -132,6 +130,7 @@ export class RiggedPlayerView {
 
     this._prevVel = { x: player.vel?.x || 0, z: player.vel?.z || 0 };
     this._prevCelebrateKind = 0;
+    this._contactSeq = player.contactSeq || 0;
     this._celebrateTick = 0;
 
     // Everyone wears the keeper mesh for now, tinted to their kit.
@@ -344,15 +343,35 @@ export class RiggedPlayerView {
   }
 
   /**
-   * Shoulder-to-shoulder contact has no field on either core's Player. This
-   * infers it from real per-frame data — a sudden lateral kick in velocity
-   * that steering does not explain — rather than fabricating a trigger. It is
-   * a proxy, not a detector: see the file header for the honest fix.
+   * Lean into a shoulder-to-shoulder contact.
+   *
+   * The simulation now stamps the contact itself (contactSeq/contactDir/
+   * contactForce, written by collidePlayers), so the real trigger is a counter
+   * comparison and the direction is exact. Comparing the counter rather than
+   * reading a flag is what makes it correct across a frame in which the world
+   * stepped more than once: a flag would be consumed by whichever step got
+   * there first, or read twice.
+   *
+   * The velocity-derived guess below stays for a Player that carries no such
+   * field — a replayed snapshot, an older save, the arena's own adapter — and
+   * is skipped entirely the moment a real contact arrives.
    */
   _detectContact(dt) {
     const p = this.player;
     const v = p.vel;
     if (!v || dt <= 0) return;
+    if (p.contactSeq !== undefined) {
+      if (p.contactSeq !== this._contactSeq) {
+        this._contactSeq = p.contactSeq;
+        // World push -> which shoulder. Same "right of facing" as below, so
+        // the two paths agree about what +1 means.
+        const f = p.facing || 0;
+        const side = p.contactDir.x * Math.cos(f) - p.contactDir.z * Math.sin(f);
+        this.animator.notifyContact(side >= 0 ? 1 : -1, Math.min(1, p.contactForce || 0.5));
+      }
+      this._prevVel.x = v.x; this._prevVel.z = v.z;
+      return;
+    }
     if ((p.down || 0) > 0 || (p.dive || 0) > 0) {
       this._prevVel.x = v.x; this._prevVel.z = v.z;
       return;

@@ -465,6 +465,17 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
   check('shoulder: victim is shoved off the line', b.vel.x > 0.5, `vx=${b.vel.x.toFixed(2)}`);
   check('shoulder: a fair closing speed is not a foul',
     w.drainEvents().every((e) => e.type !== 'foul'));
+  // The contact stamp a view leans on. Both men are marked, both directions
+  // point away from the other, and the pusher is marked more gently than the
+  // man he shoved — a lean, not a stumble.
+  check('shoulder: both players are stamped with the contact',
+    a.contactSeq === 1 && b.contactSeq === 1, `a=${a.contactSeq} b=${b.contactSeq}`);
+  check('shoulder: the victim is pushed away from the pusher',
+    b.contactDir.x > 0.9 && a.contactDir.x < -0.9,
+    `victim=${b.contactDir.x.toFixed(2)} pusher=${a.contactDir.x.toFixed(2)}`);
+  check('shoulder: the pusher leans in less than the victim is knocked out',
+    a.contactForce > 0 && a.contactForce < b.contactForce,
+    `pusher=${a.contactForce.toFixed(2)} victim=${b.contactForce.toFixed(2)}`);
 }
 {
   const w = new World();

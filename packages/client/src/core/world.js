@@ -266,6 +266,19 @@ export class World {
               // leaning into the shove costs the pusher his own pace
               const drag = 1 - SHOULDER_DRAG * t;
               pusher.vel.x *= drag; pusher.vel.z *= drag;
+              // Stamp the contact on both men so a view can lean them into it.
+              // The alternative — and what the rigged view did until now — is
+              // to infer a jostle from a sudden sideways kick in velocity,
+              // which cannot tell a shoulder from a hard change of direction.
+              // The pusher leans in less than the victim is knocked out.
+              victim.contactSeq++;
+              victim.contactDir.x = nx * dir;
+              victim.contactDir.z = nz * dir;
+              victim.contactForce = t;
+              pusher.contactSeq++;
+              pusher.contactDir.x = -nx * dir;
+              pusher.contactDir.z = -nz * dir;
+              pusher.contactForce = t * 0.5;
               this.events.push({ type: 'shoulder', team: pusher.team });
             }
           }
