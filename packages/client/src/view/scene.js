@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { VENDOR, placeVendorMesh } from './vendorModel.js';
+import { ScoreboardView } from './scoreboardView.js';
 import {
   GOAL_W, GOAL_H, POST_R, NET_TOP_DEPTH, NET_BOT_DEPTH,
   PITCH_HALF_L, PITCH_HALF_W, WALL_X,
@@ -170,6 +171,12 @@ function addStadium(scene, p) {
   }
   placeVendorMesh(scene, VENDOR.scoreboard, {
     x: 0, y: 9.5, z: -(p.halfL + 10.5), yaw: 0, shadow: false,
+  });
+  // The housing above is a prop; this is the face that says what the score is.
+  // Returned so the match loop can feed it — a scoreboard that does not agree
+  // with the HUD is worse than no scoreboard.
+  scene.userData.scoreboard = new ScoreboardView(scene, {
+    x: 0, y: 9.5, z: -(p.halfL + 10.5),
   });
 
   // floodlight pylons

@@ -58,7 +58,7 @@ function buildMatch(config, roster = null, opts = {}) {
     }
     app.game.registerPlayers();
   } else {
-    app.game = new Game(app.world, camera, dom, roster);
+    app.game = new Game(app.world, camera, dom, roster, scene);
   }
   const react = (e) => {
     sfx.notify(e, app.world.ball.pos);

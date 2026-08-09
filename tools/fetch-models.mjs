@@ -75,6 +75,12 @@ const MANIFEST = [
     as: 'bench',
     use: 'the substitutes\' benches, on the camera side where real dugouts are',
   },
+  // NOT the goal. The best-licensed goal on Sketchfab (Football Goal Post,
+  // 968 faces) turned out to be a 0.9 m toy frame whose net is four flat
+  // textured quads — two triangles each. Taking it would have swapped a net
+  // this project simulates on an XPBD solver for a picture of one, which is
+  // the opposite of the point. The frame stays procedural in view/scene.js,
+  // where it is already sized from the goal width.
   {
     uid: '8101bb9f568e4bf2802b51e9749de21e',
     as: 'scoreboard',

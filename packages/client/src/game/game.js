@@ -25,9 +25,18 @@ function defaultRoster(config) {
 }
 
 export class Game {
-  constructor(world, camera, dom, roster = null) {
+  /**
+   * @param {object} world
+   * @param {THREE.Camera} camera
+   * @param {object} dom the HUD nodes
+   * @param {object[]|null} roster
+   * @param {THREE.Scene|null} scene only so the in-ground scoreboard can be fed
+   *   the same numbers the HUD gets; nothing here draws.
+   */
+  constructor(world, camera, dom, roster = null, scene = null) {
     this.world = world;
     this.camera = camera;
+    this.scene = scene;
     this.dom = dom;
     this.state = 'menu';
     this.timeScale = 1;
@@ -305,13 +314,16 @@ export class Game {
   updateScoreboard() {
     this.dom.scoreRed.textContent = this.score[0];
     this.dom.scoreBlue.textContent = this.score[1];
-    if (this.mode === 'train') {
-      this.dom.timer.textContent = '∞';
-      return;
-    }
-    const t = Math.max(0, Math.ceil(this.timeLeft));
-    this.dom.timer.textContent =
-      `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    const clock = this.mode === 'train'
+      ? '∞'
+      : (() => {
+        const t = Math.max(0, Math.ceil(this.timeLeft));
+        return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+      })();
+    this.dom.timer.textContent = clock;
+    // The board in the ground reads from the same two values as the HUD, so
+    // the two can never disagree about the score or the time.
+    this.scene?.userData?.scoreboard?.update(this.score, clock);
   }
 
   applyControls(dt, now) {
