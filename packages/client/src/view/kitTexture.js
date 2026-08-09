@@ -1,14 +1,17 @@
 // Kits: the pattern on a shirt, drawn once per team.
 //
 // The Blender-authored torso and sleeves carry a cylindrical UV whose U runs
-// once around the body starting from the BACK seam, so a vertical stripe is a
-// vertical band in U and lands symmetrically on the chest. That is the whole
-// reason this can be a flat canvas rather than a shader.
+// once around the body from the player's LEFT side, so the back sits at u=0.25
+// and the chest at u=0.75, with the seam under the arm. That is the whole
+// reason this can be a flat canvas rather than a shader — and the reason the
+// seam is at the side rather than down the spine, which would have cut every
+// squad number in half.
 //
-// One texture serves every player wearing that kit: the number is NOT baked in
-// here (it would mean a texture per player, and eleven 256 KB canvases per team
-// is not a thing to do for a digit) — playerView keeps drawing the number as
-// its own sprite.
+// The number IS baked in, because it has to be: it belongs on one player's
+// back and nowhere else. A kit canvas is 256x256, which is 256 KB in memory
+// per player before mipmaps — for a full 4v4 that is under 2 MB, and the
+// alternative (a sprite floating behind the shoulders) does not follow the
+// shirt when a player turns.
 //
 // On the presets: these are colour-and-pattern schemes, not club kits. The
 // game is published, and a real club's name, crest or shirt design is theirs;
@@ -73,6 +76,11 @@ export function makeKitTexture(spec) {
   const accent = css(spec.accent ?? contrastFor(base));
   const trim = css(spec.trim ?? accent);
   const pattern = PATTERNS.includes(spec.pattern) ? spec.pattern : 'plain';
+  // Where the back is in U. The wrap runs the way a viewer outside the body
+  // reads it (make-view-parts.py), which puts the chest at 0.25 and the back
+  // at 0.75 — reversing that winding to un-mirror the digits also swapped
+  // these two, and the number spent one build on the player's chest.
+  const backCentre = W * 0.75;
 
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
@@ -114,6 +122,33 @@ export function makeKitTexture(spec) {
   g.fillRect(0, 0, W, H * 0.045);
   g.fillRect(0, H * 0.955, W, H * 0.045);
 
+  // the squad number, on the back, above the mid-back
+  if (spec.number != null && typeof g.strokeText === 'function') {
+    const text = String(spec.number).slice(0, 2);
+    g.save();
+    // Flip the glyph vertically.
+    //
+    // Blender's UV origin, glTF's flip on export and three.js's flip on a
+    // canvas texture compose into exactly one vertical flip on the shirt, so a
+    // 9 arrived as a 6. That was worked out by measurement rather than from the
+    // conventions: drawing it plain gave a 6, adding a horizontal flip still
+    // gave a 6, and adding both gave a mirrored 9 — three observations that
+    // only fit a pipeline doing a single vertical flip. Cancelling it here is
+    // the one place the result is visible on screen.
+    g.translate(0, H);
+    g.scale(1, -1);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = `bold ${Math.round(H * 0.34)}px "Segoe UI", system-ui, sans-serif`;
+    // outline first so the digit survives a shirt whose stripes run under it
+    g.lineWidth = Math.max(3, H * 0.022);
+    g.strokeStyle = 'rgba(0,0,0,0.55)';
+    g.strokeText(text, backCentre, H * 0.62);
+    g.fillStyle = numberInk(base, accent, pattern);
+    g.fillText(text, backCentre, H * 0.62);
+    g.restore();
+  }
+
   // A soft vertical shade so a flat colour does not look like a paper cutout.
   // Optional on purpose: the headless stub owns a createLinearGradient that
   // returns undefined, and the kit is perfectly wearable without the shading.
@@ -135,7 +170,28 @@ export function makeKitTexture(spec) {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.anisotropy = 4;
+  // flipY stays at three.js's default for a canvas: with the UV wound the way
+  // a viewer outside the body reads it (see make-view-parts.py), the default
+  // is what puts the number upright. Turning it off was an attempt to fix a
+  // mirror that was actually coming from the U direction.
   return tex;
+}
+
+/**
+ * Ink that stays legible on this shirt.
+ *
+ * A striped shirt is two colours, so the number has to beat the lighter of the
+ * two rather than the base alone — a white 9 on red-and-white hoops disappears
+ * every second hoop.
+ */
+function numberInk(base, accent, pattern) {
+  const lum = (hex) => {
+    const n = parseInt(hex.replace('#', ''), 16);
+    return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255)
+      + 0.0722 * (n & 255)) / 255;
+  };
+  const lightest = pattern === 'plain' ? lum(base) : Math.max(lum(base), lum(accent));
+  return lightest > 0.45 ? '#15171c' : '#f6f8fb';
 }
 
 /**

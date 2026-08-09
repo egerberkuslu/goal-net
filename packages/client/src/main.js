@@ -1,4 +1,5 @@
 import { World } from './core/world.js';
+import { apply as applyCommand } from './game/commands.js';
 import { makeConfig } from './core/config.js';
 import { DT } from './core/constants.js';
 import { createScene, buildGoalFrames } from './view/scene.js';
@@ -53,6 +54,8 @@ function buildMatch(config, roster = null, opts = {}) {
     app.game = new GuestMatch(app.world, camera, dom, opts.myId);
     for (const entry of roster) {
       const p = app.world.addPlayer(entry.team, entry.role ?? 'field');
+      // cosmetic only: the kit texture reads it, nothing in core does
+      p.number = entry.number;
       p.mpId = entry.id;
       p.mpName = entry.name ?? '';
     }
@@ -83,7 +86,15 @@ function buildMatch(config, roster = null, opts = {}) {
   recorder.reset(app.world);
   // fx is on the hook so weather can be driven from the console and from the
   // headless visual checks; the pause menu is the player-facing switch.
-  window.__game = { ...app, session, fx };
+  // One place to change your own shirt without a lobby: works in single player
+  // and from the console. The multiplayer chat box routes through the same
+  // parser (mp/session.js sendChat).
+  const cmd = (line) => {
+    const mine = app.playerViews?.[0] ?? null;
+    const out = applyCommand(line, mine);
+    return out.text || out.kind;
+  };
+  window.__game = { ...app, session, fx, cmd };
   return app;
 }
 

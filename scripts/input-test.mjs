@@ -386,8 +386,19 @@ const { sanitizeName, deriveKeeperColor, teamPalette, shade, DEFAULT_TEAM_COLORS
   check('view: tag hides while ragdolled', named.tag.visible === false);
 
   const keeper = new PlayerView(mk({ role: 'keeper', team: 1, mpName: 'K' }), scene, [0x00ff00, 0x123456]);
-  check('view: keeper jersey is the derived accent, not the shirt',
-    keeper.group.children[0].material.color.getHex() === deriveKeeperColor(0x123456));
+  // The keeper wears a kit texture now too — plain, in his own derived accent,
+  // so he can never be misread as either outfield side. With a map the colour
+  // lives in the pixels and the material is tinted white, so the contract is
+  // checked through the kit spec exactly as it is for an outfielder above.
+  const keeperShirt = keeper.group.children[0].material;
+  const keeperHex = `#${deriveKeeperColor(0x123456).toString(16).padStart(6, '0')}`;
+  check('view: keeper shirt is the derived accent, not either team shirt',
+    keeperShirt.map
+      ? (keeper.kitSpec.base === keeperHex && keeper.kitSpec.pattern === 'plain')
+      : keeperShirt.color.getHex() === deriveKeeperColor(0x123456),
+    `map=${!!keeperShirt.map} base=${keeper.kitSpec?.base} want ${keeperHex}`);
+  check('view: the keeper wears number 1 unless told otherwise',
+    keeper.shirtNumber === 1, String(keeper.shirtNumber));
 
   named.player.down = 0;
   named.setName('Rename');
@@ -417,6 +428,55 @@ const { sanitizeName, deriveKeeperColor, teamPalette, shade, DEFAULT_TEAM_COLORS
 
   delete globalThis.document;
 }
+
+// ------------------------------------------------- chat commands (kit/number)
+{
+  const { parse, apply, kitNames, MIN_NUMBER, MAX_NUMBER } =
+    await import('../packages/client/src/game/commands.js');
+
+  check('a plain line is a chat message', parse('merhaba').kind === 'chat', String(parse('merhaba').kind));
+  check('a plain line keeps its text', parse('  merhaba  ').text === 'merhaba', String(parse('  merhaba  ').text));
+
+  check('/numara sets a number', parse('/numara 10').number === 10, String(parse('/numara 10').number));
+  check('/number is the same command', parse('/number 7').number === 7, String(parse('/number 7').number));
+  check('the boundary numbers are allowed', parse(`/numara ${MAX_NUMBER}`).number === MAX_NUMBER, String(parse(`/numara ${MAX_NUMBER}`).number));
+  check('zero is not a shirt number', parse('/numara 0').kind === 'error', String(parse('/numara 0').kind));
+  check('above the ceiling is refused', parse(`/numara ${MAX_NUMBER + 1}`).kind === 'error', String(parse(`/numara ${MAX_NUMBER + 1}`).kind));
+  check('a decimal is refused, not rounded', parse('/numara 7.5').kind === 'error', String(parse('/numara 7.5').kind));
+  check('trailing junk is refused', parse('/numara 7x').kind === 'error', String(parse('/numara 7x').kind));
+  check('an empty argument explains itself', parse('/numara').kind === 'error', String(parse('/numara').kind));
+
+  const kit = kitNames()[0];
+  check('/forma picks a kit', parse(`/forma ${kit}`).kit === kit, String(parse(`/forma ${kit}`).kit));
+  check('/forma is case-insensitive', parse(`/FORMA ${kit.toUpperCase()}`).kit === kit, String(parse(`/FORMA ${kit.toUpperCase()}`).kit));
+  check('/avatar is an alias', parse(`/avatar ${kit}`).kit === kit, String(parse(`/avatar ${kit}`).kit));
+  check('/forma liste lists them', parse('/forma liste').kind === 'info', String(parse('/forma liste').kind));
+  check('an unknown kit is refused', parse('/forma yok-boyle-bir-sey').kind === 'error', String(parse('/forma yok-boyle-bir-sey').kind));
+  check('the list names every preset',
+    kitNames().every((k) => parse('/forma liste').text.includes(k)));
+  check('/yardim explains', parse('/yardim').kind === 'info', String(parse('/yardim').kind));
+  check('an unknown command is refused', parse('/zipzip').kind === 'error', String(parse('/zipzip').kind));
+
+  // A command must never be broadcast as chat — that is the whole reason the
+  // parser returns a kind instead of a boolean.
+  check('no command parses as chat',
+    ['/numara 9', '/forma liste', '/yardim', '/zipzip']
+      .every((line) => parse(line).kind !== 'chat'));
+
+  // apply() drives the view, and survives not having one (a spectator).
+  const calls = [];
+  const fakeView = { setKit: (spec) => calls.push(spec) };
+  apply('/numara 10', fakeView);
+  apply(`/forma ${kit}`, fakeView);
+  apply('merhaba', fakeView);
+  check('apply only touches the view for real changes', calls.length === 2, String(calls.length));
+  check('the number reaches the view', calls[0].number === 10, String(calls[0].number));
+  check('the kit reaches the view', calls[1].kit === kit, String(calls[1].kit));
+  let threw = false;
+  try { apply('/numara 10', null); } catch { threw = true; }
+  check('a spectator with no shirt does not crash', !threw);
+}
+
 
 console.log(failures ? `\n${failures} FAILED` : '\nall input/identity checks passed');
 process.exit(failures ? 1 : 0);

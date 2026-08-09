@@ -132,18 +132,37 @@ export class PlayerView {
     // colour otherwise (headless tests, and any browser that fails to give us
     // a 2D context). The map is tinted white so the pattern's own colours come
     // through; without a map the colour IS the shirt, exactly as before.
+    // The keeper gets a kit too, and it has to lose to neither side: a keeper
+    // in the outfield pattern is the one thing a viewer must never misread.
+    // His own colour with a plain shirt and a contrasting collar does that.
     const kitSpec = player.kit && KIT_PRESETS[player.kit]
-      ? KIT_PRESETS[player.kit]
-      : defaultKitFor(jerseyColor, player.team);
-    const kitMap = keeper ? null : makeKitTexture(kitSpec);
+      ? { ...KIT_PRESETS[player.kit], number: player.number }
+      : {
+        ...defaultKitFor(jerseyColor, player.team),
+        ...(keeper ? { pattern: 'plain', base: css6(jerseyColor) } : null),
+        number: player.number ?? (keeper ? 1 : undefined),
+      };
+    const kitMap = makeKitTexture(kitSpec);
+    // The sleeves wear the same kit WITHOUT the number: the arms carry the same
+    // cylindrical wrap as the torso, so a number baked once landed on the shirt
+    // and on both biceps.
+    const sleeveMap = kitSpec.number == null
+      ? kitMap
+      : makeKitTexture({ ...kitSpec, number: null });
+    this.baseKitSpec = kitSpec;
     const jersey = new THREE.MeshStandardMaterial(kitMap
       ? { map: kitMap, color: 0xffffff, roughness: 0.7 }
       : { color: jerseyColor, roughness: 0.7 });
+    const sleeve = sleeveMap && sleeveMap !== kitMap
+      ? new THREE.MeshStandardMaterial({ map: sleeveMap, color: 0xffffff, roughness: 0.7 })
+      : jersey;
     this.kitMap = kitMap;
+    this.sleeveMap = sleeveMap !== kitMap ? sleeveMap : null;
     // What the shirt is showing. With a kit texture the colour lives in the
     // pixels and the material is tinted white, so this is the only place left
     // that answers "which team is this player wearing?".
     this.kitSpec = kitMap ? kitSpec : { base: css6(jerseyColor), pattern: 'plain' };
+    this.shirtNumber = kitSpec.number ?? null;
     const shorts = new THREE.MeshStandardMaterial({ color: shortsColor, roughness: 0.7 });
     const skin = new THREE.MeshStandardMaterial({ color: 0xe8b98f, roughness: 0.8 });
 
@@ -177,7 +196,7 @@ export class PlayerView {
     const armGeo = new THREE.CylinderGeometry(0.055, 0.045, 0.48, 10);
     armGeo.translate(0, -0.24, 0); // pivot at the shoulder
     this.arms = [-1, 1].map((side) => {
-      const arm = new THREE.Mesh(armGeo, jersey);
+      const arm = new THREE.Mesh(armGeo, sleeve);
       useAuthoredPart(arm, 'arm');
       arm.position.set(side * 0.32, 1.28, 0);
       arm.rotation.z = side * 0.16; // resting flare away from the torso
@@ -220,6 +239,67 @@ export class PlayerView {
     this.tagName = clean;
     this.tag = clean ? makeNameSprite(clean) : null;
     if (this.tag && scene) scene.add(this.tag);
+  }
+
+  /**
+   * Change this player's shirt while the match is running.
+   *
+   * Redraws both canvases and swaps the maps in place; the materials, meshes
+   * and every animation state stay exactly as they were, which is what makes
+   * this safe to call from a chat command mid-run.
+   *
+   * @param {{number?:number|null, kit?:string}} change
+   */
+  setKit(change = {}) {
+    if (!this.baseKitSpec) return this.kitSpec;
+    const next = { ...this.baseKitSpec };
+    if ('number' in change) next.number = change.number;
+    if (change.kit && KIT_PRESETS[change.kit]) {
+      Object.assign(next, KIT_PRESETS[change.kit], { number: next.number });
+    }
+    const shirt = makeKitTexture(next);
+    if (!shirt) return this.kitSpec;
+    const sleeve = next.number == null
+      ? shirt : makeKitTexture({ ...next, number: null });
+
+    const oldShirt = this.kitMap;
+    const oldSleeve = this.sleeveMap;
+    this.body.material.map = shirt;
+    this.body.material.color.setHex(0xffffff);
+    this.body.material.needsUpdate = true;
+
+    // A numberless kit lets the sleeves share the torso's material. The moment
+    // a number appears they must stop sharing, or writing the sleeve map onto
+    // that one material also strips the number off the shirt.
+    const sharing = this.arms.length > 0 && this.arms[0].material === this.body.material;
+    if (sleeve !== shirt && sharing) {
+      const sleeveMat = new THREE.MeshStandardMaterial({
+        map: sleeve, color: 0xffffff, roughness: 0.7,
+      });
+      for (const arm of this.arms) arm.material = sleeveMat;
+      this.ownSleeveMaterial = sleeveMat;
+    } else if (sleeve === shirt && !sharing) {
+      // and back again: no number means the sleeves can rejoin the shirt
+      const dead = this.arms[0].material;
+      for (const arm of this.arms) arm.material = this.body.material;
+      if (dead !== this.body.material) dead.dispose();
+      this.ownSleeveMaterial = null;
+    } else {
+      for (const arm of this.arms) {
+        arm.material.map = sleeve || shirt;
+        arm.material.color.setHex(0xffffff);
+        arm.material.needsUpdate = true;
+      }
+    }
+    oldShirt?.dispose();
+    if (oldSleeve && oldSleeve !== oldShirt) oldSleeve.dispose();
+
+    this.baseKitSpec = next;
+    this.kitSpec = next;
+    this.kitMap = shirt;
+    this.sleeveMap = sleeve !== shirt ? sleeve : null;
+    this.shirtNumber = next.number ?? null;
+    return this.kitSpec;
   }
 
   update(dt) {
@@ -371,6 +451,7 @@ export class PlayerView {
     }
     this.group.parent?.remove(this.group);
     this.kitMap?.dispose();
+    this.sleeveMap?.dispose();
     this.group.traverse((o) => {
       // The Blender-authored parts are one geometry shared by every player on
       // the pitch; one player leaving must not free the pitch's legs.

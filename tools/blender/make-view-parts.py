@@ -173,10 +173,17 @@ def make_limb(name, r_top, r_bottom, half_h, bulge_at, bulge):
 def add_cylindrical_uv(obj, seam_z=True):
     """Wrap a cylindrical UV around a lathed part.
 
-    U runs once around the body from the BACK seam, so a stripe pattern is
-    symmetric about the chest and the seam hides behind the player. V runs
-    bottom to top. Done by hand rather than with the unwrap operator because a
-    lathe's topology is known exactly and an operator's result is not
+    U runs once around the body starting at the player's side and increasing
+    the way a viewer OUTSIDE the cylinder reads it, so text on the shirt is not
+    mirrored. Getting that direction backwards renders a 9 as a reversed 9,
+    which is the kind of bug that looks like a font problem. The back lands at
+    u=0.25 with the seam under the arm —
+    where a real shirt's seam is, and more importantly not where the number
+    goes. The first version put the seam down the spine, which would have cut
+    every squad number in half.
+
+    V runs bottom to top. Done by hand rather than with the unwrap operator
+    because a lathe's topology is known exactly and an operator's result is not
     reproducible across Blender versions.
 
     Vertices on the seam belong to two different U values, so the mesh is split
@@ -195,10 +202,10 @@ def add_cylindrical_uv(obj, seam_z=True):
         # what keeps the wrap continuous without duplicating vertices
         cx = sum(l.vert.co.x for l in face.loops) / len(face.loops)
         cz = sum(l.vert.co.z for l in face.loops) / len(face.loops)
-        c_u = (math.atan2(cx, -cz) / math.tau) % 1.0
+        c_u = ((math.pi - math.atan2(cz, cx)) / math.tau) % 1.0
         for loop in face.loops:
             co = loop.vert.co
-            u = (math.atan2(co.x, -co.z) / math.tau) % 1.0
+            u = ((math.pi - math.atan2(co.z, co.x)) / math.tau) % 1.0
             if u - c_u > 0.5:
                 u -= 1.0
             elif c_u - u > 0.5:

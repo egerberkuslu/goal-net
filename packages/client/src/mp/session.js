@@ -1,4 +1,5 @@
 import { PeerNet, NET_ERR } from './peer.js';
+import { apply as applyCommand } from '../game/commands.js';
 import { MSG, sanitizeName, sanitizeChat, DEFAULT_TEAM_COLORS } from './protocol.js';
 import { LobbyUI, DEFAULT_SETTINGS } from './lobbyUI.js';
 import { ChatUI } from './chatUI.js';
@@ -222,6 +223,8 @@ export class MpSession {
     });
     this.chat = new ChatUI({
       onSend: (text) => this.sendChat(text),
+      // so /numara and /forma change YOUR shirt and nobody else's
+      onSend: (text) => this.sendChat(text),
       isInMatch: () => this.active && this.inMatch,
       canChat: () => this.active,
     });
@@ -386,9 +389,32 @@ export class MpSession {
     this.chat.push({ from, text, own: id === HOST_ID });
   }
 
+  /**
+   * The view of the player at this keyboard, so a command changes your shirt.
+   *
+   * The match app exposes its views in roster order and the lobby knows which
+   * slot is mine, so this is a lookup rather than anything to keep in sync.
+   * A spectator has no view and gets a parse-only result, which is correct:
+   * the command still prints its answer, it just has no shirt to change.
+   */
+  localPlayerView() {
+    const views = this.app?.playerViews;
+    if (!views || !views.length) return null;
+    const mineId = this.role === 'host' ? HOST_ID : this.myId;
+    const index = this.players.findIndex((p) => p.id === mineId && !p.spectator);
+    return index >= 0 ? views[index] ?? null : null;
+  }
+
   /** Local send path, shared by the lobby panel, the T overlay and keys 1-4. */
   sendChat(text) {
-    const clean = sanitizeChat(text);
+    // A line starting with / is a command, not a message: it changes your own
+    // shirt and is never broadcast. See game/commands.js.
+    const intent = applyCommand(text, this.localPlayerView?.());
+    if (intent.kind !== 'chat') {
+      this.chat?.push({ text: intent.text, sys: true });
+      return;
+    }
+    const clean = sanitizeChat(intent.text);
     if (!clean || !this.active) return;
     if (this.role === 'host') this.relayChat(HOST_ID, clean);
     else this.net?.send(this.hostPeerId, { t: MSG.CHAT, text: clean });

@@ -13,13 +13,20 @@ import { MatchStats } from './stats.js';
 const TEAM_NAMES = ['KIRMIZI', 'MAVİ'];
 
 // Default roster: one field player per team plus (config permitting) keepers.
+//
+// Numbers are cosmetic — the kit texture bakes them onto the back — but they
+// follow the convention anyone watching expects: the keeper is 1 and the
+// outfielders count up from 9, which is where a lone striker belongs.
 function defaultRoster(config) {
   const roster = [
-    { id: 'p1', team: 0, role: 'field' },
-    { id: 'p2', team: 1, role: 'field' },
+    { id: 'p1', team: 0, role: 'field', number: 9 },
+    { id: 'p2', team: 1, role: 'field', number: 9 },
   ];
   if (config.keepers) {
-    roster.push({ id: 'kr', team: 0, role: 'keeper' }, { id: 'kb', team: 1, role: 'keeper' });
+    roster.push(
+      { id: 'kr', team: 0, role: 'keeper', number: 1 },
+      { id: 'kb', team: 1, role: 'keeper', number: 1 },
+    );
   }
   return roster;
 }
@@ -56,6 +63,8 @@ export class Game {
     this.byId = new Map();
     for (const entry of roster ?? defaultRoster(world.config)) {
       const p = world.addPlayer(entry.team, entry.role ?? 'field');
+      // cosmetic only: the kit texture reads it, nothing in core does
+      p.number = entry.number;
       p.mpId = entry.id;
       p.mpName = entry.name ?? '';
       this.byId.set(entry.id, p);
