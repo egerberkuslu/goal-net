@@ -53,6 +53,7 @@
   "devDependencies": {
     "@gltf-transform/cli": "^4.4.2",
     "gltfpack": "^1.2.0",
+    "playwright": "^1.62.1",
     "vite": "^6.0.0"
   }
 }
