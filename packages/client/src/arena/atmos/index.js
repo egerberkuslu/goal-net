@@ -60,11 +60,17 @@ export class Atmosphere {
     this.teamColors = opts.teamColors || null;
 
     this.crowd = new ArenaCrowd(scene, { tier, seed: opts.seed });
+    // The drawn ball, not the core's collision disc: the goal scene hands the
+    // viewer the same ball it was just watching, so it must not change size the
+    // instant it crosses the line. Falls back to the disc when nothing is
+    // passed, which is what the headless tests do.
+    const ballR = opts.ballRadius || opts.pitch.ballR;
+    this.ballRadius = ballR;
     this.nets = new ArenaNets(scene, {
       goalW: opts.pitch.goalHalfX * 2,
       goalH: opts.goalHeight,
       goalZ: opts.pitch.halfZ,
-      ballRadius: opts.pitch.ballR,
+      ballRadius: ballR,
       tier,
     });
     this.flags = new CornerFlags(scene, {
@@ -77,7 +83,7 @@ export class Atmosphere {
 
     // The ball the net catches and the ball-boy carries. One draw call, and
     // it is only ever visible between a goal and the restart.
-    const ballGeo = new THREE.SphereGeometry(opts.pitch.ballR, 14, 10);
+    const ballGeo = new THREE.SphereGeometry(ballR, 14, 10);
     this.ballMaterial = new THREE.MeshStandardMaterial({ color: 0xf6f6f2, roughness: 0.55 });
     this.ballMesh = new THREE.Mesh(ballGeo, this.ballMaterial);
     this.ballMesh.name = 'atmos.cosmeticBall';

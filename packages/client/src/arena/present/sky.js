@@ -238,9 +238,11 @@ export function applyStadium(opts = {}) {
     for (const m of found.seats) m.material.color.setHex(theme.seat);
     for (const m of found.boards) {
       // keep the per-board variety createScene picked, but pull it toward the
-      // theme so a neon stadium does not keep four sponsor colours from 1998
+      // theme so a neon stadium does not keep four sponsor colours from 1998.
+      // A light touch: at 0.55 the theme won outright and every hoarding in the
+      // ground came out the same muddy violet, which is worse than dated.
       const base = original.materials.get(m.material);
-      if (base) m.material.color.copy(base).lerp(new THREE.Color(theme.board), 0.55);
+      if (base) m.material.color.copy(base).lerp(new THREE.Color(theme.board), 0.22);
     }
     for (const m of found.pylonHeads) {
       m.material.color.setHex(time.pylons);
@@ -250,7 +252,7 @@ export function applyStadium(opts = {}) {
       const grass = new THREE.Color(theme.grass);
       // the map is the pitch texture; the colour multiplies it, so keep it near
       // white or the lines stop reading. Rain darkens it slightly.
-      found.ground.material.color.copy(grass).lerp(new THREE.Color(0xffffff), 0.55)
+      found.ground.material.color.copy(grass).lerp(new THREE.Color(0xffffff), 0.3)
         .multiplyScalar(1 - weather.wet * 0.25);
     }
     if (found.apron) {

@@ -120,10 +120,14 @@ export class BallBoys {
     this.scene = scene;
     this.count = tier.ballBoys;
 
+    // Ball boys wait OUTSIDE the field of play, in the gap between the ad
+    // boards (which stand on the touchline, at halfX) and the first row of
+    // seating. Standing them on the grass put them inside the lines, where a
+    // real one would be flagged offside.
     const homes = [];
     for (const sx of [1, -1]) {
       for (const sz of [-1, 1]) {
-        homes.push({ x: sx * (opts.halfX + 1.7), z: sz * (opts.halfZ - 3.2) });
+        homes.push({ x: sx * (opts.halfX + 1.9), z: sz * (opts.halfZ - 3.2) });
       }
     }
     this.homes = homes.slice(0, this.count);

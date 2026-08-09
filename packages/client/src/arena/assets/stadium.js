@@ -113,8 +113,16 @@ export function buildStadium(scene, opts = {}) {
 
   // 6. the hoardings: one atlas, one strip mesh
   const boardGeo = toBufferGeometry(spec.meshes.boards);
+  // Hoardings read as brand colour, not as a lit surface: half the run faces
+  // away from the sun and went to mud under a purely diffuse material. The
+  // emissive copy of the atlas keeps both touchlines the same colour, which is
+  // also how a real LED board behaves.
   const boardMat = new THREE.MeshLambertMaterial({
-    map: textures.boards || null, side: THREE.DoubleSide,
+    map: textures.boards || null,
+    emissive: 0xffffff,
+    emissiveMap: textures.boards || null,
+    emissiveIntensity: 0.55,
+    side: THREE.DoubleSide,
   });
   const boards = new THREE.Mesh(boardGeo, boardMat);
   boards.name = 'stadium:boards';

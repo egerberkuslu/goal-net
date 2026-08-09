@@ -29,9 +29,22 @@ import { Atmosphere } from './atmos/index.js';
 const DIVE_TOTAL_S = CONSTANTS.DIVE_ACTIVE_TICKS / TICK_HZ;
 const TACKLE_TOTAL_S = CONSTANTS.TACKLE_ACTIVE_TICKS / TICK_HZ;
 const CHARGE_MAX = CONSTANTS.CHARGE_MAX_TICKS;
-/** PlayerView draws a body of roughly this radius; scale it onto the real disc. */
+/**
+ * Drawing sizes, in metres. These are cosmetic and deliberately NOT the core's
+ * collision radii.
+ *
+ * The core is a Haxball-style disc game: its player disc is 0.64 m and its ball
+ * disc 0.43 m in radius, so drawing bodies at their true collision size gives
+ * 2.5 m giants shoving a 0.86 m beach ball. The discs stay exactly that big in
+ * the simulation — they are locked physics constants — but a player and a ball
+ * are drawn at the shipping game's proportions instead, which is the look this
+ * project has always had. The gap between the drawn ball and the drawn boot on
+ * contact is the price, and it is the same trade the shipping game makes at
+ * 0.35 m collision against a 0.26 m capsule.
+ */
 const VIEW_BODY_RADIUS_M = 0.35;
 const BALL_VIEW_RADIUS_M = 0.15;
+const BODY_DRAW_SCALE = 1;
 
 const DIVE_VECTORS = [
   { x: -1, z: 0 }, { x: 1, z: 0 }, { x: 0, z: -1 }, { x: 0, z: 1 },
@@ -153,7 +166,7 @@ function angleTowards(from, to, k) {
 /** The ball, in the shape BallView wants. The core is 2D, so it always rolls. */
 class BallAdapter {
   constructor() {
-    this.pos = { x: 0, y: PITCH_M.ballR, z: 0 };
+    this.pos = { x: 0, y: BALL_VIEW_RADIUS_M, z: 0 };
     this.vel = { x: 0, y: 0, z: 0 };
     this.omega = { x: 0, y: 0, z: 0 };
     this.grounded = true;
@@ -162,72 +175,35 @@ class BallAdapter {
   apply(b) {
     this.pos.x = toMetres(b.x);
     this.pos.z = toMetres(b.z);
-    this.pos.y = PITCH_M.ballR;
+    this.pos.y = BALL_VIEW_RADIUS_M;
     this.vel.x = toMetres(b.vx || 0) * TICK_HZ;
     this.vel.z = toMetres(b.vz || 0) * TICK_HZ;
   }
 }
 
 /**
- * The true playing area, drawn from the core's own numbers.
+ * The playing area handed to the shipping stadium builder, in metres.
  *
- * The pitch texture underneath belongs to the shipping renderer and draws a
- * 36 x 22 m field; the core's rectangle is 36 x 17.14 m. Rather than fork the
- * texture, the real walls, the real goal mouth and the real penalty areas are
- * struck on top in bright white, so what the player sees as the boundary is the
- * boundary the simulation enforces.
+ * The core's rectangle is 36 x 17.14 m, narrower than the 36 x 22 m the
+ * shipping game plays on. Rather than paint corrective lines over a texture
+ * drawn for the wrong pitch, the stadium is built from these numbers, so the
+ * white line the player sees IS the wall the simulation bounces off. The
+ * markings the core has no opinion about (goal area, penalty spot, arcs) are
+ * scaled off the ones it does.
  */
-function buildPitchOverlay(scene) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.92, depthWrite: false,
-  });
-  const W = 0.12; // line width in metres
-  const Y = 0.02;
-
-  const line = (x1, z1, x2, z2) => {
-    const len = Math.hypot(x2 - x1, z2 - z1);
-    if (len < 1e-6) return;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, W), mat);
-    m.rotation.x = -Math.PI / 2;
-    m.rotation.z = -Math.atan2(z2 - z1, x2 - x1);
-    m.position.set((x1 + x2) / 2, Y, (z1 + z2) / 2);
-    group.add(m);
-  };
-
-  const { halfX, halfZ, goalHalfX, penaltyHalfX, penaltyDepth } = PITCH_M;
-  // touchlines (the side walls the core bounces off)
-  line(-halfX, -halfZ, -halfX, halfZ);
-  line(halfX, -halfZ, halfX, halfZ);
-  // goal lines, split around the mouth so the opening is visible
-  for (const s of [-1, 1]) {
-    line(-halfX, s * halfZ, -goalHalfX, s * halfZ);
-    line(goalHalfX, s * halfZ, halfX, s * halfZ);
-    // penalty area
-    line(-penaltyHalfX, s * halfZ, -penaltyHalfX, s * (halfZ - penaltyDepth));
-    line(penaltyHalfX, s * halfZ, penaltyHalfX, s * (halfZ - penaltyDepth));
-    line(-penaltyHalfX, s * (halfZ - penaltyDepth), penaltyHalfX, s * (halfZ - penaltyDepth));
-  }
-  // halfway line and centre circle
-  line(-halfX, 0, halfX, 0);
-  const circle = new THREE.Mesh(
-    new THREE.RingGeometry(halfX * 0.28 - W / 2, halfX * 0.28 + W / 2, 64),
-    mat,
-  );
-  circle.rotation.x = -Math.PI / 2;
-  circle.position.y = Y;
-  group.add(circle);
-
-  scene.add(group);
-  return {
-    group,
-    dispose() {
-      scene.remove(group);
-      group.traverse((o) => o.geometry && o.geometry.dispose());
-      mat.dispose();
-    },
-  };
-}
+const ARENA_PITCH = Object.freeze({
+  halfW: PITCH_M.halfX,
+  halfL: PITCH_M.halfZ,
+  wallX: PITCH_M.halfX,
+  goalHalfW: PITCH_M.goalHalfX,
+  penaltyHalfX: PITCH_M.penaltyHalfX,
+  penaltyDepth: PITCH_M.penaltyDepth,
+  goalAreaHalfX: PITCH_M.goalHalfX + 1.1,
+  goalAreaDepth: PITCH_M.penaltyDepth * 0.4,
+  centreR: PITCH_M.halfX * 0.32,
+  spotDist: PITCH_M.penaltyDepth * 0.62,
+  arcR: PITCH_M.penaltyDepth * 0.42,
+});
 
 /** The whole visual side of one match. */
 export class ArenaView {
@@ -236,21 +212,19 @@ export class ArenaView {
    * @param {{slots:object[], teamColors?:number[]}} match
    */
   constructor(container, match) {
-    const { renderer, scene, camera } = createScene(container);
+    const { renderer, scene, camera } = createScene(container, { pitch: ARENA_PITCH });
     this.renderer = renderer;
     this.scene = scene;
     this.camera = camera;
-    this.rig = new CameraRig(camera);
+    this.rig = new CameraRig(camera, { halfW: PITCH_M.halfX, halfL: PITCH_M.halfZ });
 
     this.goalFrames = buildGoalFrames(scene, {
       goalW: PITCH_M.goalHalfX * 2,
       goalH: GOAL_HEIGHT_M,
     });
-    this.overlay = buildPitchOverlay(scene);
 
     this.ball = new BallAdapter();
     this.ballView = new BallView(this.ball, scene);
-    this.ballView.mesh.scale.setScalar(PITCH_M.ballR / BALL_VIEW_RADIUS_M);
 
     // The cosmetic layer (matrix #21-#25). It is handed metres and seconds and
     // nothing else; it cannot reach the world from here. `atmos: false` builds
@@ -258,6 +232,7 @@ export class ArenaView {
     // triangle deltas in the report were measured.
     this.atmos = match.atmos === false ? null : new Atmosphere(scene, {
       pitch: PITCH_M,
+      ballRadius: BALL_VIEW_RADIUS_M,
       goalHeight: GOAL_HEIGHT_M,
       tier: match.tier,
       seed: 0x5eed17,
@@ -265,7 +240,7 @@ export class ArenaView {
       teamColors: match.teamColors || null,
     });
 
-    const bodyScale = PITCH_M.playerR / VIEW_BODY_RADIUS_M;
+    const bodyScale = BODY_DRAW_SCALE;
     this.players = match.slots.map((slot, index) => {
       const adapter = new PlayerAdapter(slot);
       const view = new PlayerView(adapter, scene, match.teamColors || null);
@@ -372,7 +347,6 @@ export class ArenaView {
   dispose() {
     this.atmos?.dispose();
     this.goalFrames.dispose();
-    this.overlay.dispose();
     this.ballView.dispose();
     for (const p of this.players) p.view.dispose();
     this.renderer.dispose();

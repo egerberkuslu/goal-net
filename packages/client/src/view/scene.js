@@ -6,6 +6,33 @@ import {
 
 const DEFAULT_HALF_W = GOAL_W / 2;
 
+/**
+ * Everything the stadium needs to know about the playing area, in metres.
+ *
+ * The shipping game's numbers are the default, so `createScene(container)`
+ * builds exactly the pitch it always did. The arena passes its own spec
+ * because its core rectangle is narrower (17.14 m against 22 m) — drawing
+ * this one from the caller's numbers is what keeps the painted boundary and
+ * the simulated boundary the same line.
+ */
+const DEFAULT_PITCH = Object.freeze({
+  halfW: PITCH_HALF_W,
+  halfL: PITCH_HALF_L,
+  wallX: WALL_X,
+  goalHalfW: DEFAULT_HALF_W,
+  penaltyHalfX: 7,
+  penaltyDepth: 4.5,
+  goalAreaHalfX: 4.5,
+  goalAreaDepth: 1.8,
+  centreR: 3,
+  spotDist: 6,
+  arcR: 2.6,
+});
+
+/** Grass beyond the touchlines, so the pitch never runs to the texture edge. */
+const APRON_X = 4;
+const APRON_Z = 6;
+
 function tubeBetween(a, b, r, material) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
@@ -16,9 +43,10 @@ function tubeBetween(a, b, r, material) {
   return mesh;
 }
 
-// Texture spans x in [-15,15], z in [-24,24]; goal lines at z = ±18.
-function makePitchTexture() {
-  const W = 30, L = 48, S = 1600;
+// Texture covers the pitch plus its grass apron; the goal lines land on
+// z = ±p.halfL whatever the caller's pitch measures.
+function makePitchTexture(p) {
+  const W = p.halfW * 2 + APRON_X * 2, L = p.halfL * 2 + APRON_Z * 2, S = 1600;
   const cv = document.createElement('canvas');
   cv.width = S * (W / L); cv.height = S;
   const g = cv.getContext('2d');
@@ -27,7 +55,7 @@ function makePitchTexture() {
   const X = (x) => px(x + W / 2), Z = (z) => px(z + L / 2);
 
   // base + mowing stripes along z, with a soft grain
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i * 3 < L; i++) {
     g.fillStyle = i % 2 ? '#2c8a3c' : '#33984a';
     g.fillRect(0, px(i * 3), cv.width, px(3));
   }
@@ -44,21 +72,29 @@ function makePitchTexture() {
   g.fillStyle = 'rgba(255,255,255,0.92)';
   g.lineWidth = px(0.12);
   // touchlines + goal lines
-  g.strokeRect(X(-PITCH_HALF_W), Z(-PITCH_HALF_L),
-    px(PITCH_HALF_W * 2), px(PITCH_HALF_L * 2));
+  g.strokeRect(X(-p.halfW), Z(-p.halfL), px(p.halfW * 2), px(p.halfL * 2));
   // halfway line + centre circle + spot
-  g.beginPath(); g.moveTo(X(-PITCH_HALF_W), Z(0)); g.lineTo(X(PITCH_HALF_W), Z(0)); g.stroke();
-  g.beginPath(); g.arc(X(0), Z(0), px(3), 0, Math.PI * 2); g.stroke();
+  g.beginPath(); g.moveTo(X(-p.halfW), Z(0)); g.lineTo(X(p.halfW), Z(0)); g.stroke();
+  g.beginPath(); g.arc(X(0), Z(0), px(p.centreR), 0, Math.PI * 2); g.stroke();
   g.beginPath(); g.arc(X(0), Z(0), px(0.16), 0, Math.PI * 2); g.fill();
   // boxes, spots and arcs at both ends
   for (const s of [-1, 1]) {
-    const gl = s * PITCH_HALF_L;
-    g.strokeRect(X(-7), Math.min(Z(gl), Z(gl - s * 4.5)), px(14), px(4.5));
-    g.strokeRect(X(-4.5), Math.min(Z(gl), Z(gl - s * 1.8)), px(9), px(1.8));
-    g.beginPath(); g.arc(X(0), Z(gl - s * 6), px(0.16), 0, Math.PI * 2); g.fill();
+    const gl = s * p.halfL;
+    g.strokeRect(X(-p.penaltyHalfX), Math.min(Z(gl), Z(gl - s * p.penaltyDepth)),
+      px(p.penaltyHalfX * 2), px(p.penaltyDepth));
+    g.strokeRect(X(-p.goalAreaHalfX), Math.min(Z(gl), Z(gl - s * p.goalAreaDepth)),
+      px(p.goalAreaHalfX * 2), px(p.goalAreaDepth));
+    g.beginPath(); g.arc(X(0), Z(gl - s * p.spotDist), px(0.16), 0, Math.PI * 2); g.fill();
     g.beginPath();
     const a0 = s > 0 ? Math.PI * 1.25 : Math.PI * 0.25;
-    g.arc(X(0), Z(gl - s * 6), px(2.6), a0, a0 + Math.PI * 0.5);
+    g.arc(X(0), Z(gl - s * p.spotDist), px(p.arcR), a0, a0 + Math.PI * 0.5);
+    g.stroke();
+  }
+  // corner arcs, the detail that reads as "this is a real pitch" up close
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const a0 = sx > 0 ? (sz > 0 ? Math.PI : Math.PI * 0.5) : (sz > 0 ? Math.PI * 1.5 : 0);
+    g.beginPath();
+    g.arc(X(sx * p.halfW), Z(sz * p.halfL), px(0.9), a0, a0 + Math.PI * 0.5);
     g.stroke();
   }
   const tex = new THREE.CanvasTexture(cv);
@@ -98,7 +134,7 @@ export function buildGoalFrames(scene, config) {
   };
 }
 
-function addStadium(scene) {
+function addStadium(scene, p) {
   const standMat = new THREE.MeshLambertMaterial({ color: 0x232c44 });
   const seatMat = new THREE.MeshLambertMaterial({ color: 0x2e3a5c });
   // tiered stands: far touchline + both goal ends. The near (+x) side is
@@ -107,12 +143,18 @@ function addStadium(scene) {
   for (const side of [-1, 1]) {
     for (let t = 0; t < 3; t++) {
       if (side < 0) {
-        const s = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6 + t * 0.4, 52), t % 2 ? seatMat : standMat);
-        s.position.set(side * (14.5 + t * 2.3), (1.6 + t * 0.4) / 2 + t * 1.1, 0);
+        const s = new THREE.Mesh(
+          new THREE.BoxGeometry(2.2, 1.6 + t * 0.4, p.halfL * 2 + 16),
+          t % 2 ? seatMat : standMat,
+        );
+        s.position.set(side * (p.halfW + 3.5 + t * 2.3), (1.6 + t * 0.4) / 2 + t * 1.1, 0);
         scene.add(s);
       }
-      const e = new THREE.Mesh(new THREE.BoxGeometry(34, 1.6 + t * 0.4, 2.2), t % 2 ? seatMat : standMat);
-      e.position.set(0, (1.6 + t * 0.4) / 2 + t * 1.1, side * (23.5 + t * 2.3));
+      const e = new THREE.Mesh(
+        new THREE.BoxGeometry(p.halfW * 2 + 12, 1.6 + t * 0.4, 2.2),
+        t % 2 ? seatMat : standMat,
+      );
+      e.position.set(0, (1.6 + t * 0.4) / 2 + t * 1.1, side * (p.halfL + 5.5 + t * 2.3));
       scene.add(e);
     }
   }
@@ -121,10 +163,10 @@ function addStadium(scene) {
   const headMat = new THREE.MeshBasicMaterial({ color: 0xfff6d8 });
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 14, 8), poleMat);
-    pole.position.set(sx * 13.5, 7, sz * 22.5);
+    pole.position.set(sx * (p.halfW + 2.5), 7, sz * (p.halfL + 4.5));
     scene.add(pole);
     const head = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 0.3), headMat);
-    head.position.set(sx * 13.5, 14.2, sz * 22.5);
+    head.position.set(sx * (p.halfW + 2.5), 14.2, sz * (p.halfL + 4.5));
     head.lookAt(0, 0, 0);
     scene.add(head);
   }
@@ -138,7 +180,7 @@ function addStadium(scene) {
   for (const side of [-1, 1]) {
     // touchline boards at the side walls; the near (+x, camera-side) run is
     // translucent so it never hides the ball along the bottom touchline
-    for (let z = -18; z < 18; z += 6) {
+    for (let z = -p.halfL; z < p.halfL; z += 6) {
       const mat = new THREE.MeshLambertMaterial({ color: colors[ci++ % 4] });
       if (side > 0) {
         mat.transparent = true;
@@ -146,15 +188,17 @@ function addStadium(scene) {
         mat.depthWrite = false;
       }
       const b = new THREE.Mesh(across, mat);
-      b.position.set(side * (WALL_X + 0.06), 0.38, z + 3);
+      b.position.set(side * (p.wallX + 0.06), 0.38, z + 3);
       b.castShadow = side < 0;
       scene.add(b);
     }
     // goal-line boards from each post out to the side walls
+    const post = p.goalHalfW + 0.19;
+    const nEnd = Math.max(1, Math.round((p.wallX - post) / 3.8));
     for (const sx of [-1, 1]) {
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < nEnd; i++) {
         const b = new THREE.Mesh(endBoard, new THREE.MeshLambertMaterial({ color: colors[ci++ % 4] }));
-        b.position.set(sx * (3.85 + 1.9 + i * 3.8), 0.38, side * (PITCH_HALF_L + 0.12));
+        b.position.set(sx * (post + 1.9 + i * 3.8), 0.38, side * (p.halfL + 0.12));
         b.castShadow = true;
         scene.add(b);
       }
@@ -162,7 +206,8 @@ function addStadium(scene) {
   }
 }
 
-export function createScene(container) {
+export function createScene(container, opts = {}) {
+  const p = { ...DEFAULT_PITCH, ...(opts.pitch || {}) };
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
@@ -190,8 +235,8 @@ export function createScene(container) {
   scene.add(sun);
 
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(30, 48),
-    new THREE.MeshLambertMaterial({ map: makePitchTexture() }),
+    new THREE.PlaneGeometry(p.halfW * 2 + APRON_X * 2, p.halfL * 2 + APRON_Z * 2),
+    new THREE.MeshLambertMaterial({ map: makePitchTexture(p) }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
@@ -206,7 +251,7 @@ export function createScene(container) {
 
   // goal frames are built separately by buildGoalFrames(scene, config)
 
-  addStadium(scene);
+  addStadium(scene, p);
   // no cage: the low ad boards are the boundary, high balls go out of play
 
   const onResize = () => {

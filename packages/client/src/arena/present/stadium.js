@@ -58,21 +58,25 @@ export const TIME_TABLE = Object.freeze({
     pylonEmissive: 0,
     exposure: 1,
   }),
+  // These are the shipping game's own lighting values, not a dimmed copy of
+  // the daylight table. A floodlit pitch is BRIGHT — the darkness belongs to
+  // everything around it — and the earlier 0.55 sun turned the arena into a
+  // silhouette of the game it is meant to replace.
   gece: Object.freeze({
     label: 'Gece',
-    background: 0x050a18,
-    fog: 0x070d1f,
-    fogNear: 55,
-    fogFar: 165,
-    hemiSky: 0x2a3a66,
-    hemiGround: 0x0d1a12,
-    hemiIntensity: 0.35,
-    sun: 0xcfe0ff,
-    sunIntensity: 0.55,
-    sunPosition: Object.freeze([14, 40, 6]),
+    background: 0x0b1226,
+    fog: 0x0b1226,
+    fogNear: 60,
+    fogFar: 160,
+    hemiSky: 0xc4d6ff,
+    hemiGround: 0x1c3a24,
+    hemiIntensity: 0.8,
+    sun: 0xfff2d8,
+    sunIntensity: 1.5,
+    sunPosition: Object.freeze([24, 34, 12]),
     pylons: 0xfff6d8,
     pylonEmissive: 1,
-    exposure: 1.12,
+    exposure: 1,
   }),
 });
 
@@ -161,7 +165,7 @@ export const QUALITY_TABLE = Object.freeze({
 
 /** The variant used when nothing is specified. */
 export const DEFAULT_VARIANT = Object.freeze({
-  time: 'gunduz',
+  time: 'gece',
   weather: 'acik',
   theme: 'klasik',
 });
@@ -197,10 +201,18 @@ export function variantForRoom(roomCode, options = {}) {
   const h = hashString(roomCode);
   const bias = options.weatherBias == null ? 0.25 : options.weatherBias;
   const wet = ((h >>> 8) & 0xff) / 256 < bias;
+  // Time and theme are biased the same way rain is, and for the same reason:
+  // the floodlit classic night is what this game looks like, so it has to be
+  // what a room looks like unless the hash says otherwise. An even three-way
+  // split put a magenta neon daylight match in front of every other player and
+  // read as a broken stadium rather than as variety. Every combination is
+  // still reachable — the odds just match how often you would want to see it.
+  const day = ((h >>> 4) & 0xff) / 256 < 0.25;
+  const themed = ((h >>> 16) & 0xff) / 256 < 0.3;
   return {
-    time: TIMES_OF_DAY[h % TIMES_OF_DAY.length],
+    time: day ? 'gunduz' : 'gece',
     weather: wet ? 'yagmur' : 'acik',
-    theme: THEMES[(h >>> 16) % THEMES.length],
+    theme: themed ? THEMES[1 + ((h >>> 24) % (THEMES.length - 1))] : THEMES[0],
   };
 }
 

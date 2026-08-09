@@ -25,14 +25,25 @@ export const CAM_MODES = [
 // broadcast side-on, FIFA-style diagonal tele, or a low chase cam behind the
 // player. A goal always cuts to the cinematic net close-up.
 export class CameraRig {
-  constructor(camera) {
+  /**
+   * @param {THREE.Camera} camera
+   * @param {{halfW?:number, halfL?:number}} [pitch] playing area in metres.
+   *   Every framing distance below was tuned by eye on the shipping game's
+   *   22 x 36 m pitch, so they are stored as fractions of it and scaled back
+   *   out here. A narrower pitch (the arena's is 17.14 m) pulls the camera in
+   *   by the same fraction instead of leaving half the frame on empty grass.
+   */
+  constructor(camera, pitch) {
     this.camera = camera;
+    this.sx = pitch && pitch.halfW ? pitch.halfW / 11 : 1;
+    this.sz = pitch && pitch.halfL ? pitch.halfL / 18 : 1;
     let stored = null;
     try { stored = localStorage.getItem(MODE_KEY); } catch { /* fine */ }
     this.modeIndex = Math.max(0, CAM_MODES.findIndex((m) => m.id === stored));
     this.camZ = 0;
     this.goalT = 0; // seconds inside the goal cinematic (drives the push-in)
-    this.cam = { x: 28, y: 24.5, z: 0, lx: 2.6, ly: 0.2, lz: 0 };
+    this.cam = { x: 28 * this.sx, y: 24.5 * this.sx, z: 0,
+                 lx: 2.6 * this.sx, ly: 0.2, lz: 0 };
     this.shakeAmp = 0;  // current impact energy, decays exponentially
     this.shakeT = 0;    // own clock so the jitter is frame-rate independent
     this.shakeOffset = { x: 0, y: 0, z: 0 };
@@ -67,15 +78,18 @@ export class CameraRig {
       const push = Math.min(this.goalT / 3, 1);
       if (this.mode === 'fpv') {
         // low over-the-shoulder crawl toward the net
-        t = { x: b.x * 0.55 + 4, y: 1.6 + push * 0.5, z: s * (10.8 + push * 3),
+        t = { x: b.x * 0.55 + 4 * this.sx, y: 1.6 + push * 0.5,
+              z: s * (10.8 + push * 3) * this.sz,
               lx: b.x, ly: b.y + 0.3, lz: b.z };
       } else if (this.mode === 'capraz') {
         // diagonal crane dropping down toward the net
-        t = { x: 13 - push * 4, y: 7 - push * 3.6, z: s * (10.5 + push * 3),
+        t = { x: (13 - push * 4) * this.sx, y: 7 - push * 3.6,
+              z: s * (10.5 + push * 3) * this.sz,
               lx: b.x, ly: b.y + 0.4, lz: b.z };
       } else {
         // broadcast: the classic low net-side shot, easing closer
-        t = { x: 8.5 - push * 2.5, y: 2.8 - push * 0.7, z: s * (12.6 + push * 2.2),
+        t = { x: (8.5 - push * 2.5) * this.sx, y: 2.8 - push * 0.7,
+              z: s * (12.6 + push * 2.2) * this.sz,
               lx: b.x, ly: b.y + 0.3, lz: b.z };
       }
     } else if (this.mode === 'fpv' && ctx.me) {
@@ -87,11 +101,12 @@ export class CameraRig {
       };
     } else if (this.mode === 'capraz') {
       t = {
-        x: 23, y: 15, z: this.camZ * 0.55 + 11,
+        x: 23 * this.sx, y: 15 * this.sx, z: this.camZ * 0.55 + 11 * this.sz,
         lx: b.x * 0.45, ly: 0.6, lz: b.z * 0.55,
       };
     } else {
-      t = { x: 28, y: 24.5, z: this.camZ, lx: 2.6, ly: 0.2, lz: this.camZ * 1.2 };
+      t = { x: 28 * this.sx, y: 24.5 * this.sx, z: this.camZ,
+            lx: 2.6 * this.sx, ly: 0.2, lz: this.camZ * 1.2 };
     }
     if (ctx.state !== 'goal') this.goalT = 0;
     // fpv turns fast; the fixed cameras glide; the goal cut snaps in quick
