@@ -23,6 +23,7 @@ import { createArenaBotPolicy } from './bots.js';
 import { AMSG, decodeLobby, encodeLobby, frameKind } from './protocol.js';
 import { matchStatus, clockText } from './matchRules.js';
 import { TICK_MS } from './units.js';
+import { RenderSmoother } from './smooth.js';
 
 const SNAPSHOT_HZ = 20;
 const INTERPOLATION_MS = 100;
@@ -67,6 +68,9 @@ export class ArenaMatch {
     this.lastScore = [0, 0];
     this.lastKickCooldown = this.roster.slots.map(() => 0);
     this.flow = 'kickoff';
+    // Host-only: the simulation clock and the display clock are independent,
+    // so what is drawn is blended between the last two ticks. See smooth.js.
+    this.smoother = new RenderSmoother(TICK_MS);
     this.flowUntilMs = 0;
 
     if (this.role === 'host') this._buildHost();
@@ -236,7 +240,13 @@ export class ArenaMatch {
     // a stale score even for one frame.
     const visible = typeof document === 'undefined' || !document.hidden;
     if (draw && visible) {
-      this.view.update(state, dt, { state: this.flow, me: this.localIndex });
+      // Rules, netcode and the HUD all run on `state`, the authoritative tick.
+      // Only the picture is smoothed, and only for the host: a guest's sample
+      // is already interpolated by packages/net.
+      const drawn = this.role === 'host'
+        ? (this.smoother.push(state, nowMs), this.smoother.sample(nowMs) || state)
+        : state;
+      this.view.update(drawn, dt, { state: this.flow, me: this.localIndex });
     }
     if (this.present) {
       // A guest owns no world and sees no events, so it feeds the layer its

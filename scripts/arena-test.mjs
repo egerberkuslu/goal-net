@@ -13,6 +13,7 @@
 // quantised inputs, same checksum chain, forever.
 
 import { BTN, readState } from '../packages/core/src/index.js';
+import { RenderSmoother, interpolateState } from '../packages/client/src/arena/smooth.js';
 import {
   MODES, MODE_IDS, buildRoster, humanCapacity, modeOf, slotOf,
 } from '../packages/client/src/arena/roster.js';
@@ -458,6 +459,78 @@ function runMatch(settings, maxFrames = 60000) {
   eq('4v4 kept exactly one keeper a side', r.roster.keepersPerTeam.join(','), '1,1');
   check('4v4 produced a score', r.score[0] >= 0 && r.score[1] >= 0, r.score.join('-'));
   console.log(`     4v4 finished ${r.score.join('-')} at tick ${r.tick}`);
+}
+
+// ------------------------------------------------- render smoothing (#12)
+//
+// The host used to draw readState() straight, so with the simulation clock and
+// the display clock free-running at the same rate, characters advanced 0, 1 or
+// 2 ticks per frame instead of one. These check the blend that fixed it.
+{
+  const mk = (tick, x, bx) => ({
+    tick, score: [0, 0],
+    ball: { x: bx, z: 0, vx: 0, vz: 0 },
+    players: [{ index: 0, team: 0, x, z: 0, charge: 3, diveActive: 0 }],
+  });
+  const a = mk(10, 0, 0);
+  const b = mk(11, 0.2, 0.4);
+
+  const half = interpolateState(a, b, 0.5);
+  eq('a player is drawn between two ticks', half.players[0].x.toFixed(3), '0.100');
+  eq('the ball is drawn between two ticks', half.ball.x.toFixed(3), '0.200');
+  eq('counters are never blended', half.players[0].charge, 3);
+  eq('the drawn tick is the newer one', half.tick, 11);
+  eq('alpha 1 is exactly the newer state', interpolateState(a, b, 1).players[0].x, 0.2);
+  eq('alpha 0 is exactly the older state', interpolateState(a, b, 0).players[0].x, 0);
+
+  // a kickoff reset moves bodies across the pitch between two ticks; dragging
+  // them through the centre circle over 16 ms is worse than cutting
+  const far = mk(11, 9, 9);
+  eq('a teleport cuts instead of sliding', interpolateState(a, far, 0.5).players[0].x, 9);
+  eq('a rewound tick shows the newer state',
+    interpolateState(mk(11, 5, 5), mk(10, 0, 0), 0.5).players[0].x, 0);
+
+  // and the loop around it: one push per tick, one sample per frame
+  const s = new RenderSmoother(1000 / 60);
+  eq('nothing to draw before the first tick', s.sample(0), null);
+  s.push(mk(1, 0, 0), 0);
+  eq('one tick draws itself', s.sample(0).players[0].x, 0);
+  s.push(mk(2, 1, 0), 16.7);
+  eq('a fresh tick draws the previous one', s.sample(16.7).players[0].x, 0);
+  eq('a frame halfway to the next tick draws halfway',
+    s.sample(16.7 + 8.35).players[0].x.toFixed(2), '0.50');
+  eq('a late frame never overshoots', s.sample(16.7 + 999).players[0].x, 1);
+  // pushing the same tick again must not make prev == curr, which would
+  // freeze the picture until the next tick
+  s.push(mk(2, 1, 0), 30);
+  check('a repeated tick does not become its own baseline',
+    s.sample(30).players[0].x > 0.5, String(s.sample(30).players[0].x));
+
+  // the whole point: with the two clocks drifting, per-frame travel must stay
+  // even. Sample a constant-velocity run at a frame rate that does not divide
+  // the tick rate and check no frame moves twice as far as another.
+  const sm = new RenderSmoother(1000 / 60);
+  let tick = 0, worst = 0, best = Infinity, last = null;
+  for (let f = 0; f < 240; f++) {
+    const nowMs = f * (1000 / 144);           // 144 Hz display, 60 Hz sim
+    while ((tick + 1) * (1000 / 60) <= nowMs) {
+      tick++;
+      sm.push(mk(tick, tick * 0.1, 0), tick * (1000 / 60));
+    }
+    const drawn = sm.sample(nowMs);
+    if (!drawn) continue;
+    // the first frames run before two ticks exist; the smoother has nothing to
+    // blend and repeats itself, which is startup, not stutter
+    if (f < 10) { last = drawn.players[0].x; continue; }
+    if (last !== null) {
+      const step = drawn.players[0].x - last;
+      if (step > worst) worst = step;
+      if (step < best) best = step;
+    }
+    last = drawn.players[0].x;
+  }
+  check('per-frame travel stays even across the clock drift',
+    best > 0 && worst / best < 1.35, `slowest ${best.toFixed(4)} fastest ${worst.toFixed(4)}`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

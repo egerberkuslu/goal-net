@@ -38,7 +38,8 @@
     "present:sheet": "node packages/client/src/arena/present/tools/make-clips.mjs --sheet",
     "present:shots": "node scripts/present-shots.mjs",
     "dev:arena": "vite --port 5301 --strictPort",
-    "dev:present": "vite --port 5303 --strictPort"
+    "dev:present": "vite --port 5303 --strictPort",
+    "build:parts": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/make-parts.py"
   },
   "dependencies": {
     "peerjs": "^1.5.0",

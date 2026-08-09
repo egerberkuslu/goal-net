@@ -132,11 +132,39 @@ export class InstancedBodies {
       this.meshes[key] = mesh;
     }
 
+    // The primitives above are the shape this always had and the shape it falls
+    // back to. Blender-authored versions of the same four unit meshes land
+    // asynchronously and are swapped in when they arrive: an InstancedMesh's
+    // geometry can be replaced outright, and the instance matrices and colours
+    // are untouched by the swap because both obey the same unit box.
+    if (opts.authoredParts !== false) this._loadAuthoredParts();
+
     this.palettes = opts.palettes || slots.map(() => ({
       jersey: 0xcccccc, shorts: 0x888888, skin: 0xe8b98f, boot: 0x222222,
     }));
     this._writeColors();
     this.visible = new Uint8Array(this.count).fill(1);
+  }
+
+  /** Swap the primitives for the authored parts once they load. Never throws
+   *  and never blocks: a body drawn with cylinders is a fine body. */
+  async _loadAuthoredParts() {
+    let parts = null;
+    try {
+      parts = await loadAuthoredParts(THREE);
+    } catch {
+      parts = null;
+    }
+    if (!parts || this.disposed) return;
+    for (const key of PART_KEYS) {
+      const mesh = this.meshes[key];
+      if (!mesh || !parts[key]) continue;
+      const previous = this.geometries[key];
+      mesh.geometry = parts[key];
+      this.geometries[key] = parts[key];
+      if (previous && previous !== parts[key]) previous.dispose();
+    }
+    this.authored = true;
   }
 
   _writeColors() {
@@ -210,6 +238,7 @@ export class InstancedBodies {
   }
 
   dispose() {
+    this.disposed = true;
     for (const key of PART_KEYS) {
       const mesh = this.meshes[key];
       this.scene.remove(mesh);

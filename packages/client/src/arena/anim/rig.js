@@ -1,8 +1,11 @@
 // The rig: bind pose, bone lengths, and the detached Object3D hierarchy that
 // turns a pose vector into world matrices.
 //
-// There is no skinned mesh here and there is no glTF skeleton, because there is
-// no Blender in this environment to author one (brain/40-progress/HUMAN-QUEUE.md).
+// There is no skinned mesh here and there is no glTF skeleton: the parts are
+// rigid and each is placed by its bone's world matrix. Blender IS available now
+// and tools/blender/make-parts.py authors the four unit parts this rig places
+// (anim/parts.js loads them), but they are still rigid pieces on purpose —
+// skinning ten characters would cost the instancing that makes row #19 fit.
 // What there IS, is a real hierarchy: hips carry the spine, the spine carries
 // the chest, the thigh carries the shin carries the foot. Rotating the chest
 // therefore takes the head and both arms with it, which is the whole point of a
