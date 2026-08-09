@@ -119,14 +119,27 @@ export function measureKitHue(data) {
 /**
  * Repaint a character atlas into a team's colour.
  *
+ * A second colour turns the shirt into a striped one. The stripes are bands in
+ * the atlas, not on the body, which sounds wrong and is not: a character atlas
+ * lays each garment out as a roughly rectangular island, so a band in u crosses
+ * the shirt the same way a stripe crosses a chest. It will not line up with a
+ * seam the way a painted kit would, and that is the price of striping a texture
+ * nobody authored for it — against a plain shirt for Galatasaray or Fenerbahçe,
+ * the stripes win.
+ *
  * @param {object} map the model's own texture, left untouched
  * @param {object} color THREE.Color the kit should become
+ * @param {{accent?:object, pattern?:string}} [opts] accent is the second
+ *   colour; pattern 'stripes' bands the two, anything else ignores the accent
  * @returns {object|null} a texture to use in its place, or null if the atlas
  *   could not be read (a cross-origin image, no canvas, no kit-coloured pixels)
  */
-export function recolorKit(map, color) {
+export function recolorKit(map, color, opts = {}) {
   if (!map?.image || typeof document === 'undefined') return null;
-  const key = `${map.uuid}|${color.getHexString()}`;
+  const striped = opts.pattern === 'stripes' && opts.accent
+    && opts.accent.getHexString() !== color.getHexString();
+  const key = `${map.uuid}|${color.getHexString()}`
+    + (striped ? `|s${opts.accent.getHexString()}` : '');
   if (cache.has(key)) return cache.get(key);
 
   const src = map.image;
@@ -152,12 +165,18 @@ export function recolorKit(map, color) {
 
   const kit = measureKitHue(img.data);
   if (!kit) { cache.set(key, null); return null; }
-  const [th, ts] = rgbToHsl(color.r, color.g, color.b);
+  const main = rgbToHsl(color.r, color.g, color.b);
+  const alt = striped ? rgbToHsl(opts.accent.r, opts.accent.g, opts.accent.b) : main;
+  // Eight bands across the atlas: wide enough to survive the mip chain at
+  // playing distance, narrow enough that a shirt island crosses two of them.
+  const band = Math.max(1, Math.round(cw / 16));
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
     if (d[i + 3] < 8) continue;
     const [ph, ps, pl] = rgbToHsl(d[i] / 255, d[i + 1] / 255, d[i + 2] / 255);
     if (ps < KIT_SAT_MIN || hueGap(ph, kit.hue) > KIT_HUE_BAND) continue;
+    const x = (i >> 2) % cw;
+    const [th, ts] = striped && (((x / band) | 0) & 1) ? alt : main;
     // Saturation travels as a RATIO so a washed-out fold stays washed out and
     // a deep crease stays deep; only the hue is replaced outright.
     const s = Math.min(1, ts * (ps / (kit.sat || ps)));

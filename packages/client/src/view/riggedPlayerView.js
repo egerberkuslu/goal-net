@@ -49,6 +49,7 @@ import { BOX_DEPTH, BOX_HALF_W, PITCH_HALF_L } from '../core/constants.js';
 import { VENDOR, vendorScene } from './vendorModel.js';
 import { bindRiggedPose } from './riggedPose.js';
 import { recolorKit } from './kitRecolor.js';
+import { KIT_PRESETS } from './kitTexture.js';
 import {
   PlayerView, deriveKeeperColor, makeNameSprite, sanitizeName, teamPalette,
 } from './playerView.js';
@@ -176,19 +177,33 @@ export class RiggedPlayerView {
    * kit-coloured region) the model keeps its own texture: one green team beats a
    * crash, and the name tags and charge rings still say who is who.
    */
-  _tintKit(mesh, pal) {
-    const keeper = this.player.role === 'keeper';
-    const team = this.player.team | 0;
-    const target = new THREE.Color(
-      keeper ? deriveKeeperColor(pal.jersey[team]) : pal.jersey[team],
-    );
+  _tintKit(mesh, pal, chosen) {
+    let target;
+    let opts;
+    if (chosen) {
+      target = chosen.base;
+      opts = { accent: chosen.accent, pattern: chosen.pattern };
+    } else {
+      const keeper = this.player.role === 'keeper';
+      const team = this.player.team | 0;
+      target = new THREE.Color(
+        keeper ? deriveKeeperColor(pal.jersey[team]) : pal.jersey[team],
+      );
+      opts = undefined;
+    }
     const seen = new Set();
     mesh.traverse((o) => {
       if (!o.isMesh || !o.material) return;
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
         if (!m || seen.has(m)) continue;
         seen.add(m);
-        const repainted = m.map ? recolorKit(m.map, target) : null;
+        // Always repaint from the model's ORIGINAL atlas, never from the last
+        // repaint: recolouring a recolour compounds, and a player who tried
+        // three kits would end up in whatever the third did to the second.
+        const source = m.userData.kitSource || m.map;
+        if (!source) continue;
+        m.userData.kitSource = source;
+        const repainted = recolorKit(source, target, opts);
         if (!repainted) continue;
         m.map = repainted;
         m.needsUpdate = true;
@@ -208,6 +223,7 @@ export class RiggedPlayerView {
     mesh.position.y += mesh.userData.standUp?.groundOffset || 0;
     this.root.add(mesh);
     this.scene.add(this.root);
+    this.mesh = mesh;                  // kept so /forma can repaint it later
     this._tintKit(mesh, pal);
 
     this.binding = binding;
@@ -363,11 +379,25 @@ export class RiggedPlayerView {
 
   setKit(change = {}) {
     this.pendingKit = { ...(this.pendingKit || {}), ...change };
-    // The fallback body always tracks a kit change, so a later fall-back (or
-    // a GLB that never loads) still shows the right shirt. The rigged GLB's
-    // own materials are not wired for a swappable kit texture — see the file
-    // header — so a live change is invisible on the rigged body today.
-    return this.fallback ? this.fallback.setKit(change) : this.pendingKit;
+    // The fallback body always tracks a kit change, so a later fall-back (or a
+    // GLB that never loads) still shows the right shirt.
+    if (this.fallback) return this.fallback.setKit(change);
+    // On the rigged body a kit is a repaint of the atlas, which is why only
+    // `kit` is honoured here: the squad number is drawn into PlayerView's own
+    // generated texture and this character's atlas has no number on it to
+    // replace. `/numara` still changes the number the rest of the game knows
+    // about; it just is not written on this shirt.
+    if (change.kit && this.mesh) {
+      const preset = KIT_PRESETS[change.kit];
+      if (preset) {
+        this._tintKit(this.mesh, null, {
+          base: new THREE.Color(preset.base),
+          accent: new THREE.Color(preset.accent),
+          pattern: preset.pattern,
+        });
+      }
+    }
+    return this.pendingKit;
   }
 
   update(dt) {
