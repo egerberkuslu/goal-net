@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { ClothSheet, windAt } from './cloth.js';
+import { windAt as coreWind } from '../../core/wind.js';
 import { resolveTier } from './quality.js';
 
 const POLE_H = 1.5;
@@ -127,7 +128,8 @@ export class CornerFlags {
     const step = Math.max(0, Math.min(1 / 20, Number.isFinite(dt) ? dt : 0));
     if (step === 0) return;
     this.time += step;
-    const wind = windAt(this.time, strength);
+    const air = coreWind(this.time);
+    const wind = windAt(this.time, strength, [air.x, air.y, air.z]);
     for (const sheet of this.sheets) {
       sheet.step(step, { wind, iters: this.tier.flagIters });
       if (!sheet.finite()) { sheet.reset(); this.resets++; }

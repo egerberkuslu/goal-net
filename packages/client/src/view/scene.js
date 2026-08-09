@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { VENDOR, placeVendorMesh } from './vendorModel.js';
 import { ScoreboardView } from './scoreboardView.js';
+import { CornerFlags } from '../arena/atmos/flags.js';
+import { BallBoys } from '../arena/atmos/ballboy.js';
 import {
   GOAL_W, GOAL_H, POST_R, NET_TOP_DEPTH, NET_BOT_DEPTH,
   PITCH_HALF_L, PITCH_HALF_W, WALL_X,
@@ -160,6 +162,13 @@ function addStadium(scene, p) {
       scene.add(e);
     }
   }
+  // Corner flags on the same Verlet cloth the arena wrote, driven by the same
+  // core/wind.js the ball and the net use, and ball boys waiting outside the
+  // touchline. Both were built for the arena and only ever ran there; they read
+  // pitch half-sizes and nothing else, which is why they move across whole.
+  scene.userData.flags = new CornerFlags(scene, { halfX: p.halfW, halfZ: p.halfL });
+  scene.userData.ballBoys = new BallBoys(scene, { halfX: p.halfW, halfZ: p.halfL });
+
   // The furniture a ground has and a box model does not: two dugouts on the
   // camera side, where real ones are, and a scoreboard over the far end. Both
   // are downloaded models sized in Blender (vendor-assets/CREDITS.md), and both

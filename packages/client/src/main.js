@@ -216,6 +216,10 @@ function frame(nowMs) {
   app.ballView.update(dt * app.game.timeScale);
   for (const pv of app.playerViews) pv.update(dt);
   crowd.update(dt, now);
+  // Corner flags feel the same air the ball does; the ball boys watch the real
+  // ball so they set off when it actually leaves the pitch.
+  scene.userData.flags?.update(dt);
+  scene.userData.ballBoys?.update(dt, app.world?.ball?.pos ?? null);
   fx.update(dt);
   const aiming = app.game.state === 'play' || app.game.state === 'kickoff';
   for (const av of app.aimViews) av.update(aiming && app.game.isHuman(av.player) && !replay);

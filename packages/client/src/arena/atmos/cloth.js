@@ -221,12 +221,31 @@ function normalize(v) {
  * @param {number} [strength]
  * @returns {number[]} acceleration in m/s^2
  */
-export function windAt(t, strength = 1) {
+export function windAt(t, strength = 1, air = null) {
   const gust = 0.65 + 0.35 * Math.sin(t * 0.37) + 0.18 * Math.sin(t * 1.31 + 1.1);
   const swirl = Math.sin(t * 0.21);
+  // The prevailing air, when the caller has one. It is passed in rather than
+  // imported so this file stays what its header says it is — arithmetic on
+  // typed arrays with no dependencies — and so the solver can still be driven
+  // from a test with any wind at all.
+  //
+  // A flag is a sail: it takes the prevailing wind almost whole, with its own
+  // flutter riding on top. Before core/wind.js existed this function WAS the
+  // wind, which meant corner flags streamed one way while the goal net beside
+  // them blew another.
+  if (air && Math.hypot(air[0], air[2]) > 0.05) {
+    const flutter = 1 + 0.25 * Math.sin(t * 1.7);
+    return [
+      strength * air[0] * flutter,
+      strength * 0.8 * Math.sin(t * 2.3),
+      strength * air[2] * flutter,
+    ];
+  }
+  // Dead calm still has to move: a flag hanging perfectly still reads as a
+  // frozen frame, so the idle breeze is the floor.
   return [
-    strength * gust * 5.4,
+    strength * gust * 1.4,
     strength * 0.8 * Math.sin(t * 2.3),
-    strength * gust * 2.1 * swirl,
+    strength * gust * 0.9 * swirl,
   ];
 }
