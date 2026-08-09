@@ -1,4 +1,7 @@
-import { PLAYER_SPEED, PLAYER_ACCEL_RATE, RAGDOLL_TIME } from './constants.js';
+import {
+  PLAYER_SPEED, PLAYER_ACCEL_RATE, RAGDOLL_TIME,
+  GRAV, JUMP_TAKEOFF_VY, JUMP_COOLDOWN,
+} from './constants.js';
 
 // A player is a vertical cylinder on the ground plane driven by an input
 // direction. Velocity approaches the desired velocity exponentially, which
@@ -19,19 +22,23 @@ export class Player {
     this.downTotal = RAGDOLL_TIME;
     this.tumbleSpin = 0;
     this.knockCooldown = 0; // hidden immunity so players can't be stun-locked
-    this.jumpY = 0;         // vertical leap height (keepers reaching high balls)
+    this.jumpY = 0;         // vertical leap height (reaching balls over standing reach)
     this.jumpVy = 0;
+    this.jumpCooldown = 0;  // dead time on the ground after landing (no instant re-jump)
     this.dive = 0;          // dive/slide: seconds of the action left
     this.diveTotal = 0.55;
     this.diveKind = 'dive'; // 'dive' (keeper flight) | 'slide' (tackle)
     this.diveRecover = 0;   // scramble-up time after the action
     this.diveDir = { x: 1, z: 0 };
+    this.shoveCooldown = 0; // shoulder-to-shoulder: dead time before this player can shove/be shoved again
   }
 
   // Vertical leap: straight up with the arms raised, for balls over the head.
+  // No double-jump: blocked while airborne, and again for JUMP_COOLDOWN after
+  // landing, so a player can't chain leaps into a permanent extra reach.
   startJump() {
-    if (this.jumpY > 0 || this.down > 0 || this.dive > 0) return false;
-    this.jumpVy = 4.4; // reaches ~1m of extra height
+    if (this.jumpY > 0 || this.jumpCooldown > 0 || this.down > 0 || this.dive > 0) return false;
+    this.jumpVy = JUMP_TAKEOFF_VY;
     this.jumpY = 0.001;
     return true;
   }
@@ -78,6 +85,8 @@ export class Player {
     this.diveRecover = 0;
     this.jumpY = 0;
     this.jumpVy = 0;
+    this.jumpCooldown = 0;
+    this.shoveCooldown = 0;
     this.celebrate = 0;
   }
 
@@ -99,10 +108,15 @@ export class Player {
 
   integrate(h) {
     this.knockCooldown = Math.max(0, this.knockCooldown - h);
+    this.jumpCooldown = Math.max(0, this.jumpCooldown - h);
+    this.shoveCooldown = Math.max(0, this.shoveCooldown - h);
     if (this.jumpY > 0) {
       this.jumpY += this.jumpVy * h;
-      this.jumpVy -= 9.81 * h;
-      if (this.jumpY <= 0) { this.jumpY = 0; this.jumpVy = 0; }
+      this.jumpVy -= GRAV * h;
+      if (this.jumpY <= 0) {
+        this.jumpY = 0; this.jumpVy = 0;
+        this.jumpCooldown = JUMP_COOLDOWN; // just landed: no instant re-jump
+      }
     }
     if (this.down > 0) {
       this.down = Math.max(0, this.down - h);

@@ -20,6 +20,7 @@ export class BotController {
   update(dt) {
     const { world, player, attackSign } = this;
     const b = world.ball.pos;
+    const bv = world.ball.vel;
     const goal = { x: 0, z: attackSign * PITCH_HALF_L };
     const ownGoal = { x: 0, z: -attackSign * PITCH_HALF_L };
 
@@ -78,7 +79,13 @@ export class BotController {
       kick = false;
     }
 
-    return { x: dx, z: dz, kick };
+    // a ball floated in above standing reach: leap for it, the same reach the
+    // header check already relies on (see world.js#collideBallPlayers)
+    const closeToBall = Math.abs(b.x - player.pos.x) < 1.0 &&
+      Math.abs(b.z - player.pos.z) < 1.0;
+    const jump = closeToBall && b.y > 1.7 && b.y < 2.9 && bv.y < 3;
+
+    return { x: dx, z: dz, kick, jump };
   }
 }
 

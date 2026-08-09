@@ -9,6 +9,8 @@ const GOAL_SCALE_MAX = 1.6;
 const MATCH_TIME_MIN = 10;
 const MATCH_TIME_MAX = 3600;
 const GOAL_LIMIT_MAX = 99;
+const TEAM_SIZE_MIN = 1;
+const TEAM_SIZE_MAX = 4; // 1v1 .. 4v4-with-keepers (brain/10-design/modes-rules.md)
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const num = (v, fallback) =>
@@ -28,5 +30,9 @@ export function makeConfig(overrides = {}) {
       MATCH_TIME_MIN, MATCH_TIME_MAX),
     goalLimit: clamp(Math.round(num(o.goalLimit, MATCH_GOALS)), 0, GOAL_LIMIT_MAX),
     keepers: o.keepers === undefined ? true : !!o.keepers,
+    // outfield players per side for the fallback/offline roster (game.js's
+    // defaultRoster); the lobby's own multi-player roster (mp/lobbyState.js)
+    // already sizes itself from the room and ignores this field.
+    teamSize: clamp(Math.round(num(o.teamSize, 1)), TEAM_SIZE_MIN, TEAM_SIZE_MAX),
   };
 }

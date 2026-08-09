@@ -12,21 +12,47 @@ import { MatchStats } from './stats.js';
 
 const TEAM_NAMES = ['KIRMIZI', 'MAVİ'];
 
-// Default roster: one field player per team plus (config permitting) keepers.
+// Default roster: config.teamSize outfield players per team (1v1..4v4) plus,
+// when the room asks for them, one keeper each — carved out of that same
+// team size rather than added on top, so "4v4 kalecili" is 3 outfield + 1
+// keeper per side, matching brain/10-design/modes-rules.md.
+//
+// This is the OFFLINE/fallback roster (main.js's quick 1p/2p/train match and
+// this file's own tests); the live lobby builds its own multi-player roster
+// in mp/lobbyState.js#rosterFromPlayers and never calls this function.
 //
 // Numbers are cosmetic — the kit texture bakes them onto the back — but they
 // follow the convention anyone watching expects: the keeper is 1 and the
 // outfielders count up from 9, which is where a lone striker belongs.
 function defaultRoster(config) {
-  const roster = [
-    { id: 'p1', team: 0, role: 'field', number: 9 },
-    { id: 'p2', team: 1, role: 'field', number: 9 },
-  ];
-  if (config.keepers) {
-    roster.push(
-      { id: 'kr', team: 0, role: 'keeper', number: 1 },
-      { id: 'kb', team: 1, role: 'keeper', number: 1 },
-    );
+  const teamSize = Math.max(1, Math.min(4, Math.round(config.teamSize ?? 1)));
+  if (teamSize === 1) {
+    // unchanged 1v1 shape: ids other systems may already assume ('p1'/'p2'
+    // reconnect slots, 'kr'/'kb' keeper slots) stay exactly as they were.
+    const roster = [
+      { id: 'p1', team: 0, role: 'field', number: 9 },
+      { id: 'p2', team: 1, role: 'field', number: 9 },
+    ];
+    if (config.keepers) {
+      roster.push(
+        { id: 'kr', team: 0, role: 'keeper', number: 1 },
+        { id: 'kb', team: 1, role: 'keeper', number: 1 },
+      );
+    }
+    return roster;
+  }
+  const roster = [];
+  for (const team of [0, 1]) {
+    const label = team === 0 ? 'r' : 'b';
+    // 3v3 is no-keeper by house rule (modes-rules.md), but that is a room
+    // SETTING (config.keepers), not something this function decides on its
+    // own — it only carves a keeper out of the size it is handed.
+    const hasKeeper = !!config.keepers;
+    const fieldCount = hasKeeper ? teamSize - 1 : teamSize;
+    for (let i = 0; i < fieldCount; i++) {
+      roster.push({ id: `${label}${i + 1}`, team, role: 'field', number: 9 + i });
+    }
+    if (hasKeeper) roster.push({ id: `${label}k`, team, role: 'keeper', number: 1 });
   }
   return roster;
 }
@@ -127,11 +153,15 @@ export class Game {
   }
 
   layoutKickoff() {
-    const spread = [0, -2.4, 2.4];
     for (const team of [0, 1]) {
       const sign = -this.world.attackSign(team); // line up in your own half
       const fields = this.world.players.filter((p) => p.team === team && p.role === 'field');
-      fields.forEach((p, i) => p.reset(spread[i % spread.length], sign * 5));
+      // fan out evenly around the centre so a 4th+ player no longer lands on
+      // top of the 1st (the old fixed 3-slot [0,-2.4,2.4] wrapped with mod);
+      // a single player still gets exactly x=0, byte-identical to before
+      const n = fields.length;
+      const spread = n <= 1 ? [0] : fields.map((_, i) => (i - (n - 1) / 2) * 2.4);
+      fields.forEach((p, i) => p.reset(spread[i], sign * 5));
       for (const k of this.keepers.filter((p) => p.team === team)) {
         k.reset(0, sign * (PITCH_HALF_L - 0.9));
       }
@@ -351,6 +381,7 @@ export class Game {
       if (!allowed) {
         st.held = false;
         st.slideHeld = !!c.slide;
+        st.jumpHeld = !!c.jump;
         player.charge = 0;
         player.kickAnim = Math.max(0, player.kickAnim - dt * 4);
         continue;
@@ -361,20 +392,47 @@ export class Game {
         player.kickAnim = Math.max(0, player.kickAnim - dt * 4);
         continue;
       }
+      // jump on key edge — a straight-up leap so a player can reach a ball
+      // over standing reach (a header, or a keeper covering a high cross)
+      if (c.jump && !st.jumpHeld) player.startJump();
+      st.jumpHeld = !!c.jump;
       // slide tackle on key edge, along current intent (or facing when idle)
       if (c.slide && !st.slideHeld) {
         const ix = c.x || Math.sin(player.facing), iz = c.z || Math.cos(player.facing);
         player.startSlide(ix, iz);
       }
       st.slideHeld = !!c.slide;
-      if (c.kick && !st.held) { st.held = true; st.t = now; }
-      if (st.held) player.charge = Math.min((now - st.t) / KICK_CHARGE_TIME, 1);
-      if (!c.kick && st.held) {
-        st.held = false;
-        const kicked = this.world.tryKick(player, player.charge);
-        if (kicked === 'header') player.headerAnim = 1;
-        else if (kicked) player.kickAnim = 1;
-        player.charge = 0;
+      const holding = player.role === 'keeper' && this.world.holder === player;
+      if (!holding && player.role === 'keeper' && c.kick && !st.held &&
+          this.world.tryCatch(player)) {
+        // caught it clean, on the very same press: the button is still down,
+        // so arm the charge right now — releasing it quickly is a throw,
+        // holding it charges the foot clearance (handled next frame by the
+        // `holding` branch below, since the world now has a holder)
+        st.held = true; st.t = now;
+        player.kickAnim = 1;
+      } else if (holding) {
+        // holding the ball: the same kick button now releases it — a quick
+        // tap is the hand throw, holding it charges the foot clearance
+        if (c.kick && !st.held) { st.held = true; st.t = now; }
+        if (st.held) player.charge = Math.min((now - st.t) / KICK_CHARGE_TIME, 1);
+        if (!c.kick && st.held) {
+          st.held = false;
+          const heldFor = now - st.t;
+          this.world.releaseHold(player, heldFor < 0.12 ? 'throw' : 'clear', player.charge);
+          player.kickAnim = 1;
+          player.charge = 0;
+        }
+      } else {
+        if (c.kick && !st.held) { st.held = true; st.t = now; }
+        if (st.held) player.charge = Math.min((now - st.t) / KICK_CHARGE_TIME, 1);
+        if (!c.kick && st.held) {
+          st.held = false;
+          const kicked = this.world.tryKick(player, player.charge);
+          if (kicked === 'header') player.headerAnim = 1;
+          else if (kicked) player.kickAnim = 1;
+          player.charge = 0;
+        }
       }
       player.kickAnim = Math.max(0, player.kickAnim - dt * 4);
       player.headerAnim = Math.max(0, player.headerAnim - dt * 5);

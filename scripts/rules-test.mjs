@@ -137,6 +137,64 @@ function slide(ballX, ballZ) {
   check('foul: team-mates cannot foul each other', mate === null);
 }
 
+// ------------------------------------ 1b) shoulder charge feeds the same whistle
+{
+  // a reckless shoulder charge (closing speed past SHOULDER_FOUL_SPEED) goes
+  // through the exact same onFoul pipeline a mistimed slide does — proof the
+  // mechanic is wired into the real match flow, not just the core method
+  const { game, world } = makeGame({ matchTime: 600 });
+  let now = performance.now() / 1000;
+  const red = world.players.find((p) => p.team === 0);
+  const blue = world.players.find((p) => p.team === 1);
+  game.state = 'play';
+  red.reset(-0.65, 10); red.vel = { x: 9, z: 0 };
+  blue.reset(0, 10); blue.vel = { x: -4, z: 0 }; // closing speed 13 m/s: reckless
+  world.placeBall(6, 6); // ball nowhere near this
+  now = drive(game, world, 0.2, now, () => (game.setPiece ? false : true));
+  check('integration: a reckless shoulder charge is whistled',
+    game.setPiece?.kind === 'freekick', game.setPiece?.kind ?? 'nothing');
+  check('integration: awarded to the charged-into side', game.stats.fouls[0] === 1,
+    `red=${game.stats.fouls[0]} blue=${game.stats.fouls[1]}`);
+}
+
+// --------------------------------- 1c) keeper hands via the real control path
+{
+  // catch -> hold -> release, driven through applyControls exactly like a
+  // human or bot keeper would drive it (not the core tryCatch/releaseHold
+  // API directly) — proof the mechanic is actually reachable in a match
+  const config = makeConfig({ keepers: true, matchTime: 600 });
+  const world = new World(config);
+  const game = new Game(world, stubCamera, stubDom(), null);
+  const redKeeper = world.players.find((p) => p.team === 0 && p.role === 'keeper');
+  const others = world.players.filter((p) => p !== redKeeper);
+
+  class FakeKeeper {
+    constructor() { this.kick = false; }
+    update() { return { x: 0, z: 0, kick: this.kick, slide: false, jump: false }; }
+  }
+  const keeperCtrl = new FakeKeeper();
+  const controllers = new Map([[redKeeper, keeperCtrl]]);
+  for (const p of others) controllers.set(p, new Idle());
+  game.beginMatch(controllers, '1p');
+  let now = performance.now() / 1000;
+  game.kickoffAt = now - 1;
+  game.state = 'play';
+  redKeeper.reset(0, -(PITCH_HALF_L - 1.5));
+  redKeeper.facing = 0;
+  world.placeBall(0.2, -(PITCH_HALF_L - 1.8));
+  world.ball.vel = { x: 0, y: 0, z: 0 };
+
+  keeperCtrl.kick = true;
+  now = drive(game, world, DT, now); // press: catch on the rising edge
+  check('integration: keeper catch via applyControls', world.holder === redKeeper);
+
+  keeperCtrl.kick = false;
+  now = drive(game, world, 3 * DT, now); // quick release: a hand throw
+  check('integration: a quick tap throws the ball, ball back in play',
+    world.holder === null && Math.hypot(world.ball.vel.x, world.ball.vel.z) > 5,
+    `holder=${world.holder} v=${Math.hypot(world.ball.vel.x, world.ball.vel.z).toFixed(1)}`);
+}
+
 // ---------------------------------------------- 2) free kick vs penalty spot
 
 {
@@ -464,6 +522,49 @@ function slide(ballX, ballZ) {
     Math.abs(world.ball.pos.z - (PITCH_HALF_L - PENALTY_SPOT_INSET)) < 1e-6,
     `z=${world.ball.pos.z.toFixed(2)}`);
   check('integration: the foul is on blue\'s count', game.stats.fouls[1] === 1);
+}
+
+// -------------------------------------------------- 7) roster shapes (#5)
+
+{
+  // defaultRoster(config): the offline/fallback roster carves the keeper out
+  // of the team size instead of adding it on top (4v4 kalecili = 3+1)
+  const shapes = [
+    { teamSize: 1, keepers: false, field: 1, keeper: 0 },
+    { teamSize: 2, keepers: false, field: 2, keeper: 0 },
+    { teamSize: 3, keepers: false, field: 3, keeper: 0 }, // 3v3: no keeper, by house rule
+    { teamSize: 4, keepers: true, field: 3, keeper: 1 },  // 4v4 kalecili
+  ];
+  for (const s of shapes) {
+    const config = makeConfig({ keepers: s.keepers, teamSize: s.teamSize, matchTime: 60 });
+    const world = new World(config);
+    new Game(world, stubCamera, stubDom(), null); // builds the roster via defaultRoster()
+    const label = `${s.teamSize}v${s.teamSize}${s.keepers ? ' kalecili' : ''}`;
+    for (const team of [0, 1]) {
+      const field = world.players.filter((p) => p.team === team && p.role === 'field').length;
+      const keeper = world.players.filter((p) => p.team === team && p.role === 'keeper').length;
+      check(`roster ${label}: team ${team} has ${s.field} field player(s)`,
+        field === s.field, `field=${field}`);
+      check(`roster ${label}: team ${team} has ${s.keeper} keeper(s)`,
+        keeper === s.keeper, `keeper=${keeper}`);
+    }
+  }
+}
+
+{
+  // kickoff spread: a 4th+ field player used to land on the same spawn x as
+  // the 1st (the old fixed 3-slot table wrapped with modulo) — now it fans
+  // out to fit however many team-mates are on the pitch
+  const config = makeConfig({ keepers: true, teamSize: 4, matchTime: 60 });
+  const world = new World(config);
+  new Game(world, stubCamera, stubDom(), null);
+  for (const team of [0, 1]) {
+    const xs = world.players
+      .filter((p) => p.team === team && p.role === 'field')
+      .map((p) => p.pos.x.toFixed(2));
+    check(`kickoff: 4v4 field team-mates spawn at distinct x (team ${team})`,
+      new Set(xs).size === xs.length, `xs=${xs.join(',')}`);
+  }
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`);

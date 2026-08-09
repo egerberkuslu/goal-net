@@ -7,7 +7,7 @@
 // in update(), so the game layer keeps calling ctrl.update() and never learns
 // which device the human is holding.
 const PREVENT = new Set([
-  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Enter',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Enter', 'Slash',
 ]);
 
 const pressed = new Set();
@@ -32,10 +32,14 @@ export function setKeyDown(code, down = true) {
 }
 export function clearKeys() { pressed.clear(); }
 
-export const P1_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', kick: 'Space', slide: 'ShiftLeft' };
-export const P1_ALT_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', kick: 'KeyX', slide: 'KeyC' };
-export const P1_X_KICK = { kick: 'KeyX', slide: 'KeyC' };
-export const P2_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', kick: 'Enter', slide: 'ShiftRight' };
+// Jump sits next to the movement/kick/slide cluster on each scheme: 'KeyE'
+// for WASD (right under the fingers already on W/D), 'KeyZ' for the arrow +
+// X/C alt scheme (left of X/C, same row), 'Slash' for P2's arrow + Enter/
+// Shift scheme (free key next to the arrow cluster on most layouts).
+export const P1_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', kick: 'Space', slide: 'ShiftLeft', jump: 'KeyE' };
+export const P1_ALT_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', kick: 'KeyX', slide: 'KeyC', jump: 'KeyZ' };
+export const P1_X_KICK = { kick: 'KeyX', slide: 'KeyC', jump: 'KeyZ' };
+export const P2_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', kick: 'Enter', slide: 'ShiftRight', jump: 'Slash' };
 
 const KEYS_KEY = 'goalnet-keys';
 
@@ -89,6 +93,7 @@ export const GAMEPAD_DEADZONE = 0.18;
 export const PAD_BUTTONS = {
   kick: 0,    // A / Cross
   slide: 1,   // B / Circle
+  jump: 2,    // X / Square
   camera: 3,  // Y / Triangle — reported, wired by the coordinator
   dpadUp: 12, dpadDown: 13, dpadLeft: 14, dpadRight: 15,
 };
@@ -138,6 +143,7 @@ export function padIntent(pad, dz = GAMEPAD_DEADZONE) {
     up,
     kick: padPressed(bt[PAD_BUTTONS.kick]),
     slide: padPressed(bt[PAD_BUTTONS.slide]),
+    jump: padPressed(bt[PAD_BUTTONS.jump]),
     camera: padPressed(bt[PAD_BUTTONS.camera]),
   };
 }
@@ -181,6 +187,7 @@ export const TOUCH_CLASSES = {
   button: 'gn-touch-btn',
   kick: 'gn-touch-kick',
   slide: 'gn-touch-slide',
+  jump: 'gn-touch-jump',
   style: 'gn-touch-style',
 };
 
@@ -220,6 +227,8 @@ const TOUCH_CSS = `
   background: rgba(226,59,59,0.34); }
 .${TOUCH_CLASSES.slide} { width: 74px; height: 74px; font-size: 14px;
   background: rgba(59,109,226,0.34); }
+.${TOUCH_CLASSES.jump} { width: 74px; height: 74px; font-size: 13px;
+  background: rgba(59,226,133,0.34); }
 `;
 
 class TouchControls {
@@ -232,7 +241,7 @@ class TouchControls {
       doc.head.appendChild(style);
     }
 
-    this.state = { right: 0, up: 0, kick: false, slide: false };
+    this.state = { right: 0, up: 0, kick: false, slide: false, jump: false };
     this.pointerId = null;
     this.anchor = { x: 0, y: 0 };
 
@@ -252,9 +261,10 @@ class TouchControls {
 
     const bar = doc.createElement('div');
     bar.className = TOUCH_CLASSES.buttons;
+    this.jumpBtn = this.#makeButton(doc, TOUCH_CLASSES.jump, 'ZIPLA', 'jump');
     this.slideBtn = this.#makeButton(doc, TOUCH_CLASSES.slide, 'KAYMA', 'slide');
     this.kickBtn = this.#makeButton(doc, TOUCH_CLASSES.kick, 'ŞUT', 'kick');
-    bar.append(this.slideBtn, this.kickBtn);
+    bar.append(this.jumpBtn, this.slideBtn, this.kickBtn);
     this.el.appendChild(bar);
 
     this.zone.addEventListener('pointerdown', this.#onDown, { passive: false });
@@ -326,7 +336,7 @@ class TouchControls {
 
   destroy() {
     this.el.parentNode?.removeChild(this.el);
-    this.state = { right: 0, up: 0, kick: false, slide: false };
+    this.state = { right: 0, up: 0, kick: false, slide: false, jump: false };
   }
 }
 
@@ -360,32 +370,35 @@ export function destroyTouchControls() {
 // ties — so a held key always beats a stick that is at most fully deflected.
 export function mergeIntents(sources) {
   let right = 0, up = 0, best = 0;
-  let kick = false, slide = false, camera = false;
+  let kick = false, slide = false, jump = false, camera = false;
   for (const s of sources) {
     if (!s) continue;
     kick = kick || !!s.kick;
     slide = slide || !!s.slide;
+    jump = jump || !!s.jump;
     camera = camera || !!s.camera;
     const m = Math.hypot(s.right || 0, s.up || 0);
     if (m > best + 1e-9) { best = m; right = s.right || 0; up = s.up || 0; }
   }
-  return { right, up, kick, slide, camera };
+  return { right, up, kick, slide, jump, camera };
 }
 
 /** Pure: the union of several key maps against a set of held key codes. */
 export function keyboardIntent(maps, held = pressed) {
-  let right = 0, up = 0, kick = false, slide = false;
+  let right = 0, up = 0, kick = false, slide = false, jump = false;
   for (const k of maps) {
     right += (held.has(k.right) ? 1 : 0) - (held.has(k.left) ? 1 : 0);
     up += (held.has(k.up) ? 1 : 0) - (held.has(k.down) ? 1 : 0);
     kick = kick || held.has(k.kick);
     slide = slide || held.has(k.slide);
+    jump = jump || (!!k.jump && held.has(k.jump));
   }
   return {
     right: Math.max(-1, Math.min(1, right)),
     up: Math.max(-1, Math.min(1, up)),
     kick,
     slide,
+    jump,
   };
 }
 
@@ -426,6 +439,7 @@ export class KeyboardController {
       z: dir.z,
       kick: m.kick,
       slide: m.slide,
+      jump: m.jump,
       camera: this.cameraEdge,
     };
   }

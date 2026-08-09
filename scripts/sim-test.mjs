@@ -1,7 +1,10 @@
 // Headless validation of the arena world: goals register, nets don't tunnel,
 // walls contain the ball, kicks and player collisions behave, perf budget holds.
-import { World, KeeperController, makeConfig } from '../packages/client/src/core/world-entry.js';
-import { DT, PITCH_HALF_L, WALL_X, NET_BOT_DEPTH, BALL_R } from '../packages/client/src/core/constants.js';
+import { World, Player, KeeperController, makeConfig } from '../packages/client/src/core/world-entry.js';
+import {
+  DT, PITCH_HALF_L, WALL_X, NET_BOT_DEPTH, BALL_R,
+  JUMP_COOLDOWN, SLIDE_WINDOW, KEEPER_HOLD_TIME,
+} from '../packages/client/src/core/constants.js';
 
 // Deterministic harness: the bots jitter their targets and ragdolls pick a
 // random tumble, so an unseeded run can drift a keeper a few centimetres and
@@ -388,6 +391,198 @@ for (const [name, sign] of [['swallow B', 1], ['swallow A', -1]]) {
     `v=${ballKicked.toFixed(1)}`);
   check('slide: opponent flattened', victimDown);
   check('slide: tackler recovers', tackler.dive === 0 && tackler.diveRecover === 0);
+}
+
+// 6e) jumping: height/hang-time band, no double-jump, landing cooldown
+{
+  const p = new Player(0);
+  let peak = 0, landed = null;
+  const started = p.startJump();
+  for (let f = 0; f < Math.round(1.2 / DT); f++) {
+    p.integrate(DT);
+    peak = Math.max(peak, p.jumpY);
+    if (landed === null && f > 0 && p.jumpY === 0) landed = (f + 1) * DT;
+  }
+  check('jump: takes off', started === true);
+  check('jump: rises within the documented height band (0.85-1.05 m)',
+    peak > 0.85 && peak < 1.05, `peak=${peak.toFixed(3)} m`);
+  check('jump: back on the ground within the documented hang time (<1.0 s)',
+    landed !== null && landed < 1.0, `landed at ${landed?.toFixed(2)} s`);
+  check('jump: a landing cooldown is armed', p.jumpCooldown > 0,
+    `cooldown=${p.jumpCooldown.toFixed(2)} s`);
+}
+{
+  const p = new Player(0);
+  const first = p.startJump();
+  const midAirHeight = p.jumpY;
+  const second = p.startJump(); // still airborne — must refuse
+  check('jump: no double-jump while airborne',
+    first === true && second === false && p.jumpY === midAirHeight);
+  for (let f = 0; f < Math.round(1.2 / DT); f++) p.integrate(DT); // land
+  const early = p.startJump(); // cooldown still running
+  check('jump: cooldown blocks an immediate re-jump after landing', early === false);
+  for (let f = 0; f < Math.round((JUMP_COOLDOWN + 0.05) / DT); f++) p.integrate(DT);
+  const later = p.startJump();
+  check('jump: jump is available again once the cooldown expires', later === true);
+}
+
+// 6f) jump extends reach: a ball above standing reach is untouchable to a
+//     grounded player and becomes reachable mid-leap, same position, same ball
+{
+  const w = new World();
+  const p = w.addPlayer(0);
+  p.reset(0, 0);
+  w.ball.place(0.3, 0);
+  w.ball.pos.y = 2.0; // above a standing player's ~1.7 m reach
+  w.ball.grounded = false;
+  w.collideBallPlayers();
+  check('jump: a standing player cannot touch a ball this high',
+    w.ball.lastTouch !== p.team, `lastTouch=${w.ball.lastTouch}`);
+
+  p.startJump();
+  for (let f = 0; f < Math.round(0.35 / DT); f++) p.integrate(DT); // rising toward the apex
+  w.ball.place(0.3, 0);
+  w.ball.pos.y = 2.0;
+  w.ball.grounded = false;
+  w.collideBallPlayers();
+  check('jump: the same ball, same spot, is reachable mid-leap',
+    w.ball.lastTouch === p.team, `lastTouch=${w.ball.lastTouch} jumpY=${p.jumpY.toFixed(2)}`);
+}
+
+// 6g) shoulder-to-shoulder: a fair shove costs the pusher pace and moves the
+//     victim off the ball's line; a reckless closing speed is a foul instead
+{
+  const w = new World();
+  const a = w.addPlayer(0); // the pusher
+  const b = w.addPlayer(1); // the victim
+  a.reset(-0.65, 0); a.vel = { x: 5, z: 0 };
+  b.reset(0, 0); b.vel = { x: -2, z: 0 }; // closing speed = 7 m/s, saturates the shove
+  const pusherBefore = a.speed();
+  w.collidePlayers();
+  const lossFrac = 1 - a.speed() / pusherBefore;
+  check('shoulder: pusher pays 20-35% of their own speed',
+    lossFrac > 0.20 && lossFrac < 0.35, `loss=${(lossFrac * 100).toFixed(1)}%`);
+  check('shoulder: victim is shoved off the line', b.vel.x > 0.5, `vx=${b.vel.x.toFixed(2)}`);
+  check('shoulder: a fair closing speed is not a foul',
+    w.drainEvents().every((e) => e.type !== 'foul'));
+}
+{
+  const w = new World();
+  const a = w.addPlayer(0);
+  const b = w.addPlayer(1);
+  a.reset(-0.65, 0); a.vel = { x: 9, z: 0 };
+  b.reset(0, 0); b.vel = { x: -4, z: 0 }; // closing speed = 13 m/s: a reckless charge
+  w.collidePlayers();
+  const events = w.drainEvents();
+  check('shoulder: a reckless closing speed is a foul on the charging side',
+    events.some((e) => e.type === 'foul' && e.team === 1), JSON.stringify(events));
+}
+{
+  // sustained contact reads as a cadence of jostles, not one shove per substep
+  const w = new World();
+  const a = w.addPlayer(0);
+  const b = w.addPlayer(1);
+  a.reset(-0.6, 0); a.input = { x: 1, z: 0 };
+  b.reset(0.6, 0); b.input = { x: -1, z: 0 };
+  let shoves = 0;
+  for (let f = 0; f < Math.round(1.0 / DT); f++) {
+    w.step(DT);
+    for (const e of w.drainEvents()) if (e.type === 'shoulder') shoves++;
+  }
+  check('shoulder: cooldown caps repeated shoves over 1 s of contact',
+    shoves >= 1 && shoves <= 5, `count=${shoves}`);
+}
+
+// 6h) slide tackle timing window: a late, mistimed lunge is a foul even when
+//     it lands right next to the ball — the risk grows the longer the
+//     tackler has been committed to the ground without connecting
+{
+  const w = new World();
+  const tackler = w.addPlayer(0);
+  const victim = w.addPlayer(1);
+  tackler.reset(0, -3.25);
+  victim.reset(0, 0);
+  w.ball.place(0.1, 0.05); // right at the victim's feet: a "clean" tackle IF it lands in time
+  tackler.startSlide(0, 1);
+  let contactAt = null, foul = null;
+  fly(w, 1.5, (ev, f) => {
+    for (const e of ev) {
+      if (e.type === 'ragdoll' && contactAt === null) contactAt = (f + 1) * DT;
+      if (e.type === 'foul' && !foul) foul = e;
+    }
+  });
+  check('slide: the lunge lands after the clean-win window',
+    contactAt !== null && contactAt > SLIDE_WINDOW,
+    `contact at ${contactAt?.toFixed(2)} s (window ${SLIDE_WINDOW} s)`);
+  check('slide: a late challenge is a foul even with the ball right there',
+    foul !== null, JSON.stringify(foul));
+}
+
+// 6i) keeper hands: catch, hold, forced release; hand throw vs. foot
+//     clearance power; catching is gated to the box and to keepers only
+{
+  const w = new World();
+  const keeper = w.addPlayer(0, 'keeper');
+  keeper.reset(0, -(PITCH_HALF_L - 2));
+  w.ball.place(0.2, -(PITCH_HALF_L - 2.3));
+  w.ball.vel = { x: 0, y: 0, z: 0 };
+  const caught = w.tryCatch(keeper);
+  check('keeper: catches a slow ball inside the box', caught === true);
+  check('keeper: the ball is pinned to him', w.holder === keeper);
+  fly(w, 1.0);
+  check('keeper: still holding well under the hold limit', w.holder === keeper,
+    `holdTime=${w.holdTime.toFixed(2)} (limit ${KEEPER_HOLD_TIME})`);
+  fly(w, 3.0); // crosses the KEEPER_HOLD_TIME clock
+  check('keeper: the hold clock forces a release', w.holder === null);
+  check('keeper: the forced release put the ball back in play',
+    Math.hypot(w.ball.vel.x, w.ball.vel.z) > 5,
+    `v=${Math.hypot(w.ball.vel.x, w.ball.vel.z).toFixed(1)}`);
+}
+{
+  const w = new World();
+  const keeper = w.addPlayer(0, 'keeper');
+  keeper.reset(0, 0); // well outside the box
+  w.ball.place(0.2, 0);
+  check('keeper: cannot catch outside his own box', w.tryCatch(keeper) === false);
+
+  const p = w.addPlayer(0, 'field');
+  p.reset(0, -(PITCH_HALF_L - 2));
+  w.ball.place(0.2, -(PITCH_HALF_L - 2.3));
+  check('keeper: an outfield player cannot catch at all', w.tryCatch(p) === false);
+}
+{
+  const throwRun = (kind, charge) => {
+    const w = new World();
+    const keeper = w.addPlayer(0, 'keeper');
+    keeper.reset(0, -16);
+    keeper.facing = 0; // faces +z, upfield for a first-half team 0
+    w.ball.place(0.2, -15.8);
+    w.ball.vel = { x: 0, y: 0, z: 0 };
+    w.tryCatch(keeper);
+    w.releaseHold(keeper, kind, charge);
+    return Math.hypot(w.ball.vel.x, w.ball.vel.z);
+  };
+  const throwSpeed = throwRun('throw', 0);
+  const clearSpeed = throwRun('clear', 1.0);
+  check('keeper: a full foot clearance flies harder than the hand throw',
+    clearSpeed > throwSpeed, `throw=${throwSpeed.toFixed(1)} clear=${clearSpeed.toFixed(1)}`);
+  check('keeper: the clearance carries goal-kick distance',
+    clearSpeed > 20, `clear=${clearSpeed.toFixed(1)}`);
+}
+{
+  // grief lock: a release that curls straight back into the keeper's own net
+  // before anyone else touches it is voided, not scored
+  const w = new World();
+  const keeper = w.addPlayer(0, 'keeper');
+  keeper.reset(0, -17);
+  w.ball.place(0, -17.3);
+  w.tryCatch(keeper);
+  w.releaseHold(keeper, 'clear', 0);
+  w.ball.pos.x = 0; w.ball.pos.z = -18.05; // now over his own goal line
+  w.checkGoal(-17.9);
+  check('keeper: grief lock voids an own-net bounce right off the release',
+    w.holder === keeper && w.scoringLocked === false,
+    `holder=${w.holder === keeper} locked=${w.scoringLocked}`);
 }
 
 // 7) both nets idle-settle, everything stays finite

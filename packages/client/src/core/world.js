@@ -7,7 +7,12 @@ import {
   PITCH_HALF_L, WALL_X, WALL_Z_BACK,
   PLAYER_R, PLAYER_H,
   KICK_RANGE, KICK_ASSIST, KICK_MIN, KICK_MAX, LOFT_MIN, LOFT_MAX,
-  RAGDOLL_SPEED, BOARD_TOP, NET_GRIP, FOUL_BALL_DIST,
+  RAGDOLL_SPEED, BOARD_TOP, NET_GRIP, FOUL_BALL_DIST, SLIDE_WINDOW,
+  BOX_HALF_W, BOX_DEPTH,
+  SHOULDER_MIN_SPEED, SHOULDER_MAX_SPEED, SHOULDER_FOUL_SPEED,
+  SHOULDER_PUSH, SHOULDER_DRAG, SHOULDER_COOLDOWN,
+  KEEPER_CATCH_REACH, KEEPER_CATCH_MAX_Y, KEEPER_HOLD_TIME,
+  KEEPER_THROW_SPEED, KEEPER_CLEAR_MIN, KEEPER_CLEAR_MAX, GRIEF_LOCK_TIME,
 } from './constants.js';
 import { makeConfig } from './config.js';
 
@@ -46,6 +51,14 @@ export class World {
     // restart possession: only this team may touch the ball (null = anyone).
     // Cleared automatically on their first touch.
     this.restartTeam = null;
+    // keeper hands: the player currently holding the ball (or null), and the
+    // forced-release clock. See tryCatch()/releaseHold()/pinHeldBall().
+    this.holder = null;
+    this.holdTime = 0;
+    // grief lock: a released hold cannot self-concede for this player's team
+    // until either the clock runs out or someone else touches the ball first.
+    this.griefKeeper = null;
+    this.griefUntil = 0;
     // second half: the teams have changed ends. Every "which way does this
     // team attack" question in the sim goes through attackSign(), so flipping
     // this single flag turns the pitch around for scoring, aim assist, the
@@ -94,6 +107,22 @@ export class World {
         this.events.length = 0;
         continue;
       }
+      if (this.holder) {
+        // ball is pinned in the keeper's hands: nets still relax and players
+        // still move and jostle each other, but the ball itself sits out of
+        // the physics loop until it is thrown, cleared, or the hold clock
+        // forces a release. See pinHeldBall()/releaseHold().
+        for (const p of this.players) p.integrate(h);
+        this.collidePlayers();
+        this.enforceRestartZone();
+        for (const net of this.nets) net.collideGround();
+        for (const net of this.nets) net.updateVelocities(h);
+        this.pinHeldBall();
+        this.holdTime -= h;
+        if (this.holdTime <= 0) this.releaseHold(this.holder, 'clear', 1);
+        continue;
+      }
+
       // Snapshot "was the ball inside the arena" BEFORE anything can move it.
       // The board rebound needs to know where the ball came from, and it must
       // not read ball.prev for that: player depenetration shifts prev along
@@ -140,20 +169,34 @@ export class World {
     const b = this.ball.pos;
     const inMouth = Math.abs(b.x) < this.halfW - 0.02 && b.y < this.config.goalH - 0.02;
     if (!inMouth) return;
-    if (prevZ > -PITCH_HALF_L && b.z <= -PITCH_HALF_L) {
-      this.scoringLocked = true;
-      // into goal A: credited to whichever team is attacking this end
-      this.events.push({ type: 'goal', scorer: this.scorerAt(-PITCH_HALF_L) });
-    } else if (prevZ < PITCH_HALF_L && b.z >= PITCH_HALF_L) {
-      this.scoringLocked = true;
-      this.events.push({ type: 'goal', scorer: this.scorerAt(PITCH_HALF_L) });
+    let goalZ = null;
+    if (prevZ > -PITCH_HALF_L && b.z <= -PITCH_HALF_L) goalZ = -PITCH_HALF_L;
+    else if (prevZ < PITCH_HALF_L && b.z >= PITCH_HALF_L) goalZ = PITCH_HALF_L;
+    if (goalZ === null) return;
+    const scorer = this.scorerAt(goalZ);
+    // grief lock: a keeper's own release cannot self-concede if it curls
+    // straight back into his net before anyone else has touched it — give
+    // the ball back to his hands and let him take the clearance again.
+    if (this.griefKeeper && this.time < this.griefUntil &&
+        scorer !== this.griefKeeper.team && this.ball.lastTouch === this.griefKeeper.team) {
+      this.events.push({ type: 'grief-void', team: this.griefKeeper.team });
+      this.holder = this.griefKeeper;
+      this.holdTime = KEEPER_HOLD_TIME;
+      this.pinHeldBall();
+      this.griefKeeper = null;
+      return;
     }
+    this.scoringLocked = true;
+    this.griefKeeper = null;
+    this.events.push({ type: 'goal', scorer });
   }
 
   collidePlayers() {
     const ps = this.players;
     // player vs player: positional half-half separation; a sliding tackle
-    // that reaches an opponent takes them down
+    // that reaches an opponent takes them down; two opposing players pressed
+    // together while running can lean and shove (builds on the same contact,
+    // does not duplicate it)
     for (let i = 0; i < ps.length; i++) {
       for (let j = i + 1; j < ps.length; j++) {
         const a = ps[i], b = ps[j];
@@ -164,14 +207,21 @@ export class World {
         const push = (rSum - d) / (2 * d);
         a.pos.x -= dx * push; a.pos.z -= dz * push;
         b.pos.x += dx * push; b.pos.z += dz * push;
+        const nx = dx / d, nz = dz / d; // unit normal, a -> b
         for (const [s, t] of [[a, b], [b, a]]) {
           if (s.dive > 0 && s.diveKind === 'slide' && s.team !== t.team &&
               t.down <= 0 && t.dive <= 0) {
-            // a tackle that reaches the ball is fair however hard it lands;
-            // one that only reaches the man, with the ball nowhere near, is
-            // a foul. Measure before the knockdown so the shove cannot move
-            // the verdict.
-            const wonBall = Math.hypot(this.ball.pos.x - s.pos.x,
+            // risk/reward timing window: EARLY in the slide (within
+            // SLIDE_WINDOW of leaving the feet) a challenge that also reaches
+            // the ball is a clean win; one that only reaches the man is a
+            // foul, same as before. LATE in the slide — still sliding, but
+            // past the committed lunge — any contact with an opponent is a
+            // mistimed, trailing-leg challenge and is always a foul, however
+            // close the ball is: the longer the tackler is committed to the
+            // ground without connecting, the worse the challenge that lands.
+            const elapsed = s.diveTotal - s.dive;
+            const inWindow = elapsed <= SLIDE_WINDOW;
+            const wonBall = inWindow && Math.hypot(this.ball.pos.x - s.pos.x,
               this.ball.pos.z - s.pos.z) <= FOUL_BALL_DIST;
             t.knockDown(s.diveDir.x, s.diveDir.z, 13);
             if (t.down > 0) {
@@ -182,6 +232,41 @@ export class World {
                   type: 'foul', team: t.team, x: t.pos.x, z: t.pos.z,
                 });
               }
+            }
+          }
+        }
+        // shoulder-to-shoulder: opposing players only, neither already
+        // sliding/floored/diving, and off cooldown so sustained running
+        // side by side reads as a cadence of jostles rather than every
+        // substep re-triggering the push.
+        if (a.team !== b.team && a.down <= 0 && b.down <= 0 &&
+            a.dive <= 0 && b.dive <= 0 &&
+            a.shoveCooldown <= 0 && b.shoveCooldown <= 0) {
+          const relX = a.vel.x - b.vel.x, relZ = a.vel.z - b.vel.z;
+          // closing speed along the contact normal: >0 means a is driving
+          // into b, <0 means b is driving into a
+          const closing = relX * nx + relZ * nz;
+          const closingAbs = Math.abs(closing);
+          if (closingAbs > SHOULDER_MIN_SPEED) {
+            const pusher = closing > 0 ? a : b;
+            const victim = closing > 0 ? b : a;
+            const dir = closing > 0 ? 1 : -1;
+            pusher.shoveCooldown = SHOULDER_COOLDOWN;
+            victim.shoveCooldown = SHOULDER_COOLDOWN;
+            if (closingAbs > SHOULDER_FOUL_SPEED) {
+              // a reckless, near-full-sprint collision — a foul, not a shove
+              this.events.push({
+                type: 'foul', team: victim.team, x: victim.pos.x, z: victim.pos.z,
+              });
+            } else {
+              const t = Math.min(1, (closingAbs - SHOULDER_MIN_SPEED) /
+                (SHOULDER_MAX_SPEED - SHOULDER_MIN_SPEED));
+              victim.vel.x += nx * dir * SHOULDER_PUSH * t;
+              victim.vel.z += nz * dir * SHOULDER_PUSH * t;
+              // leaning into the shove costs the pusher his own pace
+              const drag = 1 - SHOULDER_DRAG * t;
+              pusher.vel.x *= drag; pusher.vel.z *= drag;
+              this.events.push({ type: 'shoulder', team: pusher.team });
             }
           }
         }
@@ -247,6 +332,10 @@ export class World {
         cvx: closing < 0 ? 0 : p.vel.x, cvz: closing < 0 ? 0 : p.vel.z,
       });
       b.lastTouch = p.team;
+      // the grief lock only guards a hold's OWN release bouncing straight
+      // back in untouched; anyone else touching the ball first — team-mate
+      // or opponent — ends the protection immediately
+      if (this.griefKeeper && p !== this.griefKeeper) this.griefKeeper = null;
       if (this.restartTeam === p.team) this.restartTeam = null; // restart taken
       // a screamer flattens whoever it hits
       const relX = b.vel.x - p.vel.x, relZ = b.vel.z - p.vel.z;
@@ -478,6 +567,7 @@ export class World {
   // kick and the aim preview so they can never disagree.
   kickParams(player, charge, rangeBonus = 0) {
     const b = this.ball;
+    if (this.holder) return null; // pinned in a keeper's hands — release it instead
     if (b.pos.y > 2.15) return null;
     // above knee height it becomes a header: shorter reach, less power, flat
     const header = b.pos.y > 1.15;
@@ -546,9 +636,84 @@ export class World {
     return p.header ? 'header' : true;
   }
 
+  // ------------------------------------------------------ keeper hands
+
+  // Where a held ball sits: tight to the keeper's chest, on the side he is
+  // facing, so a release (throw/clear) always fires from in front of him.
+  pinHeldBall() {
+    const p = this.holder;
+    const b = this.ball;
+    const dist = PLAYER_R + BALL_R + 0.05;
+    const x = p.pos.x + Math.sin(p.facing) * dist;
+    const z = p.pos.z + Math.cos(p.facing) * dist;
+    const y = 1.05;
+    b.pos.x = x; b.pos.y = y; b.pos.z = z;
+    b.prev.x = x; b.prev.y = y; b.prev.z = z;
+    b.vel.x = 0; b.vel.y = 0; b.vel.z = 0;
+    b.omega.x = 0; b.omega.y = 0; b.omega.z = 0;
+    b.grounded = false;
+  }
+
+  // Catch: a keeper (only) can pin a slow, low ball inside his own box.
+  // Extends the existing keeper logic rather than replacing the instant
+  // clearance kick — a catch just interposes a hold before the release.
+  tryCatch(player) {
+    if (player.role !== 'keeper' || this.holder) return false;
+    if (player.down > 0 || player.dive > 0) return false;
+    if (this.restartTeam !== null && player.team !== this.restartTeam) return false;
+    const b = this.ball;
+    if (b.pos.y > KEEPER_CATCH_MAX_Y) return false;
+    const ownGoalZ = -this.attackSign(player.team) * PITCH_HALF_L;
+    const inBox = Math.abs(b.pos.x) < BOX_HALF_W && Math.abs(b.pos.z - ownGoalZ) < BOX_DEPTH;
+    if (!inBox) return false;
+    const d = Math.hypot(b.pos.x - player.pos.x, b.pos.z - player.pos.z);
+    if (d > PLAYER_R + BALL_R + KEEPER_CATCH_REACH) return false;
+    this.holder = player;
+    this.holdTime = KEEPER_HOLD_TIME;
+    this.griefKeeper = null; // a fresh catch retires any stale grief window
+    this.pinHeldBall();
+    b.lastTouch = player.team;
+    if (this.restartTeam === player.team) this.restartTeam = null;
+    this.events.push({ type: 'catch', team: player.team });
+    return true;
+  }
+
+  // Release a held ball. 'throw' is the hand throw: flat, medium, uncharged.
+  // 'clear' is the foot clearance: chargeable like a normal kick but with its
+  // own (stronger) power band — the goal-kick-style boot.
+  releaseHold(player, kind = 'clear', charge = 1) {
+    if (this.holder !== player) return false;
+    const b = this.ball;
+    this.holder = null;
+    const dirX = Math.sin(player.facing), dirZ = Math.cos(player.facing);
+    if (kind === 'throw') {
+      b.vel = { x: dirX * KEEPER_THROW_SPEED, y: 2.4, z: dirZ * KEEPER_THROW_SPEED };
+      b.omega = { x: 0, y: 0, z: 0 };
+    } else {
+      const speed = KEEPER_CLEAR_MIN + (KEEPER_CLEAR_MAX - KEEPER_CLEAR_MIN) * charge;
+      const loft = LOFT_MIN + (LOFT_MAX - LOFT_MIN) * charge * 1.3;
+      const cosL = Math.cos(loft), sinL = Math.sin(loft);
+      b.vel = {
+        x: dirX * cosL * speed, y: sinL * speed, z: dirZ * cosL * speed,
+      };
+      b.omega = { x: -dirZ * 6, y: 0, z: dirX * 6 };
+    }
+    b.prev = { ...b.pos };
+    b.grounded = false;
+    b.lastTouch = player.team;
+    this.griefKeeper = player;
+    this.griefUntil = this.time + GRIEF_LOCK_TIME;
+    this.events.push({ type: 'keeper-release', team: player.team, kind });
+    return true;
+  }
+
   placeBall(x, z) {
     this.ball.place(x, z);
     this.scoringLocked = false;
+    // a fresh restart cannot inherit a stale hold from before it
+    this.holder = null;
+    this.holdTime = 0;
+    this.griefKeeper = null;
   }
 
   drainEvents() {

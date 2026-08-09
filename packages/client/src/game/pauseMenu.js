@@ -17,7 +17,7 @@ export function loadWeather() {
 
 const KEY_ROWS = [
   ['Yukarı', 'up'], ['Aşağı', 'down'], ['Sol', 'left'], ['Sağ', 'right'],
-  ['Şut', 'kick'], ['Kayma', 'slide'],
+  ['Şut', 'kick'], ['Kayma', 'slide'], ['Zıpla', 'jump'],
 ];
 
 function keyLabel(code) {
