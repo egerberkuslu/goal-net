@@ -566,5 +566,79 @@ const PERF_RATIO_MAX = 1.95;
     `${ratio.toFixed(2)}x calibration (${ms.toFixed(2)} ms/frame, calib ${cal.toFixed(2)} ms)`);
 }
 
+// ---------------------------------------------------------------- wind
+//
+// Wind used to exist twice and be neither: a fixed sine in the net's
+// integrator and a hardcoded slant on the rain, with the ball feeling nothing.
+// These check that one air velocity now reaches everything, and that calm is
+// still exactly the game everyone has been playing.
+{
+  const { setWind, calmWind, windAt, windBase } = await import('../packages/client/src/core/wind.js');
+
+  calmWind();
+  const calm = windAt(12.5);
+  check('calm air is still air', calm.x === 0 && calm.y === 0 && calm.z === 0,
+    JSON.stringify(calm));
+
+  // A ball dropped from height in a crosswind must drift downwind, and a ball
+  // dropped in calm must not move sideways at all.
+  const drop = () => {
+    const w = new World();
+    w.ball.pos.x = 0; w.ball.pos.y = 6; w.ball.pos.z = 0;
+    w.ball.prev.x = 0; w.ball.prev.y = 6; w.ball.prev.z = 0;
+    w.ball.vel.x = 0; w.ball.vel.y = 0; w.ball.vel.z = 0;
+    w.ball.omega.x = 0; w.ball.omega.y = 0; w.ball.omega.z = 0;
+    for (let i = 0; i < 120; i++) w.step(1 / 60);
+    return { x: w.ball.pos.x, z: w.ball.pos.z };
+  };
+
+  calmWind();
+  const still = drop();
+  check('a ball dropped in calm air falls straight',
+    Math.abs(still.x) < 0.02 && Math.abs(still.z) < 0.02,
+    `x ${still.x.toFixed(3)} z ${still.z.toFixed(3)}`);
+
+  setWind(Math.PI / 2, 8);           // blowing towards +x
+  const blown = drop();
+  calmWind();
+  check('the same ball drifts downwind',
+    blown.x > 0.25 && Math.abs(blown.z) < 0.15,
+    `x ${blown.x.toFixed(3)} z ${blown.z.toFixed(3)}`);
+
+  // Into the wind a struck ball must fall SHORT of the same strike in calm:
+  // that is the whole point of modelling air-relative velocity rather than
+  // adding a push.
+  const drive = () => {
+    const w = new World();
+    w.ball.pos.x = 0; w.ball.pos.y = 0.2; w.ball.pos.z = -12;
+    w.ball.prev.x = 0; w.ball.prev.y = 0.2; w.ball.prev.z = -12;
+    w.ball.vel.x = 0; w.ball.vel.y = 6; w.ball.vel.z = 18;
+    w.ball.omega.x = 0; w.ball.omega.y = 0; w.ball.omega.z = 0;
+    for (let i = 0; i < 90; i++) w.step(1 / 60);
+    return w.ball.pos.z;
+  };
+  calmWind();
+  const calmReach = drive();
+  setWind(Math.PI, 9);               // straight back down the pitch, towards -z
+  const intoWind = drive();
+  calmWind();
+  check('a drive into the wind falls short of the same drive in calm',
+    intoWind < calmReach - 0.3,
+    `calm ${calmReach.toFixed(2)} m, into wind ${intoWind.toFixed(2)} m`);
+
+  // and the gust must actually vary, without ever reversing the prevailing air
+  setWind(Math.PI / 2, 6);
+  let lo = Infinity, hi = -Infinity;
+  for (let t = 0; t < 40; t += 0.25) {
+    const s = windAt(t).x;
+    lo = Math.min(lo, s); hi = Math.max(hi, s);
+  }
+  check('gusts vary the speed without reversing it', lo > 0 && hi > lo * 1.2,
+    `${lo.toFixed(2)} to ${hi.toFixed(2)} m/s`);
+  check('the prevailing speed is reported for the HUD',
+    Math.round(windBase().speed) === 6, `${windBase().speed.toFixed(2)} m/s`);
+  calmWind();
+}
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

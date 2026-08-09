@@ -2,6 +2,7 @@ import {
   BALL_R, BALL_M, BALL_A, GRAV, RHO_AIR, CD_BALL,
   REST_GROUND, REST_POST, REST_WALL, REST_PLAYER,
 } from './constants.js';
+import { windAt } from './wind.js';
 
 const REST = {
   ground: REST_GROUND,
@@ -30,20 +31,27 @@ export class Ball {
     this.grounded = true;
   }
 
-  accel() {
+  accel(time = 0) {
     const { vel, omega } = this;
-    const speed = Math.hypot(vel.x, vel.y, vel.z);
+    // Air-relative velocity, not ground velocity. Drag and Magnus are forces
+    // the AIR exerts, so with a crosswind blowing the net beside it a ball at
+    // rest in the air still feels a push, and a ball hit into the wind holds
+    // up and drops short. See core/wind.js for why this is a subtraction and
+    // not an added force.
+    const w = windAt(time);
+    const rx = vel.x - w.x, ry = vel.y - w.y, rz = vel.z - w.z;
+    const speed = Math.hypot(rx, ry, rz);
     let ax = 0, ay = -GRAV, az = 0;
     if (speed > 1e-3) {
       const fd = -0.5 * RHO_AIR * CD_BALL * BALL_A * speed / BALL_M;
-      ax += fd * vel.x; ay += fd * vel.y; az += fd * vel.z;
+      ax += fd * rx; ay += fd * ry; az += fd * rz;
       const wMag = Math.hypot(omega.x, omega.y, omega.z);
       if (wMag > 0.5) {
         const cl = 1 / (2 + speed / (BALL_R * wMag));
-        // direction of Magnus force: omega x v
-        let mx = omega.y * vel.z - omega.z * vel.y;
-        let my = omega.z * vel.x - omega.x * vel.z;
-        let mz = omega.x * vel.y - omega.y * vel.x;
+        // direction of Magnus force: omega x v_air
+        let mx = omega.y * rz - omega.z * ry;
+        let my = omega.z * rx - omega.x * rz;
+        let mz = omega.x * ry - omega.y * rx;
         const mLen = Math.hypot(mx, my, mz);
         if (mLen > 1e-6) {
           const fm = 0.5 * RHO_AIR * BALL_A * cl * speed * speed / (BALL_M * mLen);
@@ -54,9 +62,9 @@ export class Ball {
     return { ax, ay, az };
   }
 
-  integrate(h) {
+  integrate(h, time = 0) {
     const { pos, prev, vel } = this;
-    const { ax, ay, az } = this.accel();
+    const { ax, ay, az } = this.accel(time);
     vel.x += ax * h; vel.y += ay * h; vel.z += az * h;
     prev.x = pos.x; prev.y = pos.y; prev.z = pos.z;
     pos.x += vel.x * h; pos.y += vel.y * h; pos.z += vel.z * h;

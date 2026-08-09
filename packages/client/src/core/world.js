@@ -102,7 +102,7 @@ export class World {
       // corner escaped the pitch and stayed there.
       ball.wasInsideX = Math.abs(ball.pos.x) < WALL_X - BALL_R + 0.02;
       ball.wasInsideZ = Math.abs(ball.pos.z) < PITCH_HALF_L - BALL_R + 0.02;
-      ball.integrate(h);
+      ball.integrate(h, this.time);
       for (const p of this.players) p.integrate(h);
 
       this.netContact = false;

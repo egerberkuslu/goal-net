@@ -54,9 +54,14 @@ export default defineConfig({
     outDir: '../../dist',
     emptyOutDir: true,
     rollupOptions: {
+      // One entry document. arena.html is retired (2026-08-09): the two games
+      // are one game now, and shipping a second door to a second stack was the
+      // thing that made the project feel like two projects. The arena sources
+      // stay in the tree — the deterministic core, the netcode, the bots and
+      // the replay format are what the single game is being built onto — but
+      // nothing links to that page and the build no longer emits it.
       input: {
         main: resolve(import.meta.dirname, 'packages/client/index.html'),
-        arena: resolve(import.meta.dirname, 'packages/client/arena.html'),
       },
     },
   },

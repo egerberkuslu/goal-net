@@ -3,6 +3,7 @@ import {
   COMPLIANCE_STRUCT, COMPLIANCE_SHEAR, COMPLIANCE_STITCH, STRAIN_LIMIT,
 } from './constants.js';
 import { makeConfig } from './config.js';
+import { windAt } from './wind.js';
 
 // The net is one parametric main sheet (width columns x depth profile) draped
 // from the crossbar over the back frame, plus two side panels stitched to the
@@ -30,6 +31,15 @@ function buildProfile(goalH) {
   out.push({ z: pts[2].z, y: pts[2].y });
   return { profile: out, kinkIndex };
 }
+
+/**
+ * How hard the air drags a cord towards its own speed, per second.
+ *
+ * A net is mostly hole, so it takes far less of the wind than a sail would:
+ * at 2.2 a 6 m/s crosswind bellies the net a few centimetres and a gust is
+ * visible, while a shot still snaps it without the air fighting the impulse.
+ */
+const NET_DRAG = 2.2;
 
 export class Net {
   // Built at the origin (goal line z=0, mouth facing +z, net draping to -z),
@@ -168,11 +178,18 @@ export class Net {
   integrate(h, time) {
     const { pos, prev, vel, invMass, count } = this;
     const damp = Math.exp(-2.2 * h);
+    const w = windAt(time);
     for (let i = 0; i < count; i++) {
       if (invMass[i] === 0) continue;
       const o = i * 3;
       vel[o + 1] -= 9.81 * h;
-      // gentle ambient breeze so the net idles alive
+      // The cord feels the same air the ball does. The old line here was a
+      // fixed sine along z with no relation to anything — the net idled, but
+      // it idled in a direction the weather did not agree with. Now the net
+      // leans downwind, and the per-node ripple rides on top so a still day
+      // still has a living net rather than a frozen one.
+      vel[o] += (w.x - vel[o]) * NET_DRAG * h;
+      vel[o + 2] += (w.z - vel[o + 2]) * NET_DRAG * h;
       vel[o + 2] += 0.05 * Math.sin(time * 0.8 + pos[o] * 0.9) * h;
       vel[o] *= damp; vel[o + 1] *= damp; vel[o + 2] *= damp;
       prev[o] = pos[o]; prev[o + 1] = pos[o + 1]; prev[o + 2] = pos[o + 2];
