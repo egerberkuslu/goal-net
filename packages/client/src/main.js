@@ -81,7 +81,9 @@ function buildMatch(config, roster = null, opts = {}) {
     .filter((p) => p.role === 'field')
     .map((p) => new AimView(p, app.world, scene));
   recorder.reset(app.world);
-  window.__game = { ...app, session };
+  // fx is on the hook so weather can be driven from the console and from the
+  // headless visual checks; the pause menu is the player-facing switch.
+  window.__game = { ...app, session, fx };
   return app;
 }
 

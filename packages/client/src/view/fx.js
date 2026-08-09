@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { windAt } from '../core/wind.js';
 import { STAND_INFO } from './crowdView.js';
 
 // Atmosphere effects layer: goal confetti and rain. Both are pooled
@@ -7,7 +8,7 @@ import { STAND_INFO } from './crowdView.js';
 // while the match runs.
 //
 //   const fx = new Fx(scene);
-//   fx.setWeather('yagmur');        // 'acik' | 'yagmur'
+//   fx.setWeather('yagmur');        // 'acik' | 'yagmur' | 'kar'
 //   fx.onGoal(scorerTeam, zsign);   // burst from the stands behind that goal
 //   fx.update(dt);                  // once per frame
 //
@@ -32,6 +33,15 @@ const RAIN_TILT = 0.13;          // radians of wind lean
 const RAIN_HALF_X = 17;
 const RAIN_HALF_Z = 27;
 
+// Snow. Slower and smaller than rain, and it does not streak: a flake at
+// 1.1 m/s covers 18 mm in a frame, so it reads as a dot that drifts, which is
+// why these are little quads on a sway rather than scaled streaks.
+const SNOW_COUNT = 900;
+const SNOW_TOP = 13;
+const SNOW_FALL = 1.1;           // m/s downward, before the wind
+const SNOW_SWAY = 0.55;          // metres of side-to-side wander
+const SNOW_SIZE = 0.055;
+
 // Fog / light treatment applied by applyWeatherToScene().
 const RAIN_FOG_COLOR = 0x060b18;
 const RAIN_FOG_NEAR = 34;
@@ -55,7 +65,7 @@ function mulberry32(seed) {
   };
 }
 
-export const WEATHER_MODES = ['acik', 'yagmur'];
+export const WEATHER_MODES = ['acik', 'yagmur', 'kar'];
 
 export class Fx {
   constructor(scene) {
@@ -65,7 +75,7 @@ export class Fx {
     this.confettiActive = 0;
     // Allocation counters: the whole point of the pools is that these stop
     // growing after the first use, so the test can assert on them.
-    this.allocations = { confetti: 0, rain: 0, sheen: 0 };
+    this.allocations = { confetti: 0, rain: 0, sheen: 0, snow: 0 };
     this._rnd = mulberry32(0xc0ffee);
     this._m = new THREE.Matrix4();
     this._p = new THREE.Vector3();
@@ -75,6 +85,7 @@ export class Fx {
     this._col = new THREE.Color();
     this._sceneBase = null;
     this.rain = null;
+    this.snow = null;
     this.sheen = null;
     this.#buildConfetti();
   }
@@ -224,9 +235,11 @@ export class Fx {
     this.rain.castShadow = false;
     this.rain.receiveShadow = false;
     this.rain.renderOrder = 2;
-    // Streaks share one orientation (wind lean), so the per-frame work is a
-    // straight position write into a prepared matrix instead of a compose().
+    // Streaks share one orientation, rebuilt once a frame from the wind — it
+    // used to be a hardcoded lean with a hardcoded +x drift, which meant the
+    // rain fell one way while the net beside it blew another.
     this._rainBase = new THREE.Matrix4().makeRotationZ(RAIN_TILT);
+    this._rainEuler = new THREE.Euler();
     this.#writeRain();
     this.scene.add(this.rain);
     this.allocations.rain++;
@@ -242,13 +255,28 @@ export class Fx {
     r.speed[i] = RAIN_SPEED * (0.85 + rnd() * 0.35);
   }
 
+  /** Lean the whole column into the wind, once per frame. */
+  #rainOrientation() {
+    const w = windAt(this.time);
+    // A streak falling at RAIN_SPEED through air moving sideways at w leans by
+    // atan(w / fall). Both axes, so a wind across the pitch tilts it out of the
+    // camera plane rather than only along x.
+    this._rainEuler.set(Math.atan2(w.z, RAIN_SPEED), 0, -Math.atan2(w.x, RAIN_SPEED));
+    this._rainBase.makeRotationFromEuler(this._rainEuler);
+    return w;
+  }
+
   #writeRain() {
     const r = this.r;
+    const b = this._rainBase.elements;
     const m = this._m.copy(this._rainBase);
     for (let i = 0; i < RAIN_COUNT; i++) {
-      // scale the streak along y in place, then drop the translation in
-      m.elements[4] = -Math.sin(RAIN_TILT) * r.len[i];
-      m.elements[5] = Math.cos(RAIN_TILT) * r.len[i];
+      // Scale the local Y axis (column 1) by the streak length. Writing the
+      // column rather than two fixed entries is what lets the base matrix be a
+      // full rotation instead of a Z-only one.
+      m.elements[4] = b[4] * r.len[i];
+      m.elements[5] = b[5] * r.len[i];
+      m.elements[6] = b[6] * r.len[i];
       m.elements[12] = r.x[i];
       m.elements[13] = r.y[i];
       m.elements[14] = r.z[i];
@@ -259,14 +287,109 @@ export class Fx {
 
   #updateRain(dt) {
     const r = this.r;
-    const drift = 2.1 * dt; // wind pushes the column along +x as it falls
+    const w = this.#rainOrientation();
+    const dx = w.x * dt;
+    const dz = w.z * dt;
     for (let i = 0; i < RAIN_COUNT; i++) {
       r.y[i] -= r.speed[i] * dt;
-      r.x[i] += drift;
+      r.x[i] += dx;
+      r.z[i] += dz;
       if (r.y[i] < 0) this.#seedDrop(i, RAIN_TOP + this._rnd() * 2);
-      else if (r.x[i] > RAIN_HALF_X) r.x[i] -= RAIN_HALF_X * 2;
+      else {
+        // wrap rather than reseed: a drop crossing the column edge is the same
+        // drop, and reseeding it would thin the near edge in a steady wind
+        if (r.x[i] > RAIN_HALF_X) r.x[i] -= RAIN_HALF_X * 2;
+        else if (r.x[i] < -RAIN_HALF_X) r.x[i] += RAIN_HALF_X * 2;
+        if (r.z[i] > RAIN_HALF_Z) r.z[i] -= RAIN_HALF_Z * 2;
+        else if (r.z[i] < -RAIN_HALF_Z) r.z[i] += RAIN_HALF_Z * 2;
+      }
     }
     this.#writeRain();
+  }
+
+
+  // -------------------------------------------------------------------- snow
+
+  #buildSnow() {
+    if (this.snow) return;
+    const n = SNOW_COUNT;
+    const rnd = this._rnd;
+    this.s = {
+      x: new Float32Array(n), y: new Float32Array(n), z: new Float32Array(n),
+      // where the flake would be with no sway, so the wander never accumulates
+      baseX: new Float32Array(n), baseZ: new Float32Array(n),
+      phase: new Float32Array(n), rate: new Float32Array(n),
+      speed: new Float32Array(n), size: new Float32Array(n),
+    };
+    for (let i = 0; i < n; i++) this.#seedFlake(i, rnd() * SNOW_TOP);
+
+    const geo = new THREE.PlaneGeometry(SNOW_SIZE, SNOW_SIZE);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xf4f8ff, transparent: true, opacity: 0.9,
+      depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
+    });
+    this.snow = new THREE.InstancedMesh(geo, mat, n);
+    this.snow.frustumCulled = false;
+    this.snow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.snow.castShadow = false;
+    this.snow.receiveShadow = false;
+    this.snow.renderOrder = 2;
+    this.#writeSnow();
+    this.scene.add(this.snow);
+    this.allocations.snow++;
+  }
+
+  #seedFlake(i, y) {
+    const rnd = this._rnd;
+    const f = this.s;
+    f.baseX[i] = (rnd() * 2 - 1) * RAIN_HALF_X;
+    f.baseZ[i] = (rnd() * 2 - 1) * RAIN_HALF_Z;
+    f.x[i] = f.baseX[i];
+    f.z[i] = f.baseZ[i];
+    f.y[i] = y;
+    f.phase[i] = rnd() * Math.PI * 2;
+    f.rate[i] = 0.6 + rnd() * 1.1;       // its own wander frequency
+    f.speed[i] = SNOW_FALL * (0.7 + rnd() * 0.6);
+    f.size[i] = 0.7 + rnd() * 0.8;
+  }
+
+  #writeSnow() {
+    const f = this.s;
+    const m = this._m;
+    for (let i = 0; i < SNOW_COUNT; i++) {
+      m.identity();
+      const k = f.size[i];
+      m.elements[0] = k; m.elements[5] = k; m.elements[10] = k;
+      m.elements[12] = f.x[i];
+      m.elements[13] = f.y[i];
+      m.elements[14] = f.z[i];
+      this.snow.setMatrixAt(i, m);
+    }
+    this.snow.instanceMatrix.needsUpdate = true;
+  }
+
+  #updateSnow(dt) {
+    const f = this.s;
+    const w = windAt(this.time);
+    for (let i = 0; i < SNOW_COUNT; i++) {
+      f.y[i] -= f.speed[i] * dt;
+      f.baseX[i] += w.x * dt;
+      f.baseZ[i] += w.z * dt;
+      if (f.y[i] < 0) {
+        this.#seedFlake(i, SNOW_TOP + this._rnd() * 2);
+        continue;
+      }
+      if (f.baseX[i] > RAIN_HALF_X) f.baseX[i] -= RAIN_HALF_X * 2;
+      else if (f.baseX[i] < -RAIN_HALF_X) f.baseX[i] += RAIN_HALF_X * 2;
+      if (f.baseZ[i] > RAIN_HALF_Z) f.baseZ[i] -= RAIN_HALF_Z * 2;
+      else if (f.baseZ[i] < -RAIN_HALF_Z) f.baseZ[i] += RAIN_HALF_Z * 2;
+      // The sway is a displacement from the drifting base, not an integration,
+      // so a flake wanders around its path instead of walking off it.
+      const t = this.time * f.rate[i] + f.phase[i];
+      f.x[i] = f.baseX[i] + Math.sin(t) * SNOW_SWAY;
+      f.z[i] = f.baseZ[i] + Math.cos(t * 0.7) * SNOW_SWAY * 0.6;
+    }
+    this.#writeSnow();
   }
 
   #buildSheen() {
@@ -308,10 +431,13 @@ export class Fx {
     if (next === 'yagmur') {
       this.#buildRain();
       this.#buildSheen();
+    } else if (next === 'kar') {
+      this.#buildSnow();
     }
     // Meshes are never torn down: clear weather just stops drawing them.
     if (this.rain) this.rain.visible = next === 'yagmur';
     if (this.sheen) this.sheen.visible = next === 'yagmur';
+    if (this.snow) this.snow.visible = next === 'kar';
     this.applyWeatherToScene(this.scene);
     return this.weather;
   }
@@ -359,10 +485,11 @@ export class Fx {
     this.time += d;
     if (this.confettiActive > 0) this.#updateConfetti(d);
     if (this.weather === 'yagmur' && this.rain) this.#updateRain(d);
+    else if (this.weather === 'kar' && this.snow) this.#updateSnow(d);
   }
 
   dispose() {
-    for (const mesh of [this.confetti, this.rain, this.sheen]) {
+    for (const mesh of [this.confetti, this.rain, this.sheen, this.snow]) {
       if (!mesh) continue;
       this.scene.remove(mesh);
       mesh.geometry.dispose();

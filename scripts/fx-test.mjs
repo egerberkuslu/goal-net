@@ -163,7 +163,42 @@ check('toggling allocates once and reuses the buffers',
   fx.allocations.rain === 1 && fx.allocations.sheen === 1
   && fx.rain === rainMesh && fx.r.y === rainBuf && added.length === 3,
   `alloc ${fx.allocations.rain}/${fx.allocations.sheen} added ${added.length}`);
-check('unknown weather falls back to clear', fx.setWeather('kar') === 'acik');
+check('unknown weather falls back to clear', fx.setWeather('sis') === 'acik');
+
+// snow: its own pool, its own pass, and it must not disturb the rain's
+{
+  const before = fx.allocations.rain;
+  check('snow is a real mode', fx.setWeather('kar') === 'kar');
+  check('snow allocates once', fx.allocations.snow === 1 && fx.snow !== null,
+    `alloc ${fx.allocations.snow}`);
+  check('snow does not rebuild the rain', fx.allocations.rain === before);
+  check('only snow draws while it snows',
+    fx.snow.visible === true && (!fx.rain || fx.rain.visible === false));
+
+  // A flake must wander around its drift, not walk away from it: the sway is a
+  // displacement from a base position rather than something integrated.
+  const i = 7;
+  fx.setWeather('kar');
+  const startBase = fx.s.baseX[i];
+  let maxOffset = 0;
+  for (let f = 0; f < 120; f++) {
+    fx.update(1 / 60);
+    maxOffset = Math.max(maxOffset, Math.abs(fx.s.x[i] - fx.s.baseX[i]));
+  }
+  check('a flake sways around its path without drifting off it',
+    maxOffset > 0.05 && maxOffset <= 0.56,
+    `max offset ${maxOffset.toFixed(3)} m`);
+  check('calm air leaves the column where it was',
+    Math.abs(fx.s.baseX[i] - startBase) < 1e-6,
+    `${(fx.s.baseX[i] - startBase).toFixed(6)} m`);
+
+  // and it falls
+  const y0 = fx.s.y[i];
+  fx.update(0.05);
+  check('snow falls', fx.s.y[i] < y0, `${y0.toFixed(2)} -> ${fx.s.y[i].toFixed(2)}`);
+  fx.setWeather('acik');
+  check('clear stops drawing the snow', fx.snow.visible === false);
+}
 
 // ------------------------------------------------------- weather scene hook
 

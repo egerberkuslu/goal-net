@@ -5,6 +5,7 @@ const WEATHER_KEY = 'goalnet-weather';
 export const WEATHER_MODES = [
   { id: 'acik', label: 'Açık' },
   { id: 'yagmur', label: 'Yağmur' },
+  { id: 'kar', label: 'Kar' },
 ];
 
 /** Stored weather choice, for applying it at boot before the menu opens. */

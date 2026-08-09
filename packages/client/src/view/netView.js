@@ -16,10 +16,30 @@ export class NetView {
     geometry.setPositions(this.array);
     geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.2, 0), 30);
     this.material = new LineMaterial({
-      color: 0xf2f2ef,
-      linewidth: 0.013,
+      color: 0xe9edf2,
+      linewidth: 0.011,
       worldUnits: true,
+      // The net used to sit outside the weather: unlit white cords at full
+      // strength while the pitch, the stands and the crowd all faded into the
+      // night fog behind them, which is what turned it into white speckle from
+      // the broadcast camera instead of a net hanging in the air.
+      fog: true,
+      // Fat lines are quads, and a 11 mm quad seen edge-on from thirty metres
+      // aliases into a dotted line. Alpha-to-coverage hands the edges to MSAA
+      // and costs nothing.
+      alphaToCoverage: true,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
     });
+    // LineMaterial needs the drawing-buffer size to size its quads; it was
+    // never set, so the shader worked off the (1, 1) default.
+    this.material.resolution.set(
+      typeof innerWidth === 'number' ? innerWidth : 1,
+      typeof innerHeight === 'number' ? innerHeight : 1,
+    );
+    this.onResize = () => this.material.resolution.set(innerWidth, innerHeight);
+    if (typeof addEventListener === 'function') addEventListener('resize', this.onResize);
     this.mesh = new LineSegments2(geometry, this.material);
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
@@ -46,6 +66,9 @@ export class NetView {
   }
 
   dispose() {
+    if (this.onResize && typeof removeEventListener === 'function') {
+      removeEventListener('resize', this.onResize);
+    }
     this.mesh.parent?.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.material.dispose();
