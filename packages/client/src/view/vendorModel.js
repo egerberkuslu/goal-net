@@ -27,6 +27,8 @@ export const VENDOR = Object.freeze({
   seat: 'stadium-seat',
   floodlight: 'floodlight',
   substitute: 'substitute',
+  playerRig: 'player-rig',
+  keeperRig: 'keeper-rig',
 });
 
 const cache = new Map();

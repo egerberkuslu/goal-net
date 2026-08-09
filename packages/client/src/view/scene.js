@@ -192,6 +192,15 @@ function addStadium(scene, p) {
       });
     }
   }
+  // TEMPORARY placement, to prove the rigged pipeline end to end: the skinned
+  // player and keeper stand by the tunnel until arena/anim drives their bones.
+  placeVendorMesh(scene, VENDOR.playerRig, {
+    x: p.halfW + 3.0, y: 0, z: -1.2, yaw: -Math.PI / 2,
+  });
+  placeVendorMesh(scene, VENDOR.keeperRig, {
+    x: p.halfW + 3.0, y: 0, z: 0.6, yaw: -Math.PI / 2,
+  });
+
   placeVendorMesh(scene, VENDOR.scoreboard, {
     x: 0, y: 9.5, z: -(p.halfL + 10.5), yaw: 0, shadow: false,
   });

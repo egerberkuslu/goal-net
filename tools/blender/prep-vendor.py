@@ -50,6 +50,13 @@ TARGETS = {
                    "note": "the head unit that tops a pylon"},
     "substitute": {"size": 1.78, "axis": "z", "ground": True,
                    "note": "a player on the bench; z is height after import"},
+    # Rigged: the skeleton is the whole point, so nothing may be baked or
+    # re-parented. arena/anim drives these bones, which is what keeps ragdoll,
+    # the aim stance and the shot charge — those are poses, not clips.
+    "player-rig": {"size": 1.80, "axis": "z", "ground": True, "keepRig": True,
+                   "note": "outfield player, posed by arena/anim"},
+    "keeper-rig": {"size": 1.86, "axis": "z", "ground": True, "keepRig": True,
+                   "note": "goalkeeper, posed by arena/anim"},
     "scoreboard": {"size": 6.00, "axis": "max", "note": "over the far stand"},
 }
 
@@ -98,6 +105,107 @@ def shrink_textures(limit=512):
     return saved
 
 
+
+def prep_rigged(name, spec, objects):
+    """Size a skinned model without touching its skeleton.
+
+    Everything the static path does — baking modifiers, clearing parents,
+    applying transforms — destroys a rig. So this one only scales: the armature
+    is scaled in place and the meshes ride along, because they are parented to
+    it and deformed by it.
+
+    Sizing uses the ARMATURE's world bounds rather than the mesh's, since a
+    posed mesh can stick out past the bones (an arm mid-swing) and would make
+    the character shorter to compensate.
+    """
+    arms = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+    if not arms:
+        print(f"  {name}: no armature, but keepRig was asked for")
+        return False
+
+    # Only the skinned meshes belong to the character. This file also ships a
+    # loose Icosphere — a ball, parented to nothing — which was both inflating
+    # the measurement to 3.07 m and about to be exported as a giant sphere
+    # standing next to the player.
+    skinned = [o for o in objects if any(m.type == "ARMATURE" for m in o.modifiers)]
+    loose = [o for o in objects if o not in skinned]
+    for o in loose:
+        bpy.data.objects.remove(o, do_unlink=True)
+    if loose:
+        print(f"    ({name}: dropped {len(loose)} unrigged mesh"
+              f"{'es' if len(loose) > 1 else ''})")
+    objects = skinned
+    if not objects:
+        print(f"  {name}: no skinned mesh")
+        return False
+    root = arms[0]
+    while root.parent is not None:
+        root = root.parent
+
+    # Measure what the renderer will actually draw.
+    #
+    # Not the mesh's bound_box: for a skinned mesh that is rest-pose data and
+    # ignores the armature, which reported this 1.8 m player as 3.07 m. Not the
+    # bones either: his root joint sits at the origin while his body is 28 units
+    # away along Y, so the skeleton's box is 32 m across and mostly empty.
+    #
+    # The depsgraph-evaluated mesh is the deformed result — the silhouette on
+    # screen — and it is the only measurement that means "how big does this
+    # look".
+    def deformed_bounds():
+        deps = bpy.context.evaluated_depsgraph_get()
+        blo = Vector((1e9, 1e9, 1e9))
+        bhi = Vector((-1e9, -1e9, -1e9))
+        for o in objects:
+            ev = o.evaluated_get(deps)
+            me = ev.to_mesh()
+            for v in me.vertices:
+                p = ev.matrix_world @ v.co
+                for i in range(3):
+                    blo[i] = min(blo[i], p[i])
+                    bhi[i] = max(bhi[i], p[i])
+            ev.to_mesh_clear()
+        return blo, bhi
+
+    lo, hi = deformed_bounds()
+    size = hi - lo
+    extent = {"max": max(size.x, size.y, size.z), "x": size.x,
+              "y": size.y, "z": size.z}[spec["axis"]]
+    if extent <= 1e-9:
+        print(f"  {name}: degenerate bounds")
+        return False
+    k = spec["size"] / extent
+
+    root.scale = (root.scale.x * k, root.scale.y * k, root.scale.z * k)
+    bpy.context.view_layer.update()
+
+    lo2, hi2 = deformed_bounds()
+    centre = (hi2 + lo2) / 2
+    root.location.x -= centre.x
+    root.location.y -= centre.y
+    root.location.z -= lo2.z if spec.get("ground") else centre.z
+    bpy.context.view_layer.update()
+
+    bones = len(arms[0].data.bones)
+    tris = sum(len(o.data.polygons) for o in objects)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    out = os.path.join(OUT_DIR, f"{name}.glb")
+    bpy.ops.export_scene.gltf(
+        filepath=out,
+        export_format="GLB",
+        export_apply=False,            # applying would collapse the rig
+        export_skins=True,
+        export_animations=False,       # we pose the bones ourselves
+        export_yup=True,
+    )
+    kb = os.path.getsize(out) / 1024
+    lo3, hi3 = deformed_bounds()
+    print(f"  {name:18s} {tris:6d} tris  {bones} bones  "
+          f"{hi3.x - lo3.x:.2f} x {hi3.y - lo3.y:.2f} x {hi3.z - lo3.z:.2f} m  "
+          f"(rig kept)  {kb:.0f} KB")
+    return True
+
+
 def prep(name, spec):
     src = os.path.join(IN_DIR, name, "model.glb")
     if not os.path.exists(src):
@@ -124,6 +232,9 @@ def prep(name, spec):
     # Clearing the parents with CLEAR_KEEP_TRANSFORM and then applying puts the
     # whole chain into the mesh data, after which matrix_world is the identity
     # and every number below means what it says.
+    if spec.get("keepRig"):
+        return prep_rigged(name, spec, objects)
+
     # Rigged models first: bake the armature into the vertices.
     #
     # A downloaded character usually arrives skinned, and its mesh data is in

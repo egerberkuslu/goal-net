@@ -71,6 +71,18 @@ const MANIFEST = [
     use: 'a panelled ball, instead of a sphere with a drawn texture',
   },
   {
+    uid: '5ae4bf9d6a324cfda79ce1298ea2d333',
+    as: 'player-rig',
+    use: 'the outfield player: his mesh and SKELETON. His five animation clips '
+      + 'are not used — arena/anim poses the bones, so ragdoll, the aim stance '
+      + 'and the shot charge survive',
+  },
+  {
+    uid: '7de86f9c36f84152a777f27a73646ada',
+    as: 'keeper-rig',
+    use: 'the goalkeeper, rigged; same deal — we drive the bones',
+  },
+  {
     uid: 'ea5d32f3dbc94d26a0ae1c73b1ae604c',
     as: 'floodlight',
     use: 'the pylon heads, instead of a box on a stick',
