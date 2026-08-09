@@ -167,3 +167,52 @@ file dokusu**. Bizimki XPBD ile simüle ediliyor: topu yutuyor, şişiyor, gole
 tepki veriyor — projenin ilk cümlesi buydu. **İndirilen hiçbir file bunu
 yapamaz**, dolayısıyla file için doğru iş indirmek değil, kordonun görünümünü
 (kalınlık, örgü deseni, sarkma, direğe bağlanma) iyileştirmek.
+
+---
+
+## Dokunuş çizgisi / tribün detay taraması (2026-08-09, ikinci tur)
+
+Kalan boşluklar için tarama: tribün merdiveni, korkuluk, tünel ağzı, saha
+kenarı ekipmanı (koni, su kasası, sedye), hakem/menajer figürü. Sketchfab arama
+API'si ve `/models/<uid>` lisans uç noktası üzerinden yapıldı; sonuçlar
+`tools/fetch-models.mjs` MANIFEST'ine ve `tools/blender/prep-vendor.py`
+TARGETS'ine işlendi, indirilip Blender'da koşullandırıldı.
+
+### Alınanlar
+
+| yerel ad | ad | yazar | lisans | yüz | son ölçü (m) |
+|---|---|---|---|---|---|
+| `cone-training` | Orange street cone | SpatialNeglect | CC Attribution | 266 | 0.30 boy |
+| `barrier-terrace` | Crowd control barrier. Metallic rusty old. Fence | Rylae Shylna | CC Attribution | 2304 | 2.00 × 0.75 × 0.66 |
+| `stretcher` | Gurney medevac patient stretcher rescue litter | dudecon | CC Attribution | 1532 | 2.00 × 0.58 × 0.28 |
+| `bottle-crate` | Plastic Crates | Emperor | CC Attribution | 2158 | 0.70 × 0.64 × 0.63 |
+| `manager` | Free Animated Boss Character | GameAssetsFin | CC Attribution | 1492 | 1.80 boy × ~1.06 en (kol açık poz) |
+
+Not: `bottle-crate` indirilen dosyada **tek kasa değil**, biri diğer ikisinin
+üstünde duran üç kasanın tek mesh'e kaynaşmış hali. Ayırmaya değmedi;
+grup olarak 0.70 m'ye ölçeklendi — üç kasalık bir yığın gibi duruyor, tek kasa
+gibi değil. `manager` T-pozunda değil, bir kolu havada sallıyor; bu yüzden
+XY izdüşümü boy kadar geniş çıktı (kol yana açılıyor). Sahne agent'ı bunu
+"talimat bağıran menajer" pozu olarak kullanabilir.
+
+### Reddedilenler
+
+- **Tribün merdiveni:** "stadium stairs", "grandstand stairs steps",
+  "concrete stadium steps", "stair steps modular concrete", "amphitheater
+  seating steps" — hiçbiri düz beton tribün basamağı vermedi. Sonuçlar ya
+  temalı paketlerdi (yangın merdiveni benzeri endüstriyel iskele — "Jacob Roe
+  Modular Props", 13150 yüz) ya da yüz binlerce yüzlü tam sahne taramalarıydı.
+  **Uygun lisanslı sonuç yok**, önceki `yedek kulübesi` maddesiyle aynı durum.
+- **Tünel ağzı:** "player tunnel entrance", "stadium tunnel", "tunnel entrance
+  concrete", "stadium vomitory tunnel portal" — hiç isabet yok ya da alakasız
+  (Halo CE haritası, NC lisanslı amfi tiyatro kalıntısı). **Uygun sonuç yok.**
+- **Hakem:** iki CC Attribution sonucu vardı (klrxyz'nin "a of a cartoon
+  character of a referee with a bl…" ve "arafed woman in a referee uniform
+  pointing at so…" başlıklı modelleri) ama ikisi de **muhtemelen AI üretimi**
+  (başlıklar bozuk otomatik altyazı gibi duruyor) ve her ikisinde de ana
+  figürün önünde/altında açıklanamayan, kaynaşmış minik ikinci bir figür var.
+  Lisans sorunu değil, **kalite/tutarlılık** sorunu — reddedildi. Daha temiz
+  bir hakem modeli aranmaya devam edilebilir.
+- **Kale çerçevesi:** zaten `fetch-models.mjs` içinde not düşülmüş (968 yüzlü
+  "Football Goal Post" 0.9 m oyuncak boyutunda ve filesi iki üçgenlik düz
+  kartondu) — bu turda tekrar aranmadı, karar geçerli.

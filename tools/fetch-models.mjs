@@ -114,6 +114,40 @@ const MANIFEST = [
     as: 'scoreboard',
     use: 'a scoreboard over the far stand — 40 faces for a lot of stadium',
   },
+  // Touchline / terrace pass (see brain/20-tech-spec/asset-sources.md §deep-scan-2).
+  // Searched but NOT taken: stadium terrace stairs and a tunnel mouth — every
+  // Sketchfab result for those terms was either a themed pack (fire escape,
+  // amphitheatre ruin) or a multi-hundred-thousand-face scan with nothing
+  // resembling plain concrete steps/a portal. A referee figure was searched
+  // too; the only CC results were an odd AI-captioned pair ("a of a cartoon
+  // character of a referee with a bl...", "arafed woman in a referee uniform
+  // pointing at so...") each shipping a second, unexplained miniature figure
+  // fused to the model — refused on quality, not licence.
+  {
+    uid: '77da362c4cb44295a838fd778f70f31b',
+    as: 'cone-training',
+    use: 'a training cone on the touchline',
+  },
+  {
+    uid: '3a3345997371447fb74362c066f254ac',
+    as: 'barrier-terrace',
+    use: 'the crush barrier that runs along a terrace, for railing detail',
+  },
+  {
+    uid: '40c85d5457a144d3b5dc1b328a2425a3',
+    as: 'stretcher',
+    use: 'the medical stretcher that waits pitch-side',
+  },
+  {
+    uid: '68e43cb754174776991f58efcb1c4594',
+    as: 'bottle-crate',
+    use: 'the water bottle crate stacked by the technical area',
+  },
+  {
+    uid: 'f62b643bd7e64b3b8700bf73e2e44c0c',
+    as: 'manager',
+    use: 'a suited figure for the technical area — the touchline manager',
+  },
 ];
 
 function tokenFrom(env, dotenv) {

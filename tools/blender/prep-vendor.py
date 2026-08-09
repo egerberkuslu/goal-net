@@ -41,23 +41,83 @@ TARGETS = {
     "soccer-ball": {"size": 0.30, "axis": "max", "note": "match ball diameter"},
     "bleacher-seating": {"size": 2.00, "axis": "x", "note": "one seating block"},
     "stadium-lowpoly": {"size": 60.0, "axis": "x", "note": "reference only"},
-    "bench": {"size": 2.60, "axis": "max", "ground": True,
-              "note": "substitutes' bench, seats 4"},
+    "bench": {
+        "size": 2.60,
+        "axis": "max",
+        "ground": True,
+        "note": "substitutes' bench, seats 4",
+    },
     # sized to the crowd's row pitch in view/crowdView.js (SEAT_PITCH 0.6)
-    "stadium-seat": {"size": 0.56, "axis": "x", "ground": True,
-                     "note": "one seat in a row"},
-    "floodlight": {"size": 3.20, "axis": "z", "ground": True,
-                   "note": "the head unit that tops a pylon"},
-    "substitute": {"size": 1.78, "axis": "z", "ground": True,
-                   "note": "a player on the bench; z is height after import"},
+    "stadium-seat": {
+        "size": 0.56,
+        "axis": "x",
+        "ground": True,
+        "note": "one seat in a row",
+    },
+    "floodlight": {
+        "size": 3.20,
+        "axis": "z",
+        "ground": True,
+        "note": "the head unit that tops a pylon",
+    },
+    "substitute": {
+        "size": 1.78,
+        "axis": "z",
+        "ground": True,
+        "note": "a player on the bench; z is height after import",
+    },
     # Rigged: the skeleton is the whole point, so nothing may be baked or
     # re-parented. arena/anim drives these bones, which is what keeps ragdoll,
     # the aim stance and the shot charge — those are poses, not clips.
-    "player-rig": {"size": 1.80, "axis": "z", "ground": True, "keepRig": True,
-                   "note": "outfield player, posed by arena/anim"},
-    "keeper-rig": {"size": 1.86, "axis": "z", "ground": True, "keepRig": True,
-                   "note": "goalkeeper, posed by arena/anim"},
+    "player-rig": {
+        "size": 1.80,
+        "axis": "z",
+        "ground": True,
+        "keepRig": True,
+        "note": "outfield player, posed by arena/anim",
+    },
+    "keeper-rig": {
+        "size": 1.86,
+        "axis": "z",
+        "ground": True,
+        "keepRig": True,
+        "note": "goalkeeper, posed by arena/anim",
+    },
     "scoreboard": {"size": 6.00, "axis": "max", "note": "over the far stand"},
+    # Touchline / terrace pass.
+    "cone-training": {
+        "size": 0.30,
+        "axis": "z",
+        "ground": True,
+        "note": "standard training cone height",
+    },
+    "barrier-terrace": {
+        "size": 2.00,
+        "axis": "x",
+        "ground": True,
+        "note": "one crush-barrier section, tiled along a terrace",
+    },
+    "stretcher": {
+        "size": 2.00,
+        "axis": "max",
+        "ground": True,
+        "note": "pitch-side medical stretcher, laid flat",
+    },
+    # The download is not one crate: it is three, already fused into a single
+    # mesh (two side by side, one stacked on top) — a single-crate target
+    # squashed the whole group to a 0.4 m cube. Sized as the group instead.
+    "bottle-crate": {
+        "size": 0.70,
+        "axis": "max",
+        "ground": True,
+        "note": "a fused group of three crates, stacked by the bench",
+    },
+    "manager": {
+        "size": 1.80,
+        "axis": "z",
+        "ground": True,
+        "note": "suited touchline figure; static, stands in the technical area",
+    },
 }
 
 
@@ -84,7 +144,6 @@ def world_bounds(objects):
     return lo, hi
 
 
-
 def shrink_textures(limit=512):
     """Cap every image at `limit` pixels on its long side.
 
@@ -103,7 +162,6 @@ def shrink_textures(limit=512):
         img.scale(max(1, int(w * k)), max(1, int(h * k)))
         saved += 1
     return saved
-
 
 
 def prep_rigged(name, spec, objects):
@@ -132,8 +190,10 @@ def prep_rigged(name, spec, objects):
     for o in loose:
         bpy.data.objects.remove(o, do_unlink=True)
     if loose:
-        print(f"    ({name}: dropped {len(loose)} unrigged mesh"
-              f"{'es' if len(loose) > 1 else ''})")
+        print(
+            f"    ({name}: dropped {len(loose)} unrigged mesh"
+            f"{'es' if len(loose) > 1 else ''})"
+        )
     objects = skinned
     if not objects:
         print(f"  {name}: no skinned mesh")
@@ -169,8 +229,12 @@ def prep_rigged(name, spec, objects):
 
     lo, hi = deformed_bounds()
     size = hi - lo
-    extent = {"max": max(size.x, size.y, size.z), "x": size.x,
-              "y": size.y, "z": size.z}[spec["axis"]]
+    extent = {
+        "max": max(size.x, size.y, size.z),
+        "x": size.x,
+        "y": size.y,
+        "z": size.z,
+    }[spec["axis"]]
     if extent <= 1e-9:
         print(f"  {name}: degenerate bounds")
         return False
@@ -193,16 +257,18 @@ def prep_rigged(name, spec, objects):
     bpy.ops.export_scene.gltf(
         filepath=out,
         export_format="GLB",
-        export_apply=False,            # applying would collapse the rig
+        export_apply=False,  # applying would collapse the rig
         export_skins=True,
-        export_animations=False,       # we pose the bones ourselves
+        export_animations=False,  # we pose the bones ourselves
         export_yup=True,
     )
     kb = os.path.getsize(out) / 1024
     lo3, hi3 = deformed_bounds()
-    print(f"  {name:18s} {tris:6d} tris  {bones} bones  "
-          f"{hi3.x - lo3.x:.2f} x {hi3.y - lo3.y:.2f} x {hi3.z - lo3.z:.2f} m  "
-          f"(rig kept)  {kb:.0f} KB")
+    print(
+        f"  {name:18s} {tris:6d} tris  {bones} bones  "
+        f"{hi3.x - lo3.x:.2f} x {hi3.y - lo3.y:.2f} x {hi3.z - lo3.z:.2f} m  "
+        f"(rig kept)  {kb:.0f} KB"
+    )
     return True
 
 
@@ -250,7 +316,7 @@ def prep(name, spec):
             try:
                 bpy.ops.object.modifier_apply(modifier=mod.name)
             except RuntimeError:
-                o.modifiers.remove(mod)          # nothing to bake; drop it
+                o.modifiers.remove(mod)  # nothing to bake; drop it
 
     bpy.ops.object.select_all(action="DESELECT")
     for o in objects:
