@@ -36,6 +36,8 @@ TARGETS = {
     "soccer-ball": {"size": 0.30, "axis": "max", "note": "match ball diameter"},
     "bleacher-seating": {"size": 2.00, "axis": "x", "note": "one seating block"},
     "stadium-lowpoly": {"size": 60.0, "axis": "x", "note": "reference only"},
+    "bench": {"size": 2.60, "axis": "max", "note": "substitutes' bench, seats 4"},
+    "scoreboard": {"size": 6.00, "axis": "max", "note": "over the far stand"},
 }
 
 
@@ -95,6 +97,27 @@ def prep(name, spec):
     if not objects:
         print(f"  {name}: no mesh in the file")
         return False
+
+    # Bake every imported transform into the vertices BEFORE touching the
+    # hierarchy.
+    #
+    # A marketplace file usually carries its unit conversion on an ancestor
+    # node — this bench had a 0.0254 inch-to-metre scale two levels up. Parenting
+    # the mesh to our own pivot drops that ancestor, so the mesh silently grew by
+    # 1/0.0254 and a 2.6 m bench came out 102 m long across the pitch. Measuring
+    # matrix_world first hid it, because the measurement was taken while the
+    # ancestor was still attached.
+    #
+    # Clearing the parents with CLEAR_KEEP_TRANSFORM and then applying puts the
+    # whole chain into the mesh data, after which matrix_world is the identity
+    # and every number below means what it says.
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objects:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objects[0]
+    bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    bpy.ops.object.select_all(action="DESELECT")
 
     lo, hi = world_bounds(objects)
     size = hi - lo

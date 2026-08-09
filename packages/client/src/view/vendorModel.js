@@ -22,6 +22,8 @@ export const VENDOR = Object.freeze({
   ball: 'soccer-ball',
   seating: 'bleacher-seating',
   stadium: 'stadium-lowpoly',
+  bench: 'bench',
+  scoreboard: 'scoreboard',
 });
 
 const cache = new Map();
@@ -92,6 +94,35 @@ export async function vendorMesh(name) {
   });
   cache.set(name, promise);
   return promise;
+}
+
+/**
+ * Put a conditioned model into the scene at a spot on the pitch.
+ *
+ * Nothing is scaled or rotated on the way in beyond the yaw asked for: the
+ * Blender step already sized it in metres and stood it the right way up. If it
+ * lands wrong, the fix is in tools/blender/prep-vendor.py.
+ *
+ * @param {object} scene
+ * @param {string} name one of VENDOR
+ * @param {{x:number, y:number, z:number, yaw?:number, shadow?:boolean}} at
+ * @returns {Promise<object|null>} the mesh, once it exists
+ */
+export async function placeVendorMesh(scene, name, at) {
+  const part = await vendorMesh(name);
+  if (!part || !scene) return null;
+  const THREE = await import('three');
+  const mesh = new THREE.Mesh(part.geometry, part.material);
+  mesh.position.set(at.x, at.y || 0, at.z);
+  if (at.yaw) mesh.rotation.y = at.yaw;
+  mesh.castShadow = at.shadow !== false;
+  mesh.receiveShadow = false;
+  mesh.name = `vendor:${name}`;
+  scene.add(mesh);
+  if (typeof window !== 'undefined') {
+    window.__vendor = { ...(window.__vendor || {}), [name]: true };
+  }
+  return mesh;
 }
 
 /**

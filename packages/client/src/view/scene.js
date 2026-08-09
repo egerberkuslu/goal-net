@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { VENDOR, placeVendorMesh } from './vendorModel.js';
 import {
   GOAL_W, GOAL_H, POST_R, NET_TOP_DEPTH, NET_BOT_DEPTH,
   PITCH_HALF_L, PITCH_HALF_W, WALL_X,
@@ -158,6 +159,19 @@ function addStadium(scene, p) {
       scene.add(e);
     }
   }
+  // The furniture a ground has and a box model does not: two dugouts on the
+  // camera side, where real ones are, and a scoreboard over the far end. Both
+  // are downloaded models sized in Blender (vendor-assets/CREDITS.md), and both
+  // are optional — a checkout that never fetched them simply has neither.
+  for (const sz of [-1, 1]) {
+    placeVendorMesh(scene, VENDOR.bench, {
+      x: p.halfW + 2.6, y: 0, z: sz * 6.5, yaw: -Math.PI / 2,
+    });
+  }
+  placeVendorMesh(scene, VENDOR.scoreboard, {
+    x: 0, y: 9.5, z: -(p.halfL + 10.5), yaw: 0, shadow: false,
+  });
+
   // floodlight pylons
   const poleMat = new THREE.MeshLambertMaterial({ color: 0x8b94a8 });
   const headMat = new THREE.MeshBasicMaterial({ color: 0xfff6d8 });
@@ -250,6 +264,110 @@ function addGrassDetail(material, spanX, spanZ) {
   }).catch(() => { /* no pack, no grass, no noise */ });
 }
 
+/**
+ * Where the grass is worn, and how badly.
+ *
+ * A real pitch is not uniform: the goalmouth is bare by November, the penalty
+ * spot is a scar, the centre circle is scuffed from every kickoff, and the
+ * touchlines are tracked out by the linesmen. All of that is one alpha mask
+ * painted over a photographed dirt tile, which is one draw call and reads from
+ * the broadcast camera far better than another shade of green would.
+ *
+ * The mask is drawn in the same metre space as the pitch texture, so it lines
+ * up with the markings without anything being tuned twice.
+ */
+function makeWearMask(p) {
+  const W = p.halfW * 2 + APRON_X * 2, L = p.halfL * 2 + APRON_Z * 2, S = 1024;
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(S * (W / L)); cv.height = S;
+  const g = cv.getContext('2d');
+  if (!g) return null;
+  const px = (m) => (m / L) * S;
+  const X = (x) => px(x + W / 2), Z = (z) => px(z + L / 2);
+
+  g.fillStyle = '#000';                      // black is untouched grass
+  g.fillRect(0, 0, cv.width, cv.height);
+
+  const blob = (x, z, rx, rz, strength) => {
+    const grad = g.createRadialGradient(X(x), Z(z), 0, X(x), Z(z), px(Math.max(rx, rz)));
+    if (!grad) return;
+    grad.addColorStop(0, `rgba(255,255,255,${strength})`);
+    grad.addColorStop(0.55, `rgba(255,255,255,${strength * 0.55})`);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.save();
+    g.translate(X(x), Z(z));
+    g.scale(1, rz / rx);
+    g.translate(-X(x), -Z(z));
+    g.fillStyle = grad;
+    g.fillRect(X(x) - px(rx) * 1.2, Z(z) - px(rx) * 1.2, px(rx) * 2.4, px(rx) * 2.4);
+    g.restore();
+  };
+
+  for (const s of [-1, 1]) {
+    const gl = s * p.halfL;
+    blob(0, gl - s * 1.1, p.goalHalfW + 0.9, 2.6, 0.85);   // the goalmouth
+    blob(0, gl - s * p.spotDist, 0.9, 0.9, 0.7);            // the penalty spot
+    blob(0, gl - s * (p.penaltyDepth + 1.5), 5.5, 3.0, 0.28); // edge of the box
+  }
+  blob(0, 0, p.centreR + 0.6, p.centreR + 0.6, 0.30);       // the centre circle
+  // the run the officials wear along the near touchline
+  const tramline = g.createLinearGradient(0, 0, 0, cv.height);
+  tramline.addColorStop(0, 'rgba(255,255,255,0.16)');
+  tramline.addColorStop(1, 'rgba(255,255,255,0.16)');
+  g.fillStyle = tramline;
+  g.fillRect(X(p.halfW - 0.9), Z(-p.halfL), px(1.4), px(p.halfL * 2));
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
+ * Lay the worn earth over the grass.
+ *
+ * Two textures: a CC0 dirt photograph tiled once per two metres for grain, and
+ * the mask above deciding where any of it shows. Missing textures leave the
+ * pitch exactly as it was.
+ */
+function addPitchWear(scene, p) {
+  if (typeof document === 'undefined' || typeof fetch !== 'function') return null;
+  const mask = makeWearMask(p);
+  if (!mask) return null;
+  const base = '/dist-assets/textures/Ground037/Ground037_1K-JPG';
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x9a7f5e,
+    alphaMap: mask,
+    transparent: true,
+    depthWrite: false,
+    roughness: 1,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  });
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(p.halfW * 2 + APRON_X * 2, p.halfL * 2 + APRON_Z * 2),
+    mat,
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.004;      // above the grass, below the ball
+  mesh.receiveShadow = false;
+  mesh.name = 'pitch:wear';
+  scene.add(mesh);
+
+  fetch(`${base}_Color.jpg`, { method: 'HEAD' }).then((r) => {
+    if (!r.ok) return;
+    new THREE.TextureLoader().load(`${base}_Color.jpg`, (tex) => {
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set((p.halfW * 2 + APRON_X * 2) / 2, (p.halfL * 2 + APRON_Z * 2) / 2);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      mat.map = tex;
+      mat.color.setHex(0xffffff);
+      mat.needsUpdate = true;
+    });
+  }).catch(() => { /* the flat brown mask is a fine fallback */ });
+  return mesh;
+}
+
 export function createScene(container, opts = {}) {
   const p = { ...DEFAULT_PITCH, ...(opts.pitch || {}) };
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -291,6 +409,7 @@ export function createScene(container, opts = {}) {
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
+  addPitchWear(scene, p);
   const apron = new THREE.Mesh(
     new THREE.PlaneGeometry(400, 400),
     new THREE.MeshLambertMaterial({ color: 0x101c2e }),

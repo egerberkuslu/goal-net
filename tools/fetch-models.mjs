@@ -70,6 +70,16 @@ const MANIFEST = [
     as: 'soccer-ball',
     use: 'a panelled ball, instead of a sphere with a drawn texture',
   },
+  {
+    uid: '096d4f915819409f9739326118bd5aa7',
+    as: 'bench',
+    use: 'the substitutes\' benches, on the camera side where real dugouts are',
+  },
+  {
+    uid: '8101bb9f568e4bf2802b51e9749de21e',
+    as: 'scoreboard',
+    use: 'a scoreboard over the far stand — 40 faces for a lot of stadium',
+  },
 ];
 
 function tokenFrom(env, dotenv) {
