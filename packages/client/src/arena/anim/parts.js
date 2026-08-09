@@ -56,9 +56,14 @@ function fitsUnitBox(geometry, limits) {
 export async function loadAuthoredParts(THREE, opts = {}) {
   const url = opts.url || PARTS_URL;
   if (typeof fetch !== 'function') return null;
+  // Magic bytes, not a HEAD check: an unknown path on a dev server comes back
+  // as index.html with a 200, which passes "is it there?" and fails everything
+  // after it.
   try {
-    const head = await fetch(url, { method: 'HEAD' });
-    if (!head.ok) return null;
+    const probe = await fetch(url, { headers: { Range: 'bytes=0-3' } });
+    if (!probe.ok) return null;
+    const head4 = new Uint8Array(await probe.arrayBuffer());
+    if (head4.length < 4 || String.fromCharCode(...head4.slice(0, 4)) !== 'glTF') return null;
   } catch {
     return null;
   }

@@ -257,6 +257,25 @@ def check_bounds(obj, limits, name):
     return problems, got
 
 
+
+def to_blender_axes(obj):
+    """Author in three.js axes, hand Blender the axes it expects.
+
+    Everything above is written the way the game thinks: +Y up, +Z forward.
+    Blender is Z-up, and the exporter's yup conversion maps blender (x, y, z)
+    to gltf (x, z, -y). Feeding it a Y-up mesh therefore lands the long axis of
+    every limb in Z — the arm exported as 0.055 x 0.055 x 0.240 instead of
+    0.055 x 0.240 x 0.055, and the loader rejected it.
+
+    So the last thing before export is (x, y, z) -> (x, -z, y): the script's up
+    becomes Blender's up, the script's forward becomes Blender's forward, and
+    the exporter converts it back to exactly what was authored.
+    """
+    for v in obj.data.vertices:
+        x, y, z = v.co.x, v.co.y, v.co.z
+        v.co.x, v.co.y, v.co.z = x, -z, y
+
+
 def main():
     clear_scene()
     builders = [
@@ -287,6 +306,9 @@ def main():
         for p in problems:
             print("  - " + p)
         sys.exit(1)
+
+    for obj in bpy.context.collection.objects:
+        to_blender_axes(obj)
 
     os.makedirs(OUT_DIR, exist_ok=True)
     bpy.ops.export_scene.gltf(

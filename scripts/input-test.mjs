@@ -360,8 +360,15 @@ const { sanitizeName, deriveKeeperColor, teamPalette, shade, DEFAULT_TEAM_COLORS
 
   const named = new PlayerView(mk({ mpName: '  Ege  ' }), scene, [0x00ff00, 0x123456]);
   check('view: body group is added to the scene', scene.children.includes(named.group));
-  check('view: jersey uses the configured team colour',
-    named.group.children[0].material.color.getHex() === 0x00ff00);
+  // The shirt carries a kit pattern now, so the team colour lives in the
+  // texture and the material is tinted white to let it through. Either way the
+  // contract is the same: this player is wearing the colour the lobby chose.
+  const shirt = named.group.children[0].material;
+  check('view: jersey shows the configured team colour',
+    shirt.map
+      ? (named.kitSpec.base === '#00ff00' && shirt.color.getHex() === 0xffffff)
+      : shirt.color.getHex() === 0x00ff00,
+    `map=${!!shirt.map} base=${named.kitSpec?.base} color=${shirt.color.getHexString()}`);
   check('view: charge ring uses the configured team colour',
     named.ring.material.color.getHex() === 0x00ff00);
   check('view: name tag is a camera-facing sprite', named.tag instanceof THREE.Sprite);

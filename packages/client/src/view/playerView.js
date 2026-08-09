@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import { useAuthoredPart } from './parts.js';
+import { KIT_PRESETS, defaultKitFor, makeKitTexture } from './kitTexture.js';
+
+/** A three.js colour number as the '#rrggbb' the kit table speaks. */
+const css6 = (c) => `#${(c >>> 0).toString(16).padStart(6, '0').slice(-6)}`;
 import { PLAYER_SPEED } from '../core/constants.js';
 
 export const DEFAULT_TEAM_COLORS = [0xe23b3b, 0x3b6de2];
@@ -123,7 +128,22 @@ export class PlayerView {
     const keeper = player.role === 'keeper';
     const jerseyColor = keeper ? pal.keeper[player.team] : pal.jersey[player.team];
     const shortsColor = keeper ? pal.keeperShorts[player.team] : pal.shorts[player.team];
-    const jersey = new THREE.MeshStandardMaterial({ color: jerseyColor, roughness: 0.7 });
+    // The shirt: a kit texture where there is a DOM to draw one on, the flat
+    // colour otherwise (headless tests, and any browser that fails to give us
+    // a 2D context). The map is tinted white so the pattern's own colours come
+    // through; without a map the colour IS the shirt, exactly as before.
+    const kitSpec = player.kit && KIT_PRESETS[player.kit]
+      ? KIT_PRESETS[player.kit]
+      : defaultKitFor(jerseyColor, player.team);
+    const kitMap = keeper ? null : makeKitTexture(kitSpec);
+    const jersey = new THREE.MeshStandardMaterial(kitMap
+      ? { map: kitMap, color: 0xffffff, roughness: 0.7 }
+      : { color: jerseyColor, roughness: 0.7 });
+    this.kitMap = kitMap;
+    // What the shirt is showing. With a kit texture the colour lives in the
+    // pixels and the material is tinted white, so this is the only place left
+    // that answers "which team is this player wearing?".
+    this.kitSpec = kitMap ? kitSpec : { base: css6(jerseyColor), pattern: 'plain' };
     const shorts = new THREE.MeshStandardMaterial({ color: shortsColor, roughness: 0.7 });
     const skin = new THREE.MeshStandardMaterial({ color: 0xe8b98f, roughness: 0.8 });
 
@@ -134,17 +154,20 @@ export class PlayerView {
     // group.children by index. Nothing here reads it; purely additive.
     this.body = body;
     this.group.add(body);
+    useAuthoredPart(body, 'torso');
 
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 14), skin);
     head.position.y = 1.52;
     head.castShadow = true;
     this.head = head;
     this.group.add(head);
+    useAuthoredPart(head, 'head');
 
     const legGeo = new THREE.CylinderGeometry(0.075, 0.06, 0.55, 10);
     legGeo.translate(0, -0.275, 0); // pivot at the hip
     this.legs = [-1, 1].map((side) => {
       const leg = new THREE.Mesh(legGeo, shorts);
+      useAuthoredPart(leg, 'leg');
       leg.position.set(side * 0.11, 0.62, 0);
       leg.castShadow = true;
       this.group.add(leg);
@@ -155,6 +178,7 @@ export class PlayerView {
     armGeo.translate(0, -0.24, 0); // pivot at the shoulder
     this.arms = [-1, 1].map((side) => {
       const arm = new THREE.Mesh(armGeo, jersey);
+      useAuthoredPart(arm, 'arm');
       arm.position.set(side * 0.32, 1.28, 0);
       arm.rotation.z = side * 0.16; // resting flare away from the torso
       arm.castShadow = true;
@@ -346,8 +370,11 @@ export class PlayerView {
       this.tag = null;
     }
     this.group.parent?.remove(this.group);
+    this.kitMap?.dispose();
     this.group.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
+      // The Blender-authored parts are one geometry shared by every player on
+      // the pitch; one player leaving must not free the pitch's legs.
+      if (o.geometry && !o.geometry.userData.sharedPart) o.geometry.dispose();
       if (o.material) o.material.dispose();
     });
   }

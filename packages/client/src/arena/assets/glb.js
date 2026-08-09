@@ -26,9 +26,14 @@ export const GLB_URL = '/dist-assets/stadium.glb';
 export async function loadBakedStadium(THREE, opts = {}) {
   const url = opts.url || GLB_URL;
   if (typeof fetch !== 'function') return null;
+  // A HEAD check is not enough: a dev server answers an unknown path with
+  // index.html and a 200, so "the file is there" was true of a page of HTML.
+  // The magic bytes are the only honest answer.
   try {
-    const head = await fetch(url, { method: 'HEAD' });
-    if (!head.ok) return null;
+    const probe = await fetch(url, { headers: { Range: 'bytes=0-3' } });
+    if (!probe.ok) return null;
+    const head4 = new Uint8Array(await probe.arrayBuffer());
+    if (head4.length < 4 || String.fromCharCode(...head4.slice(0, 4)) !== 'glTF') return null;
   } catch {
     return null;
   }

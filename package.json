@@ -40,7 +40,8 @@
     "dev:arena": "vite --port 5301 --strictPort",
     "dev:present": "vite --port 5303 --strictPort",
     "build:parts": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/make-parts.py",
-    "test:jitter": "node scripts/jitter-test.mjs"
+    "test:jitter": "node scripts/jitter-test.mjs",
+    "build:viewparts": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/make-view-parts.py"
   },
   "dependencies": {
     "peerjs": "^1.5.0",
