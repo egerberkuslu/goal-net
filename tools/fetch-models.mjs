@@ -71,6 +71,17 @@ const MANIFEST = [
     use: 'a panelled ball, instead of a sphere with a drawn texture',
   },
   {
+    uid: 'ea5d32f3dbc94d26a0ae1c73b1ae604c',
+    as: 'floodlight',
+    use: 'the pylon heads, instead of a box on a stick',
+  },
+  {
+    uid: '679ffd65b3fd4e6498d28a47048c2f24',
+    as: 'substitute',
+    use: 'substitutes sitting on the dugout benches — a static mesh is right '
+      + 'here, where the pitch players need separately animated limbs',
+  },
+  {
     uid: 'b0607a5e412043e399745703be24a33a',
     as: 'stadium-seat',
     use: 'the chair every spectator sits in — 80 faces x 1387 seats',

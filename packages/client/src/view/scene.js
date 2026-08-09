@@ -177,6 +177,20 @@ function addStadium(scene, p) {
     placeVendorMesh(scene, VENDOR.bench, {
       x: p.halfW + 2.6, y: 0, z: sz * 6.5, yaw: -Math.PI / 2,
     });
+    // Substitutes beside it. A downloaded static figure is exactly right here
+    // and wrong on the pitch: one of these never moves, while a pitch player
+    // needs limbs the animation layer can drive separately.
+    //
+    // Standing rather than sitting, because the model is posed upright — the
+    // honest placement for a mesh is the one its pose already is. The -0.18
+    // lifts his feet onto the grass: the bake left his origin that far above
+    // his soles and the conditioning step measures the bind pose, not the feet.
+    for (let i = 0; i < 3; i++) {
+      placeVendorMesh(scene, VENDOR.substitute, {
+        x: p.halfW + 3.4 + (i % 2) * 0.5, y: -0.18,
+        z: sz * 6.5 + (i - 1) * 0.9, yaw: -Math.PI / 2 + (i - 1) * 0.25,
+      });
+    }
   }
   placeVendorMesh(scene, VENDOR.scoreboard, {
     x: 0, y: 9.5, z: -(p.halfL + 10.5), yaw: 0, shadow: false,
@@ -195,10 +209,17 @@ function addStadium(scene, p) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 14, 8), poleMat);
     pole.position.set(sx * (p.halfW + 2.5), 7, sz * (p.halfL + 4.5));
     scene.add(pole);
+    // The head: a real floodlight unit if one has been downloaded, otherwise
+    // the lit box this always had. The box stays either way — it is what makes
+    // the pylon read as ON from across the ground, and the model is unlit.
     const head = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 0.3), headMat);
     head.position.set(sx * (p.halfW + 2.5), 14.2, sz * (p.halfL + 4.5));
     head.lookAt(0, 0, 0);
     scene.add(head);
+    placeVendorMesh(scene, VENDOR.floodlight, {
+      x: sx * (p.halfW + 2.5), y: 12.4, z: sz * (p.halfL + 4.5),
+      yaw: Math.atan2(-sx, -sz), shadow: false,
+    });
   }
   // ad boards sit flush with the invisible walls, right behind the lines,
   // so wall rebounds visibly come off the boards

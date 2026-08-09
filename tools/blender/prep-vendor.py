@@ -30,6 +30,11 @@ OUT_DIR = os.path.join(ROOT, "dist-assets", "vendor")
 
 # name -> (target size in metres, which axis that size is measured on)
 #
+# AXES: the glTF importer has already converted the file into Blender's Z-up,
+# so here "z" is HEIGHT and "y" is depth. Sizing a standing figure by "y" scales
+# it by its depth — which is how a 1.78 m substitute came out several metres
+# tall on the first run.
+#
 # The ball is sized by diameter because that is the number the renderer knows;
 # the seating block by its width, because it gets tiled along a stand.
 TARGETS = {
@@ -41,6 +46,10 @@ TARGETS = {
     # sized to the crowd's row pitch in view/crowdView.js (SEAT_PITCH 0.6)
     "stadium-seat": {"size": 0.56, "axis": "x", "ground": True,
                      "note": "one seat in a row"},
+    "floodlight": {"size": 3.20, "axis": "z", "ground": True,
+                   "note": "the head unit that tops a pylon"},
+    "substitute": {"size": 1.78, "axis": "z", "ground": True,
+                   "note": "a player on the bench; z is height after import"},
     "scoreboard": {"size": 6.00, "axis": "max", "note": "over the far stand"},
 }
 
@@ -115,6 +124,23 @@ def prep(name, spec):
     # Clearing the parents with CLEAR_KEEP_TRANSFORM and then applying puts the
     # whole chain into the mesh data, after which matrix_world is the identity
     # and every number below means what it says.
+    # Rigged models first: bake the armature into the vertices.
+    #
+    # A downloaded character usually arrives skinned, and its mesh data is in
+    # bind pose relative to bones rather than in place. Clearing the parents
+    # then detaches it from the armature that was posing it, and the mesh
+    # collapses — this footballer came out 1.68 x 0.29 x 1.67, a pancake, and
+    # then got scaled to "1.78 m tall" by its widest axis. Applying the armature
+    # modifier freezes the pose into the mesh, after which it is ordinary static
+    # geometry and everything below is true of it.
+    for o in objects:
+        for mod in list(o.modifiers):
+            bpy.context.view_layer.objects.active = o
+            try:
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+            except RuntimeError:
+                o.modifiers.remove(mod)          # nothing to bake; drop it
+
     bpy.ops.object.select_all(action="DESELECT")
     for o in objects:
         o.select_set(True)

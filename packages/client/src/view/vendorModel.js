@@ -24,9 +24,13 @@ export const VENDOR = Object.freeze({
   stadium: 'stadium-lowpoly',
   bench: 'bench',
   scoreboard: 'scoreboard',
+  seat: 'stadium-seat',
+  floodlight: 'floodlight',
+  substitute: 'substitute',
 });
 
 const cache = new Map();
+const sceneCache = new Map();
 
 /** Why the last load gave up, for the debug hook. */
 export let lastVendorFailure = null;
@@ -97,6 +101,30 @@ export async function vendorMesh(name) {
 }
 
 /**
+ * The WHOLE conditioned model, materials and hierarchy intact.
+ *
+ * vendorMesh() returns the first mesh it finds, which is right for swapping a
+ * ball onto an existing sphere and badly wrong for anything built from parts:
+ * the substitute footballer arrived as an 11 cm fragment of himself because his
+ * shirt, shorts, skin and boots are four meshes and only the first came back.
+ *
+ * @param {string} name one of VENDOR
+ * @returns {Promise<object|null>} a fresh clone, safe to place more than once
+ */
+export async function vendorScene(name) {
+  if (!sceneCache.has(name)) sceneCache.set(name, loadGlb(name));
+  const gltf = await sceneCache.get(name);
+  if (!gltf) return null;
+  const root = gltf.scene.clone(true);
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = false;
+  });
+  return root;
+}
+
+/**
  * Put a conditioned model into the scene at a spot on the pitch.
  *
  * Nothing is scaled or rotated on the way in beyond the yaw asked for: the
@@ -109,14 +137,13 @@ export async function vendorMesh(name) {
  * @returns {Promise<object|null>} the mesh, once it exists
  */
 export async function placeVendorMesh(scene, name, at) {
-  const part = await vendorMesh(name);
-  if (!part || !scene) return null;
-  const THREE = await import('three');
-  const mesh = new THREE.Mesh(part.geometry, part.material);
+  // The whole model, not its first mesh: a footballer is four meshes and a
+  // floodlight is three, and taking only the first placed a fragment.
+  const mesh = await vendorScene(name);
+  if (!mesh || !scene) return null;
   mesh.position.set(at.x, at.y || 0, at.z);
   if (at.yaw) mesh.rotation.y = at.yaw;
-  mesh.castShadow = at.shadow !== false;
-  mesh.receiveShadow = false;
+  if (at.shadow === false) mesh.traverse((o) => { if (o.isMesh) o.castShadow = false; });
   mesh.name = `vendor:${name}`;
   scene.add(mesh);
   if (typeof window !== 'undefined') {
