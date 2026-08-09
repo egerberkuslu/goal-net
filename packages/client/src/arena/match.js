@@ -71,6 +71,7 @@ export class ArenaMatch {
     // Host-only: the simulation clock and the display clock are independent,
     // so what is drawn is blended between the last two ticks. See smooth.js.
     this.smoother = new RenderSmoother(TICK_MS);
+    this.drawnTick = -1;
     this.flowUntilMs = 0;
 
     if (this.role === 'host') this._buildHost();
@@ -216,6 +217,27 @@ export class ArenaMatch {
     this.pumps++;
     if (this.role === 'host') this._hostPump(nowMs);
     else this._guestPump(nowMs);
+    this._captureForDraw(nowMs);
+  }
+
+  /**
+   * Hand the newly simulated tick to the smoother, stamped with the time it
+   * was simulated.
+   *
+   * This has to happen HERE and not in render(). Pumps come from two places —
+   * rAF and the worker ticker — so the delay between a tick being simulated and
+   * a frame observing it is anything from 0 to 16 ms and changes every frame.
+   * Stamping at render time therefore fed the interpolator a wobbly clock and
+   * left the twitch it was supposed to remove: measured on screen, the drawn
+   * speed still varied by 60% frame to frame. Stamped here it is the real tick
+   * clock, and the blend is a clean ramp.
+   */
+  _captureForDraw(nowMs) {
+    if (this.role !== 'host' || !this.host) return;
+    const tick = this.host.world.buf[HDR_TICK];
+    if (tick === this.drawnTick) return;      // no tick happened this pump
+    this.drawnTick = tick;
+    this.smoother.push(readState(this.host.world), nowMs);
   }
 
   /** Draw and paint. Skippable: a dropped frame costs smoothness and nothing else. */
@@ -243,9 +265,7 @@ export class ArenaMatch {
       // Rules, netcode and the HUD all run on `state`, the authoritative tick.
       // Only the picture is smoothed, and only for the host: a guest's sample
       // is already interpolated by packages/net.
-      const drawn = this.role === 'host'
-        ? (this.smoother.push(state, nowMs), this.smoother.sample(nowMs) || state)
-        : state;
+      const drawn = this.role === 'host' ? (this.smoother.sample(nowMs) || state) : state;
       this.view.update(drawn, dt, { state: this.flow, me: this.localIndex });
     }
     if (this.present) {
