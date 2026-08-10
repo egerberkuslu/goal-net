@@ -5,9 +5,7 @@ import { DT } from './core/constants.js';
 import { createScene, buildGoalFrames } from './view/scene.js';
 import { NetView } from './view/netView.js';
 import { BallView } from './view/ballView.js';
-// The rigged character, falling back to the primitive one when the model is
-// missing or fails to bind. Same interface either way.
-import { RiggedPlayerView as PlayerView } from './view/riggedPlayerView.js';
+import { PlayerView } from './view/playerView.js';
 import { AimView } from './view/aimView.js';
 import { CrowdView } from './view/crowdView.js';
 import { Fx } from './view/fx.js';
@@ -96,7 +94,13 @@ function buildMatch(config, roster = null, opts = {}) {
     const out = applyCommand(line, mine);
     return out.text || out.kind;
   };
-  window.__game = { ...app, session, fx, cmd };
+  // `renderer` rides along so the render-budget check can read
+  // renderer.info from outside. It used to measure /arena.html through
+  // window.__arena; the arena is cancelled, and the budget that matters is
+  // the one the game people actually play draws under.
+  window.__game = {
+    ...app, session, fx, cmd, renderer,
+  };
   return app;
 }
 

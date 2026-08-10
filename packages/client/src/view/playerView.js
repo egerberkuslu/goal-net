@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { useAuthoredPart } from './parts.js';
 import { KIT_PRESETS, defaultKitFor, makeKitTexture } from './kitTexture.js';
 
 /** A three.js colour number as the '#rrggbb' the kit table speaks. */
@@ -175,58 +174,20 @@ export class PlayerView {
     // group.children by index. Nothing here reads it; purely additive.
     this.body = body;
     this.group.add(body);
-    useAuthoredPart(body, 'torso');
 
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 14), skin);
     head.position.y = 1.52;
     head.castShadow = true;
     this.head = head;
     this.group.add(head);
-    useAuthoredPart(head, 'head');
-
-    // A hair cap. A bare sphere reads as a mannequin from any distance where
-    // the face would otherwise be doing the work — and there is no face.
-    const hair = new THREE.Mesh(
-      new THREE.SphereGeometry(0.163, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62),
-      new THREE.MeshStandardMaterial({ color: pal.hair ?? 0x2a1c12, roughness: 0.9 }),
-    );
-    hair.position.set(0, 0.012, -0.008);
-    hair.castShadow = true;
-    head.add(hair);
-    this.hair = hair;
-
-    // Shorts. Without them the shirt ran straight into the legs and the player
-    // read as one painted tube from collar to ankle.
-    const shortsMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.215, 0.185, 0.26, 12),
-      shorts,
-    );
-    shortsMesh.position.y = 0.70;
-    shortsMesh.castShadow = true;
-    this.shorts = shortsMesh;
-    this.group.add(shortsMesh);
 
     const legGeo = new THREE.CylinderGeometry(0.075, 0.06, 0.55, 10);
     legGeo.translate(0, -0.275, 0); // pivot at the hip
-    // The leg itself is a bare leg now that the shorts cover the top of it.
-    const legMat = new THREE.MeshStandardMaterial({ color: 0xe0b184, roughness: 0.85 });
-    const bootGeo = new THREE.BoxGeometry(0.10, 0.07, 0.20);
-    bootGeo.translate(0, -0.03, 0.035);   // sole under the ankle, toe forward
-    const bootMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.45 });
-    this.boots = [];
     this.legs = [-1, 1].map((side) => {
-      const leg = new THREE.Mesh(legGeo, legMat);
-      useAuthoredPart(leg, 'leg');
+      const leg = new THREE.Mesh(legGeo, shorts);
       leg.position.set(side * 0.11, 0.62, 0);
       leg.castShadow = true;
       this.group.add(leg);
-      // The boot rides on the leg, so it swings with the kick instead of
-      // hovering where the foot used to be.
-      const boot = new THREE.Mesh(bootGeo, bootMat);
-      boot.position.y = -0.55;
-      boot.castShadow = true;
-      leg.add(boot);
-      this.boots.push(boot);
       return leg;
     });
 
@@ -234,13 +195,8 @@ export class PlayerView {
     armGeo.translate(0, -0.24, 0); // pivot at the shoulder
     this.arms = [-1, 1].map((side) => {
       const arm = new THREE.Mesh(armGeo, sleeve);
-      useAuthoredPart(arm, 'arm');
-      // Tucked against the shoulder, not hovering beside it. At 0.32 the arm
-      // cleared the 0.26 torso by six centimetres of air and read as a fin
-      // stuck to the side; at 0.245 it touches the body the way an arm does.
-      arm.position.set(side * 0.245, 1.30, 0.01);
-      arm.rotation.z = side * 0.07;  // a hint of flare, not a scarecrow
-      arm.rotation.x = -0.06;        // hanging slightly forward, as arms do
+      arm.position.set(side * 0.32, 1.28, 0);
+      arm.rotation.z = side * 0.16; // resting flare away from the torso
       arm.castShadow = true;
       this.group.add(arm);
       return arm;

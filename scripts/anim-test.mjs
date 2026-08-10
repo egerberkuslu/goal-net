@@ -1312,15 +1312,27 @@ async function measure(browser, { name, width, height, tier, dpr }) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message)));
-  // ?auto=solo&autostart=1 is the arena's own path into a bot match, the same
-  // one scripts/arena-2tab.mjs uses. Going through it rather than synthesising
-  // clicks means this measures the real lobby -> roster -> view sequence.
-  const url = `http://localhost:${port}/arena.html`
-    + `?net=local&auto=solo&autostart=1&mode=4v4k&tier=${tier}`;
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  // The main game, entered the way a player enters it: pick a squad size, press
+  // the button, let the bots play. This used to drive /arena.html through
+  // window.__arena; the arena is cancelled, so the budget is measured where it
+  // means something — the game that ships.
+  await page.goto(`http://localhost:${port}/`, {
+    waitUntil: 'domcontentloaded', timeout: 30000,
+  });
+  const started = await page.evaluate(() => {
+    document.querySelector('button[data-teamsize="4"]')?.click();
+    const btn = document.getElementById('btn1p');
+    if (!btn) return false;
+    btn.click();
+    return true;
+  }).catch(() => false);
+  if (!started) {
+    await context.close();
+    return { name, error: 'the menu never appeared', errors };
+  }
   const ok = await page.waitForFunction(() => {
-    const b = window.__arena?.budget?.();
-    return !!b && b.calls > 0;
+    const r = window.__game?.renderer;
+    return !!r && r.info.render.calls > 0;
   }, null, { timeout: 25000 }).then(() => true).catch(() => false);
   if (!ok) {
     await context.close();
@@ -1335,8 +1347,8 @@ async function measure(browser, { name, width, height, tier, dpr }) {
     await new Promise((res) => {
       const tick = () => {
         frames++;
-        const b = window.__arena.budget();
-        if (b) samples.push(b);
+        const info = window.__game?.renderer?.info?.render;
+        if (info) samples.push({ calls: info.calls, triangles: info.triangles });
         if (performance.now() - t0 < 3000) requestAnimationFrame(tick);
         else res();
       };
