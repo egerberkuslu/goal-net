@@ -11,6 +11,7 @@ import {
   HOST_ID, RECONNECT_MS, CHAT_MIN_GAP_MS, CHAT_BURST, CHAT_WINDOW_MS,
   autoTeam, readyOf, allReady, canStart, setReady, clearReady,
   rosterFromPlayers, fieldPlayers, spectators, isBotId, nameKey,
+  MAX_PER_TEAM, MAX_FIELD_PLAYERS, teamHasRoom,
   rememberDeparted, takeDeparted, forgetDeparted, pruneDeparted, chatAllowed,
 } from '../packages/client/src/mp/lobbyState.js';
 
@@ -350,6 +351,39 @@ const LP = (over = {}) => ({
     validate({ t: 'start', settings: { ...SETTINGS }, roster })?.roster.length === roster.length);
   check('fieldPlayers/spectators partition the lobby',
     fieldPlayers(players).length === 3 && spectators(players).length === 1);
+}
+
+// A room has to be able to host the biggest match the modes offer. It could
+// not: the cap was six players in total, so 4v4 was unreachable online.
+{
+  check('squads: a side holds four', MAX_PER_TEAM === 4, `${MAX_PER_TEAM}`);
+  check('squads: a full room is 4v4',
+    MAX_FIELD_PLAYERS === 8, `${MAX_FIELD_PLAYERS}`);
+  const full = [];
+  for (let i = 0; i < MAX_PER_TEAM; i++) {
+    full.push(LP({ id: `r${i}`, name: `R${i}`, team: 0 }));
+  }
+  check('squads: a fourth player fits on a side',
+    teamHasRoom(full.slice(0, 3), 0));
+  check('squads: a fifth does not', !teamHasRoom(full, 0));
+  check('squads: the other side is still open', teamHasRoom(full, 1));
+  // Someone already on a full side must still be able to leave and come back,
+  // which they cannot if they are counted against their own seat.
+  check('squads: a player on a full side may stay on it',
+    teamHasRoom(full, 0, full[0]));
+  // Spectators are not on the pitch and must not eat a seat.
+  const withWatchers = [...full.slice(0, 3),
+    LP({ id: 'w1', name: 'W', team: 0, spectator: true })];
+  check('squads: spectators do not take a seat', teamHasRoom(withWatchers, 0));
+  // The full 4v4 roster, keepers included, still fits down the wire.
+  const eight = [0, 1].flatMap((team) => [0, 1, 2, 3]
+    .map((i) => LP({ id: `${team}${i}`, name: `P${team}${i}`, team, ready: true })));
+  const bigRoster = rosterFromPlayers(eight, { keepers: true });
+  check('squads: a 4v4 roster is ten entries', bigRoster.length === 10,
+    `${bigRoster.length}`);
+  check('squads: a 4v4 roster survives the wire',
+    validate({ t: 'start', settings: { ...SETTINGS }, roster: bigRoster })
+      ?.roster.length === 10);
   check('isBotId: recognises bot slots', isBotId('bot3') && !isBotId('host') && !isBotId(undefined));
 }
 

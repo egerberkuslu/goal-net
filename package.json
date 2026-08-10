@@ -15,6 +15,7 @@
     "test:crowd": "node scripts/crowd-test.mjs",
     "test:input": "node scripts/input-test.mjs",
     "test:rules": "node scripts/rules-test.mjs",
+    "test:squads": "node scripts/squads-test.mjs",
     "test:fx": "node scripts/fx-test.mjs",
     "test:replay": "node scripts/replay-test.mjs",
     "test:replaypkg": "node packages/replay/test/run.mjs",

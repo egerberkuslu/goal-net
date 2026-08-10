@@ -4,7 +4,8 @@ import { MSG, sanitizeName, sanitizeChat, DEFAULT_TEAM_COLORS } from './protocol
 import { LobbyUI, DEFAULT_SETTINGS } from './lobbyUI.js';
 import { ChatUI } from './chatUI.js';
 import {
-  HOST_ID, autoTeam, canStart, setReady, clearReady, rosterFromPlayers,
+  HOST_ID, MAX_FIELD_PLAYERS, autoTeam, canStart, setReady, clearReady,
+  rosterFromPlayers, teamHasRoom,
   fieldPlayers, spectators, isBotId, nameKey,
   rememberDeparted, takeDeparted, forgetDeparted, pruneDeparted, chatAllowed,
 } from './lobbyState.js';
@@ -18,7 +19,10 @@ const SNAP_INTERVAL = 1 / 20;
 const INPUT_INTERVAL = 1 / 30;
 const ANNOUNCE_INTERVAL = 10000;
 const ROOMS_POLL_INTERVAL = 4000;
-const MAX_PLAYERS = 6;
+// Squad limits live in lobbyState.js with the rest of the host's decision
+// logic, so they can be driven from node — see MAX_PER_TEAM there for why the
+// old six-player room could not host the 4v4 the modes offer.
+const MAX_PLAYERS = MAX_FIELD_PLAYERS;
 const MAX_SPECTATORS = 8;
 /** Guest-side reconnect budget after an unexpected drop mid-match. */
 const RECONNECT_TRIES = 3;
@@ -285,7 +289,10 @@ export class MpSession {
     const id = this.slotOf.get(connId) ?? connId;
     if (msg.t === MSG.TEAM) {
       const p = this.players.find((p) => p.id === id);
-      if (p && !p.spectator && !this.inMatch) { p.team = msg.team; this.broadcastLobby(); }
+      if (p && !p.spectator && !this.inMatch && this.teamHasRoom(msg.team, p)) {
+        p.team = msg.team;
+        this.broadcastLobby();
+      }
     } else if (msg.t === MSG.READY) {
       if (this.inMatch) return;
       const before = this.players;
@@ -460,6 +467,10 @@ export class MpSession {
       this.ui.showError('Oda dolu.');
       return;
     }
+    if (!this.teamHasRoom(team)) {
+      this.ui.showError('O takım dolu.');
+      return;
+    }
     this.botCounter++;
     this.players.push({
       id: `bot${this.botCounter}`, name: `Bot ${this.botCounter}`, team, isHost: false,
@@ -498,10 +509,19 @@ export class MpSession {
     this.announce();
   }
 
+  teamHasRoom(team, mover = null) {
+    return teamHasRoom(this.players, team, mover);
+  }
+
   requestTeam(team) {
     if (this.role === 'host') {
       const me = this.players.find((p) => p.id === HOST_ID);
-      if (me && !this.inMatch) { me.team = team; this.broadcastLobby(); }
+      if (me && !this.inMatch && this.teamHasRoom(team, me)) {
+        me.team = team;
+        this.broadcastLobby();
+      } else if (me && !this.inMatch) {
+        this.ui.showError('O takım dolu.');
+      }
     } else {
       this.net?.send(this.hostPeerId, { t: MSG.TEAM, team });
     }

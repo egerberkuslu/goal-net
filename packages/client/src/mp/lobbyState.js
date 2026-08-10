@@ -29,6 +29,36 @@ export const fieldPlayers = (players) => players.filter((p) => !p.spectator);
 export const spectators = (players) => players.filter((p) => p.spectator);
 
 /**
+ * Four a side, the largest squad the menu, the roster builder and the kickoff
+ * layout are all built for.
+ *
+ * The room used to cap at six players in total, which made the 4v4 the modes
+ * offer unreachable online — the biggest match anyone could host was 3v3. The
+ * limit is per team now, so a full room is 4v4 and filling one can no longer
+ * produce 7v1 either.
+ */
+export const MAX_PER_TEAM = 4;
+
+/** Every seat on the pitch, both sides. */
+export const MAX_FIELD_PLAYERS = MAX_PER_TEAM * 2;
+
+/**
+ * Is there a seat on this side?
+ *
+ * @param {object[]} players current lobby entries
+ * @param {0|1} team the side being joined
+ * @param {object} [mover] the entry about to move, which must not count against
+ *   the side it is already on — otherwise the fourth player on a team could
+ *   never switch away and back
+ * @returns {boolean}
+ */
+export function teamHasRoom(players, team, mover = null) {
+  const n = fieldPlayers(players)
+    .filter((p) => p.team === team && p !== mover).length;
+  return n < MAX_PER_TEAM;
+}
+
+/**
  * Which team a joining player lands on: whichever side is thinner, red on a tie.
  * @param {object[]} players current lobby entries
  * @returns {0|1}

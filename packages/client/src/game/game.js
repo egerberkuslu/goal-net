@@ -112,7 +112,19 @@ export class Game {
         ? new KeyboardController(P2_KEYS)
         : new BotController(this.world, this.playerBlue));
     }
-    for (const k of this.keepers) controllers.set(k, new KeeperController(this.world, k));
+    // Everyone else on the pitch is a bot.
+    //
+    // This used to stop at playerRed, playerBlue and the keepers, which are the
+    // whole roster at 1v1 and a third of it at 4v4: the other outfielders were
+    // handed no controller at all and stood on the kickoff spot for the length
+    // of the match. A team size the menu can ask for has to be a team size that
+    // plays.
+    for (const p of this.world.players) {
+      if (controllers.has(p)) continue;
+      controllers.set(p, p.role === 'keeper'
+        ? new KeeperController(this.world, p)
+        : new BotController(this.world, p));
+    }
     this.beginMatch(controllers, mode);
   }
 
