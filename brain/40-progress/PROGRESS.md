@@ -36,6 +36,20 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-09-04: Faz B (reklam panoları) BİTTİ. `tools/gen-boards.py` FLUX
+  schnell'i video-lab'dan import edip (`load_pipeline("cuda")`, STYLE_SUFFIX
+  yok) 1024×256 üretip 1024×128 WebP'ye indiriyor; 6 aile × 3 aday = 18
+  görsel, kontak sayfasından 6 seçildi (navy-v1, red-v2, green-v1, gold-v1,
+  teal-v1, grey-v1; gradyanlılar elendi). Yazı yok, marka yok — FLUX'un
+  metni güvenilmez, Box yüz UV'si ayna olabilir. `scene.js applyBoard()`:
+  glob + TextureLoader, doku başına tek decode, kale arkası `clone()` +
+  `repeat.x=3.8/6`; klasör boşsa düz renk. Kamera tarafı `opacity 0.3` kaldı.
+  `scripts/shot.mjs` oyunun KENDİ kamerasından yayın + karşı kenar yakın kare
+  alıyor; ikisiyle doğrulandı: sponsor şeridi okunuyor, top görünüyor.
+  Bulgu: FLUX görsel başına ~90 s (6.8 GB transformer her çağrıda GPU'ya
+  taşınıyor), 18 aday ≈ 25 dk. `test:anim` FPS kontrolü 54-58'de — makinede
+  sonradan başlayan üç `infer_worker.py` (senin servis) yüzünden; çizim
+  çağrısı/üçgen sabit, sessiz makinede tekrar ölçülecek.
 - 2026-09-03: Faz A (Türkçe anlatım) BİTTİ, ADR-0010. Chatterbox +
   `content/voices/ege.wav` ile 11 satır (`view/voiceLines.js`, HUD metinleriyle
   birebir), `tools/make-voice.mjs` (Chatterbox → ffmpeg kırpma/loudnorm/Opus,
