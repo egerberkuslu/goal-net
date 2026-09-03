@@ -124,6 +124,21 @@ section('5. the ad boards: banners on disk');
   }
 }
 
+// ---------------------------------------------------------------------------
+section('6. the menu music: track on disk');
+
+{
+  const f = resolve('packages/client/src/view/music/menu.opus');
+  if (!existsSync(f)) {
+    warn('no menu track yet', 'run: npm run gen:music');
+  } else {
+    const kb = statSync(f).size / 1024;
+    // Under 50 KB is the empty-Opus-header failure the generator now guards
+    // against; over 1.5 MB means someone shipped the WAV.
+    check('the track is a real file (50 KB - 1.5 MB)', kb > 50 && kb < 1536, `${Math.round(kb)} KB`);
+  }
+}
+
 console.log(failures === 0
   ? `\nALL PASS${warnings ? ` (${warnings} warning${warnings > 1 ? 's' : ''})` : ''}`
   : `\n${failures} FAILED`);

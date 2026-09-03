@@ -36,6 +36,16 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-09-04 (2): Faz D (menü müziği) BİTTİ. `tools/make-music.mjs`
+  ACE-Step'i video-lab'dan çalıştırıyor (`work/music.wav`'ı koruyup cache
+  hash'inden okuyor), ffmpeg ile gövde+baş `acrossfade` döngüsü ve
+  `loudnorm`, Opus 64k stereo → `view/music/menu.opus` (73 s, 626 KB).
+  `sfx.setMusic()` menü ve pause'da 1, oyunda 0; `main.js` kare döngüsünde
+  `setAmbiance` ile ters fazlı. Tarayıcıda ölçüldü: menü 0.35 → maç 0.014 →
+  pause 0.335 → devam 0.027; konsol temiz. Bulgu: `acrossfade`'e tek girişi
+  `asplit` ile vermek ffmpeg'de hata değil sessizlik (137 baytlık boş Opus,
+  exit 0) — aynı dosya iki `-i` ile verilince çalışıyor; üretici artık
+  <50 KB çıktıda patlıyor, `--from <wav>` ile modelsiz tekrar var.
 - 2026-09-04: Faz B (reklam panoları) BİTTİ. `tools/gen-boards.py` FLUX
   schnell'i video-lab'dan import edip (`load_pipeline("cuda")`, STYLE_SUFFIX
   yok) 1024×256 üretip 1024×128 WebP'ye indiriyor; 6 aile × 3 aday = 18
