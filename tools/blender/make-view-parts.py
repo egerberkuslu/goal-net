@@ -242,6 +242,30 @@ def normalise(obj, limits):
             v.co[axis] = (v.co[axis] - mid) * k
 
 
+def v_direction(obj):
+    """True when V increases with height, False when it decreases.
+
+    Read off the mesh rather than reasoned about: the vertex highest in the
+    authoring Y is compared with the lowest, and whichever has the larger V
+    decides. Called for every part so the two that disagree are visible in the
+    build log.
+    """
+    me = obj.data
+    uv = me.uv_layers.active.data
+    top_v = bot_v = None
+    top_y = -1e9
+    bot_y = 1e9
+    for poly in me.polygons:
+        for li in poly.loop_indices:
+            vi = me.loops[li].vertex_index
+            y = me.vertices[vi].co.y
+            if y > top_y:
+                top_y, top_v = y, uv[li].uv[1]
+            if y < bot_y:
+                bot_y, bot_v = y, uv[li].uv[1]
+    return bool(top_v is not None and bot_v is not None and top_v > bot_v)
+
+
 def check(obj, limits, name):
     vs = obj.data.vertices
     problems = []
@@ -285,22 +309,43 @@ def main():
         ("arm", lambda: make_limb("arm", 0.055, 0.045, 0.24, 0.30, 0.13)),
     ]
     problems = []
+    uv_dir = {}
     print("\nview parts (metres, drop-in for view/playerView.js)")
     for name, build in builders:
         hx, hy, hz, budget = SPEC[name]
         obj = build()
         tris = finish(obj)
         normalise(obj, (hx, hy, hz))
-        # the torso and arms wear the kit, so they need somewhere to put it
-        if name in ("torso", "arm"):
-            add_cylindrical_uv(obj)
+        # Every part is textured now, so every part needs somewhere to put it.
+        #
+        # This used to be torso and arm only, because they were the only two
+        # wearing the kit. The head and the leg were left without a UV layer,
+        # and a mesh with no UVs samples (0, 0) everywhere: the whole leg came
+        # out the colour of the boot at the bottom-left of its texture, and the
+        # head came out flat skin with no hair and no face. Both looked like a
+        # texture that had not been drawn, when the texture was fine and there
+        # was simply nowhere to put it.
+        add_cylindrical_uv(obj)
         problems += check(obj, (hx, hy, hz), name)
+        uv_dir[name] = v_direction(obj)
         if tris > budget:
             problems.append(f"{name} is {tris} triangles, budget is {budget}")
         print(
             f"  {name:6s} {tris:4d} tris   half-extents "
             f"{hx:.3f} x {hy:.3f} x {hz:.3f}"
         )
+
+    # Which way V runs, per part, as authored.
+    #
+    # Printed rather than asserted, because it is not the whole story: all four
+    # agree here and they do NOT agree once three.js has them, so a check at
+    # this end would pass while the face is upside down on screen. It is here
+    # because it narrows the search — a disagreement visible in this line is a
+    # Blender bug, and one visible only in the browser is an export or a
+    # sampling convention. The authority on which way a texture lands is the
+    # screen, and view/kitTexture.js records what the screen said.
+    print("\n  V direction as authored: " + ", ".join(
+        f"{n}={'up' if d else 'down'}" for n, d in uv_dir.items()))
 
     if problems:
         print("\nFAILED:")

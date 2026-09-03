@@ -1,5 +1,13 @@
 import * as THREE from 'three';
-import { KIT_PRESETS, defaultKitFor, makeKitTexture } from './kitTexture.js';
+import {
+  KIT_PRESETS, defaultKitFor, makeHeadTexture, makeKitTexture, makeLegTexture,
+} from './kitTexture.js';
+// Bodies authored in Blender (tools/blender/make-view-parts.py) at exactly the
+// primitives' own extents, so they drop in as a geometry swap: shoulders, a
+// waist, a jaw and a calf where there were four smooth solids, and not one
+// line of the animation below has to change. Missing file, no problem — the
+// primitive stays.
+import { useAuthoredPart } from './parts.js';
 
 /** A three.js colour number as the '#rrggbb' the kit table speaks. */
 const css6 = (c) => `#${(c >>> 0).toString(16).padStart(6, '0').slice(-6)}`;
@@ -164,8 +172,25 @@ export class PlayerView {
     // that answers "which team is this player wearing?".
     this.kitSpec = kitMap ? kitSpec : { base: css6(jerseyColor), pattern: 'plain' };
     this.shirtNumber = kitSpec.number ?? null;
-    const shorts = new THREE.MeshStandardMaterial({ color: shortsColor, roughness: 0.7 });
-    const skin = new THREE.MeshStandardMaterial({ color: 0xe8b98f, roughness: 0.8 });
+    // Skin, hair and the sock, which is the kit colour a viewer reads at the
+    // ankle when the shirt is hidden behind another player.
+    const SKIN = 0xe8b98f;
+    const HAIR = 0x2a1c12;
+    // A head with hair and a face, and a leg that is shorts, then leg, then
+    // sock, then boot. Both fall back to the flat colour they always had where
+    // there is no canvas to draw on.
+    const headMap = makeHeadTexture({ skin: SKIN, hair: HAIR });
+    const legMap = makeLegTexture({
+      shorts: shortsColor, skin: SKIN, sock: jerseyColor,
+    });
+    this.headMap = headMap;
+    this.legMap = legMap;
+    const shorts = legMap
+      ? new THREE.MeshStandardMaterial({ map: legMap, color: 0xffffff, roughness: 0.7 })
+      : new THREE.MeshStandardMaterial({ color: shortsColor, roughness: 0.7 });
+    const skin = headMap
+      ? new THREE.MeshStandardMaterial({ map: headMap, color: 0xffffff, roughness: 0.8 })
+      : new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.8 });
 
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.45, 6, 14), jersey);
     body.position.y = 0.95;
@@ -174,12 +199,14 @@ export class PlayerView {
     // group.children by index. Nothing here reads it; purely additive.
     this.body = body;
     this.group.add(body);
+    useAuthoredPart(body, 'torso');
 
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 14), skin);
     head.position.y = 1.52;
     head.castShadow = true;
     this.head = head;
     this.group.add(head);
+    useAuthoredPart(head, 'head');
 
     const legGeo = new THREE.CylinderGeometry(0.075, 0.06, 0.55, 10);
     legGeo.translate(0, -0.275, 0); // pivot at the hip
@@ -188,6 +215,7 @@ export class PlayerView {
       leg.position.set(side * 0.11, 0.62, 0);
       leg.castShadow = true;
       this.group.add(leg);
+      useAuthoredPart(leg, 'leg');
       return leg;
     });
 
@@ -195,10 +223,14 @@ export class PlayerView {
     armGeo.translate(0, -0.24, 0); // pivot at the shoulder
     this.arms = [-1, 1].map((side) => {
       const arm = new THREE.Mesh(armGeo, sleeve);
-      arm.position.set(side * 0.32, 1.28, 0);
+      // Against the shoulder of the authored torso, which is wider at the
+      // chest than the capsule was: at 0.32 the arms floated clear of the
+      // body with daylight between.
+      arm.position.set(side * 0.285, 1.30, 0);
       arm.rotation.z = side * 0.16; // resting flare away from the torso
       arm.castShadow = true;
       this.group.add(arm);
+      useAuthoredPart(arm, 'arm');
       return arm;
     });
 

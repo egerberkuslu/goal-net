@@ -211,3 +211,147 @@ export function defaultKitFor(teamColor, team) {
     pattern: team === 0 ? 'stripes' : 'hoops',
   };
 }
+
+// ---------------------------------------------------------------- the man ---
+//
+// The shirt was the only part of a player that carried a texture, and it left
+// two things reading as solids: a bare skin-coloured ball for a head, and a
+// single dark tube from hip to floor for a leg. From the broadcast camera that
+// is a mannequin on two sticks, whatever shape the mesh underneath has.
+//
+// Both are fixed here rather than with more geometry, because the parts are
+// authored to fixed extents that the animation depends on (see
+// tools/blender/make-view-parts.py) and because a texture costs no draw call.
+// They share the shirt's wrap exactly: U runs around the body with the FRONT at
+// 0.25 and the back at 0.75, V runs bottom to top. Get that convention wrong
+// and the player ends up with his face on the back of his skull.
+
+const FRONT_U = 0.25;
+
+/** Both new textures are small: they are read at a few dozen pixels. */
+const SMALL = 128;
+
+function makeSmallCanvas() {
+  if (typeof document === 'undefined') return null;
+  const cv = document.createElement('canvas');
+  cv.width = SMALL;
+  cv.height = SMALL;
+  const g = cv.getContext('2d');
+  if (!g || typeof g.fillRect !== 'function' || typeof g.beginPath !== 'function'
+      || typeof g.ellipse !== 'function' || typeof g.fill !== 'function') {
+    return null;                  // the headless canvas stub: no texture, no crash
+  }
+  return { cv, g };
+}
+
+function finishTexture(cv) {
+  let tex;
+  try {
+    tex = new THREE.CanvasTexture(cv);
+  } catch {
+    return null;
+  }
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
+ * A head: hair over the crown and down the back, a face on the front.
+ *
+ * The hairline is drawn as a curve rather than a straight band because a
+ * straight one reads as a swimming cap. It sits high over the face and dips at
+ * the back and sides, which is where a hairline actually is.
+ *
+ * The face is deliberately minimal — two eyes and a brow. At the size a player
+ * occupies on screen anything more becomes noise, and a mouth drawn at this
+ * scale reads as a smudge.
+ *
+ * @param {{skin:number|string, hair:number|string}} spec
+ * @returns {THREE.CanvasTexture|null} null where there is no DOM
+ */
+export function makeHeadTexture(spec) {
+  const made = makeSmallCanvas();
+  if (!made) return null;
+  const { cv, g } = made;
+  const skin = css(spec.skin);
+  const hair = css(spec.hair);
+  const S = SMALL;
+
+  g.fillStyle = skin;
+  g.fillRect(0, 0, S, S);
+
+  // Hair, drawn from the BOTTOM of the canvas up.
+  //
+  // The head's wrap runs the opposite way to the limbs': painting a red half
+  // and a blue half onto it and looking put blue on the crown, where the leg
+  // painted the same way puts its canvas top at the hip. Both come out of the
+  // same UV routine in make-view-parts.py, so this is measured rather than
+  // understood — hence the assertion in that script, which fails the build if
+  // the two ever agree again and this compensation turns into the bug.
+  //
+  // So: canvas bottom is the crown, canvas top is the chin.
+  g.fillStyle = hair;
+  g.beginPath();
+  g.moveTo(0, S);
+  g.lineTo(S, S);
+  // Down the back and sides to well below the ears...
+  g.lineTo(S, S * 0.48);
+  for (let i = 0; i <= 32; i++) {
+    const u = i / 32;
+    // ...and up over the forehead. The cosine peaks at the front (u = 0.25),
+    // lifting the hairline off the eyes.
+    const lift = Math.cos((u - FRONT_U) * Math.PI * 2);
+    const y = S * (0.48 + 0.24 * Math.max(0, lift));
+    g.lineTo(S * (1 - u), y);
+  }
+  g.closePath();
+  g.fill();
+
+  // Eyes, either side of the front centre line.
+  const eyeY = S * 0.56;
+  g.fillStyle = 'rgba(28,24,22,0.88)';
+  for (const du of [-0.055, 0.055]) {
+    g.beginPath();
+    g.ellipse(S * (FRONT_U + du), eyeY, S * 0.021, S * 0.026, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  // A brow shadow above them does more for the read than the eyes themselves.
+  g.fillStyle = 'rgba(0,0,0,0.16)';
+  g.fillRect(S * (FRONT_U - 0.10), eyeY + S * 0.033, S * 0.20, S * 0.022);
+
+  return finishTexture(cv);
+}
+
+/**
+ * A leg, from the hip down: shorts, bare leg, sock, boot.
+ *
+ * One texture over the whole limb, so the four things a football leg is made of
+ * cost nothing extra. The bands are in V, which runs bottom (the foot, 0) to
+ * top (the hip, 1); the canvas y is flipped against that, hence the 1 - v.
+ *
+ * @param {{shorts:number|string, skin:number|string, sock:number|string,
+ *          boot?:number|string}} spec
+ * @returns {THREE.CanvasTexture|null}
+ */
+export function makeLegTexture(spec) {
+  const made = makeSmallCanvas();
+  if (!made) return null;
+  const { cv, g } = made;
+  const S = SMALL;
+  const band = (v0, v1, colour) => {
+    g.fillStyle = css(colour);
+    g.fillRect(0, S * (1 - v1), S, S * (v1 - v0));
+  };
+  // Proportions off a standing footballer: the shorts end above the knee, the
+  // sock is pulled up over the calf, the boot is the ankle down.
+  band(0.72, 1.00, spec.shorts);
+  band(0.34, 0.72, spec.skin);
+  band(0.07, 0.34, spec.sock);
+  band(0.00, 0.07, spec.boot ?? '#15171c');
+  // A turnover at the top of the sock, the way socks are actually worn.
+  g.fillStyle = 'rgba(255,255,255,0.16)';
+  g.fillRect(0, S * (1 - 0.34), S, S * 0.022);
+  return finishTexture(cv);
+}
