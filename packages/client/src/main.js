@@ -65,6 +65,7 @@ function buildMatch(config, roster = null, opts = {}) {
   }
   const react = (e) => {
     sfx.notify(e, app.world.ball.pos);
+    sfx.comment(e.type);        // the commentator, if he has something to say
     if (e.type === 'goal') {
       crowd.onGoal(e.scorer); sfx.play('goal');
       fx.onGoal(e.scorer, Math.sign(app.world.ball.pos.z) || (e.scorer === 0 ? 1 : -1));
@@ -100,6 +101,9 @@ function buildMatch(config, roster = null, opts = {}) {
   // the one the game people actually play draws under.
   window.__game = {
     ...app, session, fx, cmd, renderer,
+    // A getter, not a value: the first buildMatch runs before `const sfx`
+    // below is initialised, and reading it eagerly here is a ReferenceError.
+    get sfx() { return sfx; },
   };
   return app;
 }
@@ -232,7 +236,11 @@ function frame(nowMs) {
     }
     if (app.game.state !== 'goal') replayDone = false;
   }
-  sfx.setAmbiance(frozen || !dom.menu.classList.contains('hidden') ? 0 : 1);
+  // Crowd in play, music in the menus and under the pause overlay — never
+  // both, because they share the one volume slider with the commentator.
+  const inMenu = !dom.menu.classList.contains('hidden');
+  sfx.setAmbiance(frozen || inMenu ? 0 : 1);
+  sfx.setMusic(inMenu || pause.active ? 1 : 0);
   app.netView.update();
   app.ballView.update(dt * app.game.timeScale);
   for (const pv of app.playerViews) pv.update(dt);

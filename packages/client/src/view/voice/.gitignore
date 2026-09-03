@@ -1,0 +1,3 @@
+# Audition takes from `npm run gen:voice -- --take N`; the chosen clips are copied
+# up one level and committed, the takes are not.
+takes/

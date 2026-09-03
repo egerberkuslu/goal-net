@@ -16,6 +16,7 @@
     "test:input": "node scripts/input-test.mjs",
     "test:rules": "node scripts/rules-test.mjs",
     "test:squads": "node scripts/squads-test.mjs",
+    "test:assets": "node scripts/assets-test.mjs",
     "test:fx": "node scripts/fx-test.mjs",
     "test:replay": "node scripts/replay-test.mjs",
     "test:replaypkg": "node packages/replay/test/run.mjs",
@@ -45,7 +46,10 @@
     "build:viewparts": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/make-view-parts.py",
     "fetch:textures": "node tools/fetch-textures.mjs",
     "fetch:models": "node tools/fetch-models.mjs",
-    "prep:vendor": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/prep-vendor.py"
+    "prep:vendor": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/prep-vendor.py",
+    "gen:voice": "node tools/make-voice.mjs",
+    "gen:boards": "VIDEO_LAB=\"${VIDEO_LAB:-$HOME/Desktop/video-lab}\" PYTHONPATH=\"\" \"$VIDEO_LAB/audio-tools/.venv/bin/python\" tools/gen-boards.py",
+    "gen:music": "node tools/make-music.mjs"
   },
   "dependencies": {
     "peerjs": "^1.5.0",

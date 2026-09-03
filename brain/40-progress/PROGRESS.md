@@ -36,6 +36,18 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-09-03: Faz A (Türkçe anlatım) BİTTİ, ADR-0010. Chatterbox +
+  `content/voices/ege.wav` ile 11 satır (`view/voiceLines.js`, HUD metinleriyle
+  birebir), `tools/make-voice.mjs` (Chatterbox → ffmpeg kırpma/loudnorm/Opus,
+  `--take N` ile kulakla seçim), `sfx.js` `say()/comment()` (öncelik 2 keser,
+  1.2 s aralık, 4 s tekrar kilidi, düdükten 250 ms sonra), `main.js` tek satır.
+  Tarayıcıda doğrulandı: 11 klip decode, taç → klip, tekrar düşürüldü, gol
+  üstüne konuştu, konsol temiz; klasör boşken 14 olay tipi hatasız.
+  `test:assets` sözleşmeyi test eder (tablo ↔ jobs ↔ disk). İki gerçek bulgu:
+  Chatterbox tek kelimede bimodal (0.4 s temiz / 1.3 s kuyruk) → take'ler
+  kullanıcıya gönderildi; `window.__game.sfx` ilk buildMatch'te TDZ →
+  getter. Vite 4 KB inline limiti 2 klibi `data:` yaptı (zararsız).
+  Sırada Faz B (panolar), D (müzik), C (forma).
 - 2026-08-08 (12): Faz 1.7d (#38-#41) KAPANDI. Anlatım: 29 replik × TR/EN,
   öncelik/kesme/cooldown + 12 sn tekrar penceresi, tansiyona bağlı yoğunluk;
   runtime TTS yok, klipler manifest üzerinden. Ses henüz yok — hat doğru
