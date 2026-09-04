@@ -28,6 +28,23 @@ import {
   DT, PITCH_HALF_L, WALL_X, PLAYER_R,
 } from '../packages/client/src/core/constants.js';
 
+// The bots steer with Math.random, so an unseeded run is a different match
+// every time and a gate that can fail on a bad roll is not a gate. Seeded
+// here (mulberry32, the same generator crowdView uses); SQUADS_SEED picks the
+// match, and a failure names the seed that reproduces it.
+const SEED = Number(process.env.SQUADS_SEED || 1) >>> 0;
+{
+  let a = SEED || 1;
+  Math.random = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+console.log(`seed ${SEED}`);
+
 let failures = 0;
 const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`);

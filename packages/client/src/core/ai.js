@@ -1,5 +1,5 @@
 import {
-  PITCH_HALF_L, KICK_RANGE, KICK_CHARGE_TIME, BALL_R, PLAYER_R,
+  PITCH_HALF_L, KICK_RANGE, KICK_CHARGE_TIME, BALL_R, PLAYER_R, WALL_X,
 } from './constants.js';
 
 // Simple Haxball-style bot: get goal-side of the ball, push it toward the
@@ -45,6 +45,27 @@ export class BotController {
       } else {
         this.target = behind;
       }
+
+      // A ball against the boards puts every point "behind" it OUTSIDE the
+      // pitch, and a target the bounds clamp will never let the bot reach is
+      // a bot pressing into the corner for as long as the ball sits there —
+      // which, with a team-mate arriving behind, is exactly the corner the
+      // player reported being stuck in. So the target is kept inside the
+      // playable rectangle, and when the ball is in a corner the bot comes at
+      // it from the pitch side, where there is room to stand and a direction
+      // to kick.
+      const limX = WALL_X - PLAYER_R - 0.05;
+      const limZ = PITCH_HALF_L - PLAYER_R - 0.15;
+      const inCorner = Math.abs(b.x) > WALL_X - 1.6 && Math.abs(b.z) > PITCH_HALF_L - 1.6;
+      if (inCorner) {
+        // from the ball toward the centre of the pitch
+        let cx = -b.x, cz = -b.z;
+        const cl = Math.hypot(cx, cz) || 1;
+        cx /= cl; cz /= cl;
+        this.target = { x: b.x + cx * 0.6, z: b.z + cz * 0.6 };
+      }
+      this.target.x = Math.max(-limX, Math.min(limX, this.target.x));
+      this.target.z = Math.max(-limZ, Math.min(limZ, this.target.z));
 
       // panic defence: ball rolling at our goal and we're not on the line
       const towardOwn = (world.ball.vel.z || 0) * -attackSign > 3;
