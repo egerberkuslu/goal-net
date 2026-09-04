@@ -149,7 +149,7 @@ export class PlayerView {
       ? { ...KIT_PRESETS[player.kit], number: player.number }
       : {
         ...defaultKitFor(jerseyColor, player.team),
-        ...(keeper ? { pattern: 'plain', base: css6(jerseyColor) } : null),
+        ...(keeper ? { pattern: 'plain', base: css6(jerseyColor), motif: null } : null),
         number: player.number ?? (keeper ? 1 : undefined),
       };
     const kitMap = makeKitTexture(kitSpec);
@@ -279,8 +279,10 @@ export class PlayerView {
    * a player who changed kit again in the meantime keeps the newer one.
    */
   #wantKitImage(spec) {
-    if (typeof spec?.image !== 'string' || kitImage(spec.image)) return;
-    loadKitImage(spec.image).then((ok) => {
+    const key = typeof spec?.motif === 'string' ? spec.motif
+      : (typeof spec?.image === 'string' ? spec.image : null);
+    if (!key || kitImage(key)) return;
+    loadKitImage(key).then((ok) => {
       if (ok && this.kitSpec === spec && this.body) this.setKit({});
     });
   }

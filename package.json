@@ -50,7 +50,8 @@
     "gen:voice": "node tools/make-voice.mjs",
     "gen:boards": "VIDEO_LAB=\"${VIDEO_LAB:-$HOME/Desktop/video-lab}\" PYTHONPATH=\"\" \"$VIDEO_LAB/audio-tools/.venv/bin/python\" tools/gen-boards.py",
     "gen:music": "node tools/make-music.mjs",
-    "gen:kits": "VIDEO_LAB=\"${VIDEO_LAB:-$HOME/Desktop/video-lab}\" PYTHONPATH=\"\" \"$VIDEO_LAB/audio-tools/.venv/bin/python\" tools/gen-kits.py"
+    "gen:kits": "VIDEO_LAB=\"${VIDEO_LAB:-$HOME/Desktop/video-lab}\" PYTHONPATH=\"\" \"$VIDEO_LAB/audio-tools/.venv/bin/python\" tools/gen-kits.py",
+    "build:board": "PYTHONPATH=$(python3 -c \"import numpy,os;print(os.path.dirname(os.path.dirname(numpy.__file__)))\") blender --background --python tools/blender/make-board.py"
   },
   "dependencies": {
     "peerjs": "^1.5.0",

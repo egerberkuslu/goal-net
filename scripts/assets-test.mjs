@@ -18,7 +18,7 @@ import {
   LINE_FOR_EVENT, MIN_GAP_MS, REPEAT_MS, VOICE_LINES, createVoiceState, pickVoice,
 } from '../packages/client/src/view/voiceLines.js';
 import { OUT_DIR, REF_VOICE, buildJobs } from '../tools/make-voice.mjs';
-import { KIT_PRESETS, PATTERNS, kitImage } from '../packages/client/src/view/kitTexture.js';
+import { KIT_PRESETS, PATTERNS, defaultKitFor, kitImage } from '../packages/client/src/view/kitTexture.js';
 
 let failures = 0;
 let warnings = 0;
@@ -157,8 +157,12 @@ section('7. the kits: generated patterns');
   } else {
     const missing = imageKits.filter(([k]) => !files.includes(`${k}.webp`)).map(([k]) => k);
     check('every image kit has its file', missing.length === 0, missing.join(',') || `${files.length}`);
-    const orphan = files.filter((f) => !KIT_PRESETS[f.slice(0, -5)]);
-    check('no file without a preset', orphan.length === 0, orphan.join(','));
+    const motifs = [0, 1].map((t) => defaultKitFor('#ffffff', t).motif);
+    check('both default kits name a motif', motifs.every((m) => typeof m === 'string'), motifs.join(','));
+    const noMotif = motifs.filter((m) => !files.includes(`${m}.webp`));
+    check('every default motif has its swatch', noMotif.length === 0, noMotif.join(',') || motifs.join(','));
+    const orphan = files.filter((f) => !KIT_PRESETS[f.slice(0, -5)] && !motifs.includes(f.slice(0, -5)));
+    check('no file without a preset or a motif', orphan.length === 0, orphan.join(','));
   }
 }
 

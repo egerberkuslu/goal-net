@@ -70,6 +70,44 @@ export function loadKitImage(key) {
   return done.then(() => { kitImages.set(key, img); return true; }).catch(() => false);
 }
 
+// A motif is a black-on-white swatch coloured HERE, at draw time, in whatever
+// two colours the kit actually has — which is what lets the default kits of a
+// lobby that picked its own team colours still wear a generated pattern. The
+// pre-tinted `image` kits stay for the fixed presets; this is the general
+// case. One pass over 65k pixels per (motif, base, accent), cached.
+const tintedMotifs = new Map();
+
+function hexRgb(h) {
+  const n = parseInt(String(h).replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** The swatch `key`, painted base-where-white and accent-where-black. */
+function tintedMotif(key, base, accent) {
+  const id = `${key}|${base}|${accent}`;
+  if (tintedMotifs.has(id)) return tintedMotifs.get(id);
+  const img = kitImage(key);
+  if (!img || typeof document === 'undefined') return null;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const g = cv.getContext('2d', { willReadFrequently: true });
+  if (!g || typeof g.getImageData !== 'function') return null;
+  g.drawImage(img, 0, 0, W, H);
+  let data;
+  try { data = g.getImageData(0, 0, W, H); } catch { return null; }
+  const [br, bg, bb] = hexRgb(base);
+  const [ar, ag, ab] = hexRgb(accent);
+  const d = data.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    const dark = lum < 128;
+    d[i] = dark ? ar : br; d[i + 1] = dark ? ag : bg; d[i + 2] = dark ? ab : bb; d[i + 3] = 255;
+  }
+  g.putImageData(data, 0, 0);
+  tintedMotifs.set(id, cv);
+  return cv;
+}
+
 export const PATTERNS = Object.freeze(['plain', 'stripes', 'hoops', 'halves', 'sash']);
 
 /**
@@ -159,7 +197,9 @@ export function makeKitTexture(spec) {
   // A generated swatch, if this kit has one and it has arrived: it replaces
   // the procedural pattern and nothing else. The trim, the number and the
   // shade below are laid over it exactly as over stripes.
-  const img = typeof spec.image === 'string' ? kitImage(spec.image) : (spec.image || null);
+  const motif = typeof spec.motif === 'string' ? tintedMotif(spec.motif, base, accent) : null;
+  const img = motif
+    || (typeof spec.image === 'string' ? kitImage(spec.image) : (spec.image || null));
   if (img && typeof g.drawImage === 'function' && (img.naturalWidth || img.width)) {
     g.drawImage(img, 0, 0, W, H);
   } else if (pattern === 'stripes') {
@@ -275,7 +315,11 @@ export function defaultKitFor(teamColor, team) {
     base: css(teamColor),
     accent: contrastFor(css(teamColor)),
     trim: contrastFor(css(teamColor)),
+    // What shows until the motif has loaded, and under node.
     pattern: team === 0 ? 'stripes' : 'hoops',
+    // The generated pattern, tinted at draw time in the team's own colours:
+    // chevrons for the red side, zigzag for the blue.
+    motif: team === 0 ? 'motif-sevron' : 'motif-zigzag',
   };
 }
 
