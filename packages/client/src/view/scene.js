@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   GOAL_W, GOAL_H, POST_R, NET_TOP_DEPTH, NET_BOT_DEPTH,
   PITCH_HALF_L, PITCH_HALF_W, WALL_X,
@@ -20,7 +21,6 @@ const BOARD_URLS = (() => {
     return [];
   }
 })();
-const boardTextures = new Map();   // url -> THREE.Texture, decoded once
 
 // The board itself, authored in Blender (tools/blender/make-board.py): a dark
 // frame around a white face that leans back six degrees, in the two lengths
@@ -76,73 +76,116 @@ function loadBoardMeshes() {
  * Turn a plain box board into the authored one, keeping its place.
  *
  * The authored mesh carries two materials — frame, then face — and the
- * banner belongs on the face only, which is why applyBoard's material is
- * moved onto slot 1 rather than the whole mesh. The mesh's +Z is the pitch
- * side; `yaw` turns it to look at the pitch from wherever it stands.
+ * banner belongs on the face only. The mesh's +Z is the pitch side; `yaw`
+ * turns it to look at the pitch from wherever it stands.
  *
  * @param {THREE.Mesh} box the placeholder already in the scene
  * @param {'board-6'|'board-3.8'} which
  * @param {number} yaw radians about Y
- * @param {THREE.Material} faceMat the material applyBoard() is painting
  */
-function dressBoard(box, which, yaw, faceMat) {
-  loadBoardMeshes().then((nodes) => {
-    if (!nodes || !box.parent) return;
-    const board = nodes[which].clone(true);
-    board.position.copy(box.position);
-    board.rotation.y = yaw;
-    board.traverse((o) => {
-      if (!o.isMesh) return;
-      const isFace = /face/i.test(o.material?.name || '');
-      if (isFace) {
-        o.material = faceMat;
-      } else {
-        o.material = o.material.clone();
-        if (faceMat.transparent) {
-          // the camera-side run stays see-through, frame included
-          o.material.transparent = true;
-          o.material.opacity = faceMat.opacity;
-          o.material.depthWrite = false;
-        }
-      }
-      o.castShadow = box.castShadow;
-    });
-    box.parent.add(board);
-    box.parent.remove(box);
-  });
+/**
+ * The boards, as four meshes.
+ *
+ * Twenty boards were twenty box meshes; dressed from the glTF they became
+ * forty (frame + face each) and the render-budget check counted every one,
+ * twice more in the shadow pass. They never move and share two materials, so
+ * they are built ONCE the glTF and the banners have both arrived: one merged
+ * frame mesh, one merged face mesh whose UVs point into a single atlas of all
+ * the banners, and the same pair again for the see-through camera-side run.
+ * Six banners, one 1024 x 768 canvas, four draw calls for the lot.
+ *
+ * Until that lands each board is the flat box it always was; without the
+ * glTF, forever.
+ *
+ * @param {THREE.Mesh} box the placeholder already in the scene
+ * @param {'board-6'|'board-3.8'} which
+ * @param {number} yaw radians about Y
+ * @param {number} banner index into BOARD_URLS
+ * @param {boolean} seeThrough the camera-side run
+ */
+const pendingBoards = [];
+function dressBoard(box, which, yaw, banner, seeThrough) {
+  pendingBoards.push({ box, which, yaw, banner, seeThrough });
 }
 
-/**
- * Hang a banner on one board's material, if there is one to hang.
- *
- * The texture is fetched once per URL and cloned per board: in r170 a clone
- * shares the decoded image, so twenty boards cost six uploads. A board keeps
- * its flat colour until the image lands, and forever if there is no image.
- *
- * @param {THREE.Material} mat the board's own material (never shared)
- * @param {number} index which banner, cycling through the list
- * @param {number} repeatX 1 for the 6 m boards; the 3.8 m goal-line boards
- *   show that fraction of the strip so the shapes stay the same size
- */
-function applyBoard(mat, index, repeatX = 1) {
-  if (!BOARD_URLS.length) return;
-  const url = BOARD_URLS[index % BOARD_URLS.length];
-  const onto = (tex) => {
-    const t = repeatX === 1 ? tex : tex.clone();
-    if (repeatX !== 1) { t.repeat.x = repeatX; t.needsUpdate = true; }
-    mat.map = t;
-    mat.color.setHex(0xdedede);   // the image's own colours, a shade under white so bloom does not glare
-    mat.needsUpdate = true;
-  };
-  if (boardTextures.has(url)) { onto(boardTextures.get(url)); return; }
-  new THREE.TextureLoader().load(url, (tex) => {
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 8;
-    tex.wrapS = THREE.ClampToEdgeWrapping;
-    tex.wrapT = THREE.ClampToEdgeWrapping;
-    boardTextures.set(url, tex);
-    onto(tex);
+async function loadBannerAtlas() {
+  if (!BOARD_URLS.length || typeof document === 'undefined') return null;
+  const loader = new THREE.TextureLoader();
+  const imgs = await Promise.all(BOARD_URLS.map((u) => new Promise((ok) => {
+    loader.load(u, (t) => ok(t.image), undefined, () => ok(null));
+  })));
+  const rows = imgs.length;
+  const cv = document.createElement('canvas');
+  cv.width = 1024; cv.height = 128 * rows;
+  const g = cv.getContext('2d');
+  if (!g) return null;
+  imgs.forEach((im, i) => {
+    if (im) g.drawImage(im, 0, i * 128, 1024, 128);
+    else { g.fillStyle = '#666'; g.fillRect(0, i * 128, 1024, 128); }
   });
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.flipY = true;
+  return { tex, rows };
+}
+
+async function buildBoards(scene) {
+  const [nodes, atlas] = await Promise.all([loadBoardMeshes(), loadBannerAtlas()]);
+  if (!nodes) return;
+  const groups = { solid: { frames: [], faces: [] }, glass: { frames: [], faces: [] } };
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  for (const b of pendingBoards) {
+    if (!b.box.parent) continue;
+    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.yaw);
+    m.compose(b.box.position, q, new THREE.Vector3(1, 1, 1));
+    const src = nodes[b.which];
+    src.traverse((o) => {
+      if (!o.isMesh) return;
+      const geo = o.geometry.clone();
+      o.updateWorldMatrix(true, false);
+      geo.applyMatrix4(o.matrixWorld);   // the node's own transform inside the glTF
+      geo.applyMatrix4(m);               // then the board's place in the ground
+      const isFace = /face/i.test(o.material?.name || '');
+      if (isFace && atlas) {
+        // v into this banner's row of the atlas; the glTF face is 0..1
+        const uv = geo.getAttribute('uv');
+        const row = b.banner % atlas.rows;
+        for (let i = 0; i < uv.count; i++) {
+          uv.setY(i, (row + uv.getY(i)) / atlas.rows);
+        }
+        uv.needsUpdate = true;
+      }
+      (b.seeThrough ? groups.glass : groups.solid)[isFace ? 'faces' : 'frames'].push(geo);
+    });
+    b.box.parent.remove(b.box);
+  }
+  const frameSrc = nodes['board-6'].children.find((c) => !/face/i.test(c.material?.name || ''));
+  for (const [kind, parts] of Object.entries(groups)) {
+    const glass = kind === 'glass';
+    const mk = (geos, mat, shadow) => {
+      if (!geos.length) return;
+      const mesh = new THREE.Mesh(mergeGeometries(geos, false), mat);
+      mesh.castShadow = shadow;
+      mesh.name = `boards:${kind}`;
+      scene.add(mesh);
+      for (const g of geos) g.dispose();
+    };
+    const frameMat = frameSrc ? frameSrc.material.clone() : new THREE.MeshLambertMaterial({ color: 0x0d0f14 });
+    const faceMat = atlas
+      ? new THREE.MeshBasicMaterial({ map: atlas.tex, color: 0xdedede })
+      : new THREE.MeshBasicMaterial({ color: 0x8892a8 });
+    if (glass) {
+      for (const mat of [frameMat, faceMat]) {
+        mat.transparent = true; mat.opacity = 0.3; mat.depthWrite = false;
+      }
+    }
+    mk(parts.frames, frameMat, !glass);
+    mk(parts.faces, faceMat, false);
+  }
 }
 
 const DEFAULT_HALF_W = GOAL_W / 2;
@@ -216,16 +259,25 @@ export function buildGoalFrames(scene, config) {
   const group = new THREE.Group();
   const white = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.35 });
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  // Each goal is one mesh. The posts, bar and stanchions were fourteen
+  // cylinders apiece — fourteen draw calls, twice, and again in the shadow
+  // pass — for a shape that never moves and shares one material.
   for (const end of [-1, 1]) {
     const gz = end * PITCH_HALF_L;
     const back = end * (PITCH_HALF_L + NET_BOT_DEPTH);
     const kink = end * (PITCH_HALF_L + NET_TOP_DEPTH);
+    const tubes = [];
     for (const s of [-1, 1]) {
-      group.add(tubeBetween(V(s * halfW, 0, gz), V(s * halfW, goalH + POST_R, gz), POST_R, white));
-      group.add(tubeBetween(V(s * halfW, goalH + POST_R, gz), V(s * halfW, goalH - 0.1, kink), 0.028, white));
-      group.add(tubeBetween(V(s * halfW, goalH - 0.1, kink), V(s * halfW, 0, back), 0.028, white));
+      tubes.push(tubeBetween(V(s * halfW, 0, gz), V(s * halfW, goalH + POST_R, gz), POST_R, white));
+      tubes.push(tubeBetween(V(s * halfW, goalH + POST_R, gz), V(s * halfW, goalH - 0.1, kink), 0.028, white));
+      tubes.push(tubeBetween(V(s * halfW, goalH - 0.1, kink), V(s * halfW, 0, back), 0.028, white));
     }
-    group.add(tubeBetween(V(-halfW - POST_R, goalH, gz), V(halfW + POST_R, goalH, gz), POST_R, white));
+    tubes.push(tubeBetween(V(-halfW - POST_R, goalH, gz), V(halfW + POST_R, goalH, gz), POST_R, white));
+    const parts = tubes.map((t) => { t.updateMatrix(); return t.geometry.applyMatrix4(t.matrix); });
+    const frame = new THREE.Mesh(mergeGeometries(parts, false), white);
+    frame.castShadow = true;
+    for (const g of parts) g.dispose();
+    group.add(frame);
   }
   scene.add(group);
   return {
@@ -340,35 +392,44 @@ function addStadium(scene) {
   const lampMat = new THREE.MeshBasicMaterial({ color: 0xfff2d2 });
   const topY = 1.6 + 2 * 0.4 + 2 * 1.1;        // top of the third tier
   const wallH = 4.2;
+  // Every piece of the shell is static and shares one of three materials, so
+  // the pieces are merged into three meshes — three draw calls for the whole
+  // shell instead of one per lamp. The first version was 35 meshes and the
+  // render-budget check counted every one of them.
+  const walls = [];
+  const lips = [];
+  const lamps = [];
+  const boxAt = (w, h, d, x, y, z) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate(x, y, z);
+    return g;
+  };
   const shell = (len, cx, cz, alongZ) => {
-    const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(alongZ ? 0.6 : len, wallH, alongZ ? len : 0.6), wallMat,
-    );
-    wall.position.set(cx, topY + wallH / 2 - 0.4, cz);
-    scene.add(wall);
-    const lip = new THREE.Mesh(
-      new THREE.BoxGeometry(alongZ ? 3.4 : len + 1.2, 0.35, alongZ ? len + 1.2 : 3.4), lipMat,
-    );
+    walls.push(boxAt(alongZ ? 0.6 : len, wallH, alongZ ? len : 0.6, cx, topY + wallH / 2 - 0.4, cz));
     // the lip hangs over the crowd, toward the pitch
     const inward = alongZ ? -Math.sign(cx) : -Math.sign(cz);
-    lip.position.set(
+    lips.push(boxAt(
+      alongZ ? 3.4 : len + 1.2, 0.35, alongZ ? len + 1.2 : 3.4,
       cx + (alongZ ? inward * 1.4 : 0), topY + wallH - 0.4, cz + (alongZ ? 0 : inward * 1.4),
-    );
-    lip.castShadow = true;
-    scene.add(lip);
+    ));
     // lamps under the lip, every 4 m
     const n = Math.floor(len / 4);
     for (let i = 0; i < n; i++) {
       const o = (i - (n - 1) / 2) * 4;
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(alongZ ? 0.5 : 1.2, 0.12, alongZ ? 1.2 : 0.5), lampMat);
-      lamp.position.set(
+      lamps.push(boxAt(
+        alongZ ? 0.5 : 1.2, 0.12, alongZ ? 1.2 : 0.5,
         cx + (alongZ ? inward * 2.6 : o), topY + wallH - 0.62, cz + (alongZ ? o : inward * 2.6),
-      );
-      scene.add(lamp);
+      ));
     }
   };
   shell(52, -(14.5 + 2 * 2.3 + 1.1), 0, true);              // far touchline
   for (const side of [-1, 1]) shell(34, 0, side * (23.5 + 2 * 2.3 + 1.1), false);   // both ends
+  for (const [parts, mat, shadow] of [[walls, wallMat, false], [lips, lipMat, true], [lamps, lampMat, false]]) {
+    const merged = new THREE.Mesh(mergeGeometries(parts, false), mat);
+    merged.castShadow = shadow;
+    scene.add(merged);
+    for (const g of parts) g.dispose();
+  }
 
   // floodlight pylons
   const poleMat = new THREE.MeshLambertMaterial({ color: 0x8b94a8 });
@@ -398,7 +459,6 @@ function addStadium(scene) {
       // and the key light comes from behind the far run anyway — with Lambert
       // the banners on that side went grey.
       const mat = new THREE.MeshBasicMaterial({ color: colors[ci % 4] });
-      applyBoard(mat, ci++);
       if (side > 0) {
         mat.transparent = true;
         mat.opacity = 0.3;
@@ -409,22 +469,22 @@ function addStadium(scene) {
       b.castShadow = side < 0;
       scene.add(b);
       // -x side faces +x (yaw +90°), +x side faces -x (yaw -90°)
-      dressBoard(b, 'board-6', side < 0 ? Math.PI / 2 : -Math.PI / 2, mat);
+      dressBoard(b, 'board-6', side < 0 ? Math.PI / 2 : -Math.PI / 2, ci++, side > 0);
     }
     // goal-line boards from each post out to the side walls
     for (const sx of [-1, 1]) {
       for (let i = 0; i < 2; i++) {
         const mat = new THREE.MeshBasicMaterial({ color: colors[ci % 4] });
-        applyBoard(mat, ci++, 3.8 / 6);
         const b = new THREE.Mesh(endBoard, mat);
         b.position.set(sx * (3.85 + 1.9 + i * 3.8), 0.38, side * (PITCH_HALF_L + 0.12));
         b.castShadow = true;
         scene.add(b);
         // the -z end faces +z (yaw 0), the +z end faces -z (yaw 180°)
-        dressBoard(b, 'board-3.8', side < 0 ? 0 : Math.PI, mat);
+        dressBoard(b, 'board-3.8', side < 0 ? 0 : Math.PI, ci++, false);
       }
     }
   }
+  buildBoards(scene);
 }
 
 export function createScene(container) {

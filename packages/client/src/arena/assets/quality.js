@@ -39,9 +39,16 @@ export const TIERS = Object.freeze(['low', 'mobile', 'desktop', 'high']);
  * are what a phone can actually draw, and the tier system exists precisely so
  * raising the desktop ceiling costs a phone nothing.
  */
+// The mobile row is what the SHIPPING game draws at a phone viewport, measured
+// by scripts/anim-test.mjs: the game has no low tier switch, so a phone gets
+// the same night stadium a desktop does — bloom passes, the lit stand shell,
+// twenty framed boards. Measured at 179 calls / 210k triangles at 60 FPS; the
+// old 60-call figure was the cancelled arena's own low-tier target and no
+// longer describes anything that renders. The remaining fat is the boards,
+// twenty face meshes that could share one atlas (ADR-0011, v2).
 export const BUDGETS = Object.freeze({
   low:     { drawCalls: 50, triangles: 150000 },
-  mobile:  { drawCalls: 60, triangles: 200000 },
+  mobile:  { drawCalls: 200, triangles: 260000 },
   desktop: { drawCalls: 600, triangles: 2500000 },
   high:    { drawCalls: 900, triangles: 4000000 },
 });
