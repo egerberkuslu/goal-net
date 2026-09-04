@@ -119,9 +119,13 @@ section('5. the ad boards: banners on disk');
     check('between 1 and 12 banners', files.length >= 1 && files.length <= 12, `${files.length}`);
     const big = files.filter((f) => statSync(resolve(dir, f)).size > 60 * 1024);
     check('every banner is under 60 KB', big.length === 0, big.join(','));
-    const stray = readdirSync(dir).filter((f) => !f.endsWith('.webp') && !f.startsWith('.'));
-    check('nothing but webp in the folder (png is gitignored and would vanish)',
+    // The board mesh itself (board.glb, from tools/blender/make-board.py) lives
+    // here too; anything else — a png, most likely — would be gitignored and
+    // silently missing from the next clone.
+    const stray = readdirSync(dir).filter((f) => !/\.(webp|glb)$/.test(f) && !f.startsWith('.'));
+    check('nothing but webp/glb in the folder (png is gitignored and would vanish)',
       stray.length === 0, stray.join(','));
+    check('the authored board mesh is present', existsSync(resolve(dir, 'board.glb')));
   }
 }
 
