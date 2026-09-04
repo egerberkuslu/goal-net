@@ -47,7 +47,12 @@ DOKUNULMAZ — sadece envantere yazılır):
   otomatik. Tarayıcıda ölçüldü: iki görsel yüklendi, iki doku uuid değişti,
   numara sırtta; yakın ve yayın mesafesinden okunuyor. Bulgu: kurucu içinde
   `#wantKitImage` `this.kitSpec` atanmadan çağrılmamalı (kimlik kontrolü).
-  Kalan: `test:anim` FPS'i sessiz makinede yeniden ölçmek; v2 listesi ADR-0010.
+  Son tam kapı: 16 suite yeşil, `test:anim` 156/156 (60 FPS masaüstü ve mobil
+  geri geldi → önceki 54-58 ortam gürültüsüydü). `test:squads` bir koşuda 1
+  hata verdi, tekrarında geçti: botlar `Math.random` ile yürüdüğünden test
+  deterministik değildi; `SQUADS_SEED` ile tohumlandı, 6 tohumla dağılım
+  ölçülüyor (5 s'yi aşan top-köşe stall'u çıkarsa bot düzeltilecek).
+  v2 listesi ADR-0010.
 - 2026-09-04 (2): Faz D (menü müziği) BİTTİ. `tools/make-music.mjs`
   ACE-Step'i video-lab'dan çalıştırıyor (`work/music.wav`'ı koruyup cache
   hash'inden okuyor), ffmpeg ile gövde+baş `acrossfade` döngüsü ve

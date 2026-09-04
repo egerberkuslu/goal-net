@@ -81,12 +81,16 @@ const SEC_NEUTRAL = 0, SEC_RED = 1, SEC_BLUE = 2;
 
 // Muted jackets in the neutral side stands, team tones behind the goals.
 // Nothing is pure white: the night lighting blows those highlights out.
+// Brighter than they were: under the old flat lighting these had to be
+// muted or they glowed, and under the floodlight key they went to mud. Real
+// crowds are a scatter of jackets, and a quarter of them are white.
 const NEUTRAL_COLORS = [
-  0x4a5a7a, 0x6b5a4a, 0x3f6b5a, 0x7a5a6b, 0x8a7a4a,
-  0x5a5a5a, 0x6b4a4a, 0x4a6b7a, 0x7a6a52, 0x55607a,
+  0x5f6f93, 0x8a7159, 0x4f8a6e, 0x94708a, 0xb09a5a,
+  0x7d7d7d, 0x8c5c5c, 0x5f8aa0, 0x9c8a66, 0x6f7aa0,
+  0xd9d4c8, 0xe0d8c0, 0xcfd6e0, 0x2f2f38,
 ];
-const RED_COLORS = [0xc23a3a, 0xa82f2f, 0xd4534a, 0x8e2626, 0xb84040];
-const BLUE_COLORS = [0x3560c8, 0x2b4ea8, 0x4a76d8, 0x24407f, 0x3f6bbf];
+const RED_COLORS = [0xd94040, 0xc03434, 0xe45c52, 0xa62a2a, 0xcc4a4a, 0xf0e6dc];
+const BLUE_COLORS = [0x3e6fe0, 0x3157c0, 0x5686ee, 0x2a4a99, 0x4a78d6, 0xe4ecf6];
 const RED_SCARVES = [0xe0d6bd, 0xdca63c];
 const BLUE_SCARVES = [0xcdd8ea, 0x2fbfb0];
 const SCARF_CHANCE = 0.16;

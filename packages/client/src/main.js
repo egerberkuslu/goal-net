@@ -190,6 +190,37 @@ addEventListener('keydown', (e) => {
   pause.toggle();
 });
 
+// Bloom, so the floodlights flare and the whites of a kit catch the light.
+// The composer is optional twice over: it is built lazily from the addons
+// bundle, and if that import fails the plain render carries on. The threshold
+// is high so only the brightest few things bloom — lamps, the glow sprites,
+// specular on the ball — and the pitch stays crisp.
+let render = () => renderer.render(scene, camera);
+// The composer renders several passes and renderer.info resets on each, so a
+// budget check reading it after the frame saw the bloom composite alone: "1
+// draw call, 1 triangle". Reset it once per frame ourselves and let the
+// passes add up.
+renderer.info.autoReset = false;
+(async () => {
+  try {
+    const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }] = await Promise.all([
+      import('three/addons/postprocessing/EffectComposer.js'),
+      import('three/addons/postprocessing/RenderPass.js'),
+      import('three/addons/postprocessing/UnrealBloomPass.js'),
+    ]);
+    const { Vector2 } = await import('three');
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloom = new UnrealBloomPass(new Vector2(innerWidth, innerHeight), 0.42, 0.55, 0.82);
+    composer.addPass(bloom);
+    addEventListener('resize', () => composer.setSize(innerWidth, innerHeight));
+    render = () => composer.render();
+    window.__bloom = bloom;
+  } catch (err) {
+    console.warn('bloom unavailable, plain render:', err?.message || err);
+  }
+})();
+
 let last = performance.now() / 1000;
 let accumulator = 0;
 
@@ -252,7 +283,8 @@ function frame(nowMs) {
   fx.update(dt);
   const aiming = app.game.state === 'play' || app.game.state === 'kickoff';
   for (const av of app.aimViews) av.update(aiming && app.game.isHuman(av.player) && !replay);
-  renderer.render(scene, camera);
+  renderer.info.reset();
+  render();
 }
 requestAnimationFrame(frame);
 

@@ -22,6 +22,96 @@ const BOARD_URLS = (() => {
 })();
 const boardTextures = new Map();   // url -> THREE.Texture, decoded once
 
+// The board itself, authored in Blender (tools/blender/make-board.py): a dark
+// frame around a white face that leans back six degrees, in the two lengths
+// the stadium uses. Found the same way as the banners. Until it loads — or
+// forever, without the file — each board is the plain box it always was.
+const BOARD_GLB = (() => {
+  try {
+    const found = import.meta.glob('./boards/*.glb', {
+      eager: true, query: '?url', import: 'default',
+    });
+    const urls = Object.keys(found).sort().map((k) => found[k]);
+    return urls[0] || null;
+  } catch {
+    return null;
+  }
+})();
+let boardMeshes = null;   // Promise<{ 'board-6': Mesh, 'board-3.8': Mesh } | null>
+
+function loadBoardMeshes() {
+  if (boardMeshes) return boardMeshes;
+  boardMeshes = (async () => {
+    if (!BOARD_GLB || typeof fetch !== 'function') return null;
+    try {
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      const gltf = await new Promise((ok, fail) => new GLTFLoader().load(BOARD_GLB, ok, undefined, fail));
+      // A two-material Blender mesh arrives as a GROUP of two meshes (one per
+      // primitive), named for the mesh with a child each for frame and face.
+      // Looking for a Mesh called 'board-6' therefore found nothing, and every
+      // board stayed a box — caught by the screenshot, not by any test.
+      // three.js sanitises node names for property binding: the dot in
+      // "board-3.8" does not survive the loader. Match on the prefix.
+      const out = {};
+      gltf.scene.traverse((o) => {
+        if (o.name === 'board-6') out['board-6'] = o;
+        else if (/^board-3/.test(o.name)) out['board-3.8'] = o;
+      });
+      return out['board-6'] && out['board-3.8'] ? out : null;
+    } catch (err) {
+      // visible from the console: window.__boards.error
+      if (typeof window !== 'undefined') window.__boards = { glb: BOARD_GLB, error: String(err) };
+      return null;
+    }
+  })();
+  boardMeshes.then((nodes) => {
+    if (typeof window !== 'undefined') {
+      window.__boards = { ...(window.__boards || {}), glb: BOARD_GLB, loaded: !!nodes };
+    }
+  });
+  return boardMeshes;
+}
+
+/**
+ * Turn a plain box board into the authored one, keeping its place.
+ *
+ * The authored mesh carries two materials — frame, then face — and the
+ * banner belongs on the face only, which is why applyBoard's material is
+ * moved onto slot 1 rather than the whole mesh. The mesh's +Z is the pitch
+ * side; `yaw` turns it to look at the pitch from wherever it stands.
+ *
+ * @param {THREE.Mesh} box the placeholder already in the scene
+ * @param {'board-6'|'board-3.8'} which
+ * @param {number} yaw radians about Y
+ * @param {THREE.Material} faceMat the material applyBoard() is painting
+ */
+function dressBoard(box, which, yaw, faceMat) {
+  loadBoardMeshes().then((nodes) => {
+    if (!nodes || !box.parent) return;
+    const board = nodes[which].clone(true);
+    board.position.copy(box.position);
+    board.rotation.y = yaw;
+    board.traverse((o) => {
+      if (!o.isMesh) return;
+      const isFace = /face/i.test(o.material?.name || '');
+      if (isFace) {
+        o.material = faceMat;
+      } else {
+        o.material = o.material.clone();
+        if (faceMat.transparent) {
+          // the camera-side run stays see-through, frame included
+          o.material.transparent = true;
+          o.material.opacity = faceMat.opacity;
+          o.material.depthWrite = false;
+        }
+      }
+      o.castShadow = box.castShadow;
+    });
+    box.parent.add(board);
+    box.parent.remove(box);
+  });
+}
+
 /**
  * Hang a banner on one board's material, if there is one to hang.
  *
@@ -41,7 +131,7 @@ function applyBoard(mat, index, repeatX = 1) {
     const t = repeatX === 1 ? tex : tex.clone();
     if (repeatX !== 1) { t.repeat.x = repeatX; t.needsUpdate = true; }
     mat.map = t;
-    mat.color.setHex(0xffffff);   // let the image's own colours through
+    mat.color.setHex(0xdedede);   // the image's own colours, a shade under white so bloom does not glare
     mat.needsUpdate = true;
   };
   if (boardTextures.has(url)) { onto(boardTextures.get(url)); return; }
@@ -149,9 +239,81 @@ export function buildGoalFrames(scene, config) {
   };
 }
 
+/**
+ * The sky: a gradient dome rather than a flat colour.
+ *
+ * The scene background was one navy; from the broadcast camera that is a void
+ * the stands sit in. A dome with a dusk band low down and the night colour
+ * overhead gives the floodlight glow something to sit against and the stands a
+ * horizon. Vertex colours on an inverted sphere: one draw call, no texture.
+ */
+function addSkyDome(scene) {
+  const geo = new THREE.SphereGeometry(220, 24, 12);
+  const pos = geo.getAttribute('position');
+  const col = new Float32Array(pos.count * 3);
+  const top = new THREE.Color(0x070c1c);
+  const mid = new THREE.Color(0x14203f);
+  const rim = new THREE.Color(0x3a2a48);   // the dusk band, faintly warm
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 220;          // -1..1
+    const t = Math.max(0, Math.min(1, (y + 0.05) / 0.5));
+    if (y < 0.02) c.copy(rim).lerp(mid, Math.max(0, (y + 0.15) / 0.17));
+    else c.copy(mid).lerp(top, t);
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const dome = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false,
+  }));
+  dome.name = 'sky';
+  dome.renderOrder = -10;
+  scene.add(dome);
+}
+
+/**
+ * What a floodlight looks like at night: a bloom of light at the head — an
+ * additive sprite that costs nothing to light, which the bloom pass in main.js
+ * then flares.
+ */
+function addFloodlightGlow(scene, at) {
+  const glowTex = (() => {
+    if (typeof document === 'undefined') return null;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const g = cv.getContext('2d');
+    if (!g) return null;
+    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(255,246,220,1)');
+    grad.addColorStop(0.25, 'rgba(255,240,200,0.55)');
+    grad.addColorStop(1, 'rgba(255,236,190,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  })();
+  if (glowTex) {
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false,
+      transparent: true, opacity: 0.9, fog: false,
+    }));
+    glow.scale.set(7, 7, 1);
+    glow.position.copy(at);
+    scene.add(glow);
+  }
+  // No beam cones. A first pass drew a faint additive cone from each head to
+  // the centre circle and the broadcast camera showed four hard-edged wedges
+  // lying across the pitch; the glow at the head, flared by the bloom pass, is
+  // what reads as a floodlight from that camera.
+}
+
 function addStadium(scene) {
-  const standMat = new THREE.MeshLambertMaterial({ color: 0x232c44 });
-  const seatMat = new THREE.MeshLambertMaterial({ color: 0x2e3a5c });
+  // Concrete and seat rows rather than two navies: the stands were reading
+  // as a void the crowd floated in, and under the warm key light a mid grey
+  // gives the terraces edges and the crowd a floor to sit on.
+  const standMat = new THREE.MeshLambertMaterial({ color: 0x4a4f5c });
+  const seatMat = new THREE.MeshLambertMaterial({ color: 0x3a4460 });
   // tiered stands: far touchline + both goal ends. The near (+x) side is
   // deliberately open — broadcast style — so the camera always sees the
   // bottom of the pitch; only the ad boards line that edge.
@@ -178,6 +340,7 @@ function addStadium(scene) {
     head.position.set(sx * 13.5, 14.2, sz * 22.5);
     head.lookAt(0, 0, 0);
     scene.add(head);
+    addFloodlightGlow(scene, head.position);
   }
   // ad boards sit flush with the invisible walls, right behind the lines,
   // so wall rebounds visibly come off the boards
@@ -190,7 +353,10 @@ function addStadium(scene) {
     // touchline boards at the side walls; the near (+x, camera-side) run is
     // translucent so it never hides the ball along the bottom touchline
     for (let z = -18; z < 18; z += 6) {
-      const mat = new THREE.MeshLambertMaterial({ color: colors[ci % 4] });
+      // Unlit on purpose: a perimeter board is an LED panel, lit from within,
+      // and the key light comes from behind the far run anyway — with Lambert
+      // the banners on that side went grey.
+      const mat = new THREE.MeshBasicMaterial({ color: colors[ci % 4] });
       applyBoard(mat, ci++);
       if (side > 0) {
         mat.transparent = true;
@@ -201,16 +367,20 @@ function addStadium(scene) {
       b.position.set(side * (WALL_X + 0.06), 0.38, z + 3);
       b.castShadow = side < 0;
       scene.add(b);
+      // -x side faces +x (yaw +90°), +x side faces -x (yaw -90°)
+      dressBoard(b, 'board-6', side < 0 ? Math.PI / 2 : -Math.PI / 2, mat);
     }
     // goal-line boards from each post out to the side walls
     for (const sx of [-1, 1]) {
       for (let i = 0; i < 2; i++) {
-        const mat = new THREE.MeshLambertMaterial({ color: colors[ci % 4] });
+        const mat = new THREE.MeshBasicMaterial({ color: colors[ci % 4] });
         applyBoard(mat, ci++, 3.8 / 6);
         const b = new THREE.Mesh(endBoard, mat);
         b.position.set(sx * (3.85 + 1.9 + i * 3.8), 0.38, side * (PITCH_HALF_L + 0.12));
         b.castShadow = true;
         scene.add(b);
+        // the -z end faces +z (yaw 0), the +z end faces -z (yaw 180°)
+        dressBoard(b, 'board-3.8', side < 0 ? 0 : Math.PI, mat);
       }
     }
   }
@@ -228,20 +398,32 @@ export function createScene(container) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b1226);
   scene.fog = new THREE.Fog(0x0b1226, 60, 160);
+  addSkyDome(scene);
 
   const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 300);
   camera.position.set(28, 23, 0);
   camera.lookAt(0, 0, 0);
 
-  scene.add(new THREE.HemisphereLight(0xc4d6ff, 0x1c3a24, 0.8));
-  const sun = new THREE.DirectionalLight(0xfff2d8, 1.5);
-  sun.position.set(24, 34, 12);
+  // A night match under floodlights, not a day under a sun. The key light is
+  // the warm white of a floodlight bank and comes in low from the stand side
+  // so faces and the near side of every player catch it; a cool, dim fill
+  // from the opposite corner keeps the shadow side readable instead of black.
+  // The hemisphere is the sky glow over the pitch's own green bounce.
+  scene.add(new THREE.HemisphereLight(0x8fa8d8, 0x1d4a26, 0.72));
+  const sun = new THREE.DirectionalLight(0xfff0cf, 2.1);
+  sun.position.set(-22, 30, 14);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -30; sun.shadow.camera.right = 30;
   sun.shadow.camera.top = 30; sun.shadow.camera.bottom = -30;
   sun.shadow.camera.far = 90;
+  sun.shadow.bias = -0.0004;
+  sun.shadow.radius = 3;
   scene.add(sun);
+  const fill = new THREE.DirectionalLight(0x6f86c9, 0.6);
+  fill.position.set(26, 18, -20);
+  scene.add(fill);
+  renderer.toneMappingExposure = 1.15;
 
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(30, 48),
