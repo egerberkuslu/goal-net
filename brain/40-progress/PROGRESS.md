@@ -36,6 +36,11 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-09-05 (2): A yönü v2 adayları girdi: kale arkasında bayrak sallayan
+  taraftar (tek InstancedMesh, gol amp'iyle savruluyor), karşı duvara
+  skorboard (game.js'in beslediği kanvas panel geri geldi), futbolcuda
+  numara/takıma bağlı ten+saç çeşitliliği. `test:crowd` 3 çağrı bekliyor.
+  Son ölçüm: masaüstü 200, mobil 126 çağrı (medyan), 60 FPS, anim 156/156.
 - 2026-09-05: A yönü devam. Futbolcu silueti (Blender gövde profili: omuz
   rafı dışa alınıp dik düşürüldü, boyun kütüğü; `playerView`: boyun silindiri,
   bacağa bağlı krampon). Tribün kabuğu 35 mesh'ten 3 mesh'e (mergeGeometries).
