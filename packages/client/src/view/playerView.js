@@ -210,15 +210,34 @@ export class PlayerView {
     this.head = head;
     this.group.add(head);
     useAuthoredPart(head, 'head');
+    // A neck. The torso's top is a point 8 cm under the head's centre, so the
+    // head sat on the shoulders like a ball on a shelf; a short skin cylinder
+    // between them is the cheapest cue that this is a person, not a mannequin.
+    const neck = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.058, 0.07, 0.10, 10),
+      new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.8 }),
+    );
+    neck.position.y = 1.41;
+    neck.castShadow = true;
+    this.group.add(neck);
 
     const legGeo = new THREE.CylinderGeometry(0.075, 0.06, 0.55, 10);
     legGeo.translate(0, -0.275, 0); // pivot at the hip
+    // Boots ride on the leg, so they swing with the kick instead of hovering
+    // where the foot used to be. Dark, like every boot from the stands.
+    const bootGeo = new THREE.BoxGeometry(0.10, 0.07, 0.20);
+    bootGeo.translate(0, -0.03, 0.04);   // sole under the ankle, toe forward
+    const bootMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.45 });
     this.legs = [-1, 1].map((side) => {
       const leg = new THREE.Mesh(legGeo, shorts);
       leg.position.set(side * 0.11, 0.62, 0);
       leg.castShadow = true;
       this.group.add(leg);
       useAuthoredPart(leg, 'leg');
+      const boot = new THREE.Mesh(bootGeo, bootMat);
+      boot.position.y = -0.55;
+      boot.castShadow = true;
+      leg.add(boot);
       return leg;
     });
 

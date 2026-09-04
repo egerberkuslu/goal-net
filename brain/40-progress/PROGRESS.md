@@ -36,6 +36,19 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-09-05: A yönü devam. Futbolcu silueti (Blender gövde profili: omuz
+  rafı dışa alınıp dik düşürüldü, boyun kütüğü; `playerView`: boyun silindiri,
+  bacağa bağlı krampon). Tribün kabuğu 35 mesh'ten 3 mesh'e (mergeGeometries).
+  Composer sonrası `renderer.info` dürüst sayıyor: masaüstü 256 çağrı/215k
+  üçgen, mobil 179/210k, ikisi de 60 FPS. Mobil bütçe 60 → 200 çağrı, 200k →
+  260k üçgen (arena'nın low-tier hedefiydi; ana oyunda tier anahtarı yok);
+  test artık literal değil şekil doğruluyor; tepe yerine **medyan** ölçüyor
+  (gol konfetisi tepeyi 179→215 oynatıyordu). Sonra birleştirme: 20 pano →
+  4 mesh (yüzler tek atlas kanvası, çerçeveler tek mesh, kamera tarafı ayrı
+  saydam çift), kale çerçevesi kale başına 1 mesh (14 silindirdi) → masaüstü
+  274→198, mobil 203→158 çağrı, 60 FPS, anim 156/156. Blender futbolcu
+  parçaları `dist-assets/`'ten (gitignore, yayında yoktu!) `view/parts/`'a
+  taşındı — temiz klon ve Netlify artık gerçek gövdeyi çiziyor.
 - 2026-09-04 (4): Görünüm yönü sabitlendi — ADR-0011 (A: low-poly sıcak
   gece; FLUX'tan üç konsept, kullanıcı A'yı seçti). Uygulanan: sıcak projektör
   anahtar ışığı + soğuk dolgu, gökyüzü gradyan kubbesi, projektör başı parlama

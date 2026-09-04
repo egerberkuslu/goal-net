@@ -34,7 +34,7 @@ import math
 import os
 import sys
 
-OUT_DIR = os.path.join(os.getcwd(), "dist-assets")
+OUT_DIR = os.path.join(os.getcwd(), "packages", "client", "src", "view", "parts")
 OUT_GLB = os.path.join(OUT_DIR, "view-parts.glb")
 
 # Metres. Half-extents in x/y/z, matching the primitives listed above.
@@ -117,9 +117,10 @@ def make_torso():
         (-0.22, 0.78),  # waist
         (0.14, 0.92),
         (0.46, 1.00),  # chest
-        (0.66, 0.98),  # shoulder shelf
-        (0.80, 0.72),
-        (0.93, 0.44),  # neck
+        (0.70, 1.00),  # shoulder shelf, held out to the top of the arm
+        (0.76, 0.78),  # and dropped sharply: this corner is what reads as
+        (0.86, 0.40),  # "shoulders" at twenty pixels; a slope reads as a bottle
+        (0.94, 0.30),  # neck stub the head sits on
         (1.00, 0.00),
     ]
     bm = bmesh.new()

@@ -1,6 +1,6 @@
 // Swapping the primitives for the Blender-authored body parts.
 //
-// tools/blender/make-view-parts.py writes dist-assets/view-parts.glb: a torso
+// tools/blender/make-view-parts.py writes view/parts/view-parts.glb: a torso
 // with shoulders, a head with a jaw, and two limbs with muscle, authored at
 // exactly the extents of the CapsuleGeometry, SphereGeometry and
 // CylinderGeometry that playerView.js builds. Because the extents match, this
@@ -16,7 +16,19 @@
 
 import * as THREE from 'three';
 
-export const PARTS_URL = '/dist-assets/view-parts.glb';
+// Shipped with the build, like the banners and the clips (ADR-0010): the file
+// lives under view/parts/ and is found with import.meta.glob. dist-assets/ is
+// gitignored and never copied by `vite build`, which is where this used to be
+// — every fresh clone and every deploy drew capsules. The old path stays as a
+// fallback for a checkout that has the old file and not yet the new.
+export const PARTS_URL = (() => {
+  try {
+    const found = import.meta.glob('./parts/*.glb', { eager: true, query: '?url', import: 'default' });
+    const urls = Object.keys(found).sort().map((k) => found[k]);
+    if (urls[0]) return urls[0];
+  } catch { /* node */ }
+  return '/dist-assets/view-parts.glb';
+})();
 
 /**
  * Each part's expected half-extents in metres, and where its pivot goes.
