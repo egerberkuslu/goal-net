@@ -94,6 +94,8 @@ const BLUE_COLORS = [0x3e6fe0, 0x3157c0, 0x5686ee, 0x2a4a99, 0x4a78d6, 0xe4ecf6]
 const RED_SCARVES = [0xe0d6bd, 0xdca63c];
 const BLUE_SCARVES = [0xcdd8ea, 0x2fbfb0];
 const SCARF_CHANCE = 0.16;
+const FLAG_CHANCE = 0.07;
+const FLAG_COLORS = [[0xe23b3b, 0xf0e6dc], [0x3b6de2, 0xe4ecf6]];  // red end, blue end
 const SKIN_COLORS = [0xe8b98f, 0xc98f66, 0x9a6a45, 0xf0cba6, 0x7a5238];
 
 const GOAL_CHEER_TIME = 2.5;
@@ -158,6 +160,21 @@ transformed.x += idleSway * (1.0 - sad * 0.7) * (1.0 + amp * 2.2) * transformed.
 transformed.z += sad * 0.14 * max(transformed.y, 0.0);
 `;
 
+// Cloth sway for the flags. Vertices out along the cloth (x > 0) move in a
+// travelling wave that grows with distance from the pole; the pole itself
+// rocks a little. amp (the section's goal celebration) whips both.
+const FLAG_BODY = /* glsl */`
+{
+  float famp = aSec < 0.5 ? uAmp.x : (aSec < 1.5 ? uAmp.y : uAmp.z);
+  float reach = max(transformed.x, 0.0);
+  float wave = sin(uTime * (3.2 + aRate * 1.5) + aPhase - reach * 5.0);
+  transformed.z += wave * (0.06 + 0.35 * famp) * reach;
+  transformed.y += cos(uTime * 2.1 + aPhase) * 0.02 * reach * (1.0 + 3.0 * famp);
+  float rock = sin(uTime * 1.3 + aPhase) * (0.04 + 0.25 * famp);
+  transformed.x += rock * transformed.y * 0.3;
+}
+`;
+
 export class CrowdView {
   constructor(scene) {
     const rnd = mulberry32(0x5eed17);
@@ -193,6 +210,8 @@ export class CrowdView {
       g.setAttribute('aSec', sec);
       g.setAttribute('aRate', rate);
     }
+
+    this.#buildFlags(scene, seats, phase, sec, rate);
 
     const bodyMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const headMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
@@ -253,7 +272,63 @@ export class CrowdView {
 
     this.group = new THREE.Group();
     this.group.add(this.bodies, this.heads);
+    if (this.flags) this.group.add(this.flags);
     scene.add(this.group);
+  }
+
+  /**
+   * The flags behind the goals: one InstancedMesh of pole-and-cloth quads,
+   * one draw call, coloured by end. The cloth sways on the crowd's own clock
+   * and whips harder when that end's block is celebrating, because a flag is
+   * the first thing a goal moves.
+   */
+  #buildFlags(scene, seats, phaseAttr, secAttr, rateAttr) {
+    const wavers = seats.filter((s) => s.flag);
+    if (!wavers.length) return;
+    // pole (thin box) + cloth (quad) merged; origin at the hand, cloth at the top
+    const pole = new THREE.BoxGeometry(0.03, 1.1, 0.03);
+    pole.translate(0, 0.55, 0);
+    const cloth = new THREE.PlaneGeometry(0.55, 0.36, 4, 1);
+    cloth.translate(0.29, 0.92, 0);
+    const geo = mergeGeometries([pole, cloth], false);
+    pole.dispose(); cloth.dispose();
+    const n = wavers.length;
+    const phase = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
+    const sec = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
+    const rate = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
+    geo.setAttribute('aPhase', phase);
+    geo.setAttribute('aSec', sec);
+    geo.setAttribute('aRate', rate);
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+    mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, this.uniforms);
+      shader.vertexShader = WOBBLE_DECL + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>\n${FLAG_BODY}`,
+      );
+    };
+    const mesh = new THREE.InstancedMesh(geo, mat, n);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const col = new THREE.Color();
+    wavers.forEach((w, i) => {
+      q.setFromAxisAngle(up, w.rot);
+      m.compose(new THREE.Vector3(w.x, w.y + SEAT_PAN_H + 0.55, w.z), q, new THREE.Vector3(1, 1, 1));
+      mesh.setMatrixAt(i, m);
+      const pair = FLAG_COLORS[w.sec === SEC_RED ? 0 : 1];
+      mesh.setColorAt(i, col.setHex(pair[i % 2]));
+      phase.array[i] = w.phase; sec.array[i] = w.sec; rate.array[i] = w.rate;
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor.needsUpdate = true;
+    mesh.frustumCulled = false;
+    mesh.castShadow = false;
+    mesh.name = 'crowd:flags';
+    // joins the crowd's own group below, so the ground still adds one object
+    this.flags = mesh;
+    void phaseAttr; void secAttr; void rateAttr;
   }
 
   update(dt, time) {
@@ -379,6 +454,8 @@ function buildSeats(rnd) {
       : palette[(rnd() * palette.length) | 0];
     seats.push({
       x, y, z, sec, color,
+      // one in fourteen behind the goals brought a flag
+      flag: sec !== SEC_NEUTRAL && rnd() < FLAG_CHANCE,
       skin: SKIN_COLORS[(rnd() * SKIN_COLORS.length) | 0],
       // face the pitch centre, with a bit of slouch either way
       rot: Math.atan2(-x, -z) + (rnd() - 0.5) * 0.44,

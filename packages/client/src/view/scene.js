@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ScoreboardView } from './scoreboardView.js';
 import {
   GOAL_W, GOAL_H, POST_R, NET_TOP_DEPTH, NET_BOT_DEPTH,
   PITCH_HALF_L, PITCH_HALF_W, WALL_X,
@@ -424,6 +425,13 @@ function addStadium(scene) {
   };
   shell(52, -(14.5 + 2 * 2.3 + 1.1), 0, true);              // far touchline
   for (const side of [-1, 1]) shell(34, 0, side * (23.5 + 2 * 2.3 + 1.1), false);   // both ends
+  // The scoreboard hangs on the far wall over the halfway line, where the
+  // broadcast camera has it in frame all match. game.js feeds it through
+  // scene.userData.scoreboard; it is a canvas panel that repaints only when
+  // the numbers change (see scoreboardView.js).
+  scene.userData.scoreboard = new ScoreboardView(scene, {
+    x: -(14.5 + 2 * 2.3 + 1.1) + 0.32, y: topY + wallH - 1.9, z: 0, yaw: Math.PI / 2,
+  });
   for (const [parts, mat, shadow] of [[walls, wallMat, false], [lips, lipMat, true], [lamps, lampMat, false]]) {
     const merged = new THREE.Mesh(mergeGeometries(parts, false), mat);
     merged.castShadow = shadow;

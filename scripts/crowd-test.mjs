@@ -19,10 +19,15 @@ const scene = { add(obj) { added.push(obj); } };
 const crowd = new CrowdView(scene);
 
 check('crowd added to scene as one group', added.length === 1, `added ${added.length}`);
-check('two draw calls (bodies + heads)',
-  crowd.group.children.length === 2
+// Three instanced meshes: bodies, heads, and the flags behind the goals. Each
+// is one draw call whatever the crowd's size.
+check('three draw calls (bodies + heads + flags)',
+  crowd.group.children.length === 3
   && crowd.group.children.every((c) => c.isInstancedMesh),
   `children ${crowd.group.children.length}`);
+check('the flags are a fraction of the end stands, not the whole crowd',
+  crowd.flags && crowd.flags.count > 20 && crowd.flags.count < crowd.count * 0.1,
+  `${crowd.flags?.count} flags for ${crowd.count} seats`);
 check('instance count in range 1200..4000',
   crowd.count >= 1200 && crowd.count <= 4000, `count ${crowd.count}`);
 check('both meshes sized to the instance count',
@@ -120,7 +125,7 @@ check('celebration decays to idle within 2.5 s',
 crowd.bodies.getMatrixAt(0, m);
 check('instance matrices untouched by update()', m.elements.every(Number.isFinite));
 
-console.log(`INFO  instances: ${crowd.count} (${crowd.count * 2} across 2 draw calls)`);
+console.log(`INFO  instances: ${crowd.count} (${crowd.count * 2} across 2 draw calls, + ${crowd.flags?.count} flags in a third)`);
 console.log(`INFO  update() average: ${avgMs.toFixed(5)} ms/frame over ${FRAMES} frames`);
 // ------------------------------------------------- silhouette cost (2026-08-09)
 //
@@ -134,8 +139,8 @@ console.log(`INFO  update() average: ${avgMs.toFixed(5)} ms/frame over ${FRAMES}
   const head = tris(crowd.heads.geometry);
   check('a spectator stays under 60 triangles', body + head <= 60,
     `${body} body + ${head} head = ${body + head}`);
-  check('the crowd is still two draw calls',
-    crowd.bodies.isInstancedMesh && crowd.heads.isInstancedMesh);
+  check('the crowd is still three draw calls',
+    crowd.bodies.isInstancedMesh && crowd.heads.isInstancedMesh && crowd.flags.isInstancedMesh);
 }
 
 

@@ -177,8 +177,14 @@ export class PlayerView {
     this.#wantKitImage(this.kitSpec);
     // Skin, hair and the sock, which is the kit colour a viewer reads at the
     // ankle when the shirt is hidden behind another player.
-    const SKIN = 0xe8b98f;
-    const HAIR = 0x2a1c12;
+    // Not one man eleven times: skin and hair come from small palettes, picked
+    // by shirt number and side so the same player always gets the same face
+    // and two team-mates never share one.
+    const SKINS = [0xe8b98f, 0xd9a677, 0xc98f66, 0xa3714c, 0x7a5238, 0xf0cba6];
+    const HAIRS = [0x2a1c12, 0x0e0c0a, 0x5a3a1e, 0x8a6a3a, 0xb99a5a, 0x3a3a3a];
+    const seed = ((player.number ?? 0) * 3 + (player.team | 0) * 5 + (player.role === 'keeper' ? 1 : 0)) | 0;
+    const SKIN = SKINS[seed % SKINS.length];
+    const HAIR = HAIRS[(seed * 7 + 2) % HAIRS.length];
     // A head with hair and a face, and a leg that is shorts, then leg, then
     // sock, then boot. Both fall back to the flat colour they always had where
     // there is no canvas to draw on.
