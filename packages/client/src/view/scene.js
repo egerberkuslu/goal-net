@@ -329,6 +329,47 @@ function addStadium(scene) {
       scene.add(e);
     }
   }
+  // The shell behind the terraces: a back wall the crowd sits against, a roof
+  // lip over the top tier, and a run of small lamps under the lip. Without
+  // these the stands were three steps floating in the night; the wall gives
+  // them a back, the lip a top edge the key light catches, and the lamps —
+  // unlit material, so the bloom pass flares them — the lit rim every ground
+  // has at night. The camera side stays open, as it always has.
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x3a3f4d });
+  const lipMat = new THREE.MeshLambertMaterial({ color: 0x5a6070 });
+  const lampMat = new THREE.MeshBasicMaterial({ color: 0xfff2d2 });
+  const topY = 1.6 + 2 * 0.4 + 2 * 1.1;        // top of the third tier
+  const wallH = 4.2;
+  const shell = (len, cx, cz, alongZ) => {
+    const wall = new THREE.Mesh(
+      new THREE.BoxGeometry(alongZ ? 0.6 : len, wallH, alongZ ? len : 0.6), wallMat,
+    );
+    wall.position.set(cx, topY + wallH / 2 - 0.4, cz);
+    scene.add(wall);
+    const lip = new THREE.Mesh(
+      new THREE.BoxGeometry(alongZ ? 3.4 : len + 1.2, 0.35, alongZ ? len + 1.2 : 3.4), lipMat,
+    );
+    // the lip hangs over the crowd, toward the pitch
+    const inward = alongZ ? -Math.sign(cx) : -Math.sign(cz);
+    lip.position.set(
+      cx + (alongZ ? inward * 1.4 : 0), topY + wallH - 0.4, cz + (alongZ ? 0 : inward * 1.4),
+    );
+    lip.castShadow = true;
+    scene.add(lip);
+    // lamps under the lip, every 4 m
+    const n = Math.floor(len / 4);
+    for (let i = 0; i < n; i++) {
+      const o = (i - (n - 1) / 2) * 4;
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(alongZ ? 0.5 : 1.2, 0.12, alongZ ? 1.2 : 0.5), lampMat);
+      lamp.position.set(
+        cx + (alongZ ? inward * 2.6 : o), topY + wallH - 0.62, cz + (alongZ ? o : inward * 2.6),
+      );
+      scene.add(lamp);
+    }
+  };
+  shell(52, -(14.5 + 2 * 2.3 + 1.1), 0, true);              // far touchline
+  for (const side of [-1, 1]) shell(34, 0, side * (23.5 + 2 * 2.3 + 1.1), false);   // both ends
+
   // floodlight pylons
   const poleMat = new THREE.MeshLambertMaterial({ color: 0x8b94a8 });
   const headMat = new THREE.MeshBasicMaterial({ color: 0xfff6d8 });

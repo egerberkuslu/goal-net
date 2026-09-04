@@ -36,6 +36,19 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-09-04 (4): Görünüm yönü sabitlendi — ADR-0011 (A: low-poly sıcak
+  gece; FLUX'tan üç konsept, kullanıcı A'yı seçti). Uygulanan: sıcak projektör
+  anahtar ışığı + soğuk dolgu, gökyüzü gradyan kubbesi, projektör başı parlama
+  + UnrealBloom (composer için `renderer.info` elle reset), kendinden aydınlık
+  LED panolar (Lambert'te karşı sıra griye dönüyordu), daha canlı kalabalık
+  giysileri, beton tribün + arka duvar + çatı hattı + alt-çatı lambaları.
+  Varsayılan formalar FLUX motifleriyle (çizim anında takım renklerine
+  boyanan siyah-beyaz swatch); Blender'da çerçeveli/yatık pano meshi
+  (`make-board.py`, iki materyalli mesh Group olarak gelir, `board-3.8` adı
+  noktasını kaybeder). Botlar köşede saha içi hedefe kırpıldı; `squads`
+  testi tohumlandı. Geliştirme 5311'de, 5199 kullanıcının. Hüzme konileri
+  denendi ve kaldırıldı (yayın kamerasında sert kamalar). Her adım
+  `scripts/shot.mjs` ile doğrulandı.
 - 2026-09-04 (3): Faz C (forma desenleri) BİTTİ — dört fazın hepsi kapandı.
   `tools/gen-kits.py`: FLUX siyah-beyaz swatch (512→256) çizer, Pillow
   eşikleyip preset'in KENDİ base/accent hex'lerine boyar → `view/kits/<key>.webp`;
