@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
-  KIT_PRESETS, defaultKitFor, makeHeadTexture, makeKitTexture, makeLegTexture,
+  KIT_PRESETS, defaultKitFor, kitImage, loadKitImage, makeHeadTexture, makeKitTexture,
+  makeLegTexture,
 } from './kitTexture.js';
 // Bodies authored in Blender (tools/blender/make-view-parts.py) at exactly the
 // primitives' own extents, so they drop in as a geometry swap: shoulders, a
@@ -172,6 +173,8 @@ export class PlayerView {
     // that answers "which team is this player wearing?".
     this.kitSpec = kitMap ? kitSpec : { base: css6(jerseyColor), pattern: 'plain' };
     this.shirtNumber = kitSpec.number ?? null;
+    // After kitSpec is set: the reload compares identity against it.
+    this.#wantKitImage(this.kitSpec);
     // Skin, hair and the sock, which is the kit colour a viewer reads at the
     // ankle when the shirt is hidden behind another player.
     const SKIN = 0xe8b98f;
@@ -271,6 +274,18 @@ export class PlayerView {
   }
 
   /**
+   * If this kit is drawn from a generated image that has not arrived yet,
+   * fetch it and redraw once it has. The identity check drops a stale load:
+   * a player who changed kit again in the meantime keeps the newer one.
+   */
+  #wantKitImage(spec) {
+    if (typeof spec?.image !== 'string' || kitImage(spec.image)) return;
+    loadKitImage(spec.image).then((ok) => {
+      if (ok && this.kitSpec === spec && this.body) this.setKit({});
+    });
+  }
+
+  /**
    * Change this player's shirt while the match is running.
    *
    * Redraws both canvases and swaps the maps in place; the materials, meshes
@@ -325,6 +340,7 @@ export class PlayerView {
 
     this.baseKitSpec = next;
     this.kitSpec = next;
+    this.#wantKitImage(next);
     this.kitMap = shirt;
     this.sleeveMap = sleeve !== shirt ? sleeve : null;
     this.shirtNumber = next.number ?? null;

@@ -18,6 +18,7 @@ import {
   LINE_FOR_EVENT, MIN_GAP_MS, REPEAT_MS, VOICE_LINES, createVoiceState, pickVoice,
 } from '../packages/client/src/view/voiceLines.js';
 import { OUT_DIR, REF_VOICE, buildJobs } from '../tools/make-voice.mjs';
+import { KIT_PRESETS, PATTERNS, kitImage } from '../packages/client/src/view/kitTexture.js';
 
 let failures = 0;
 let warnings = 0;
@@ -136,6 +137,28 @@ section('6. the menu music: track on disk');
     // Under 50 KB is the empty-Opus-header failure the generator now guards
     // against; over 1.5 MB means someone shipped the WAV.
     check('the track is a real file (50 KB - 1.5 MB)', kb > 50 && kb < 1536, `${Math.round(kb)} KB`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+section('7. the kits: generated patterns');
+
+{
+  const dir = resolve('packages/client/src/view/kits');
+  const imageKits = Object.entries(KIT_PRESETS).filter(([, v]) => v.image);
+  check('image kits name their file by their own key',
+    imageKits.every(([k, v]) => v.image === k), imageKits.map(([k]) => k).join(','));
+  check('image kits keep a procedural fallback pattern',
+    imageKits.every(([, v]) => PATTERNS.includes(v.pattern)));
+  check('kitImage() of an unknown key is null', kitImage('yok-boyle-bir-sey') === null);
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.webp')) : [];
+  if (files.length === 0) {
+    warn('no kit patterns generated yet', `run: npm run gen:kits  (${dir})`);
+  } else {
+    const missing = imageKits.filter(([k]) => !files.includes(`${k}.webp`)).map(([k]) => k);
+    check('every image kit has its file', missing.length === 0, missing.join(',') || `${files.length}`);
+    const orphan = files.filter((f) => !KIT_PRESETS[f.slice(0, -5)]);
+    check('no file without a preset', orphan.length === 0, orphan.join(','));
   }
 }
 

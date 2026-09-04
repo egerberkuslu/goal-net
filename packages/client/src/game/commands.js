@@ -29,6 +29,8 @@ const KIT_LABELS = Object.freeze({
   'mavi-beyaz': 'mavi-beyaz çapraz',
   'yesil-beyaz': 'yeşil-beyaz çubuklu',
   'turuncu-lacivert': 'turuncu-lacivert enine',
+  'sari-kirmizi-desen': 'sarı-kırmızı desenli',
+  'siyah-beyaz-desen': 'siyah-beyaz desenli',
 });
 
 /** Every kit name, in the order the list prints them. */

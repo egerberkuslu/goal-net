@@ -1,11 +1,18 @@
 // Kits: the pattern on a shirt, drawn once per team.
 //
 // The Blender-authored torso and sleeves carry a cylindrical UV whose U runs
-// once around the body from the player's LEFT side, so the back sits at u=0.25
-// and the chest at u=0.75, with the seam under the arm. That is the whole
-// reason this can be a flat canvas rather than a shader — and the reason the
-// seam is at the side rather than down the spine, which would have cut every
-// squad number in half.
+// once around the body from the player's side, so the CHEST sits at u=0.25
+// and the BACK at u=0.75, with the seam under the arm (this header once said
+// the reverse; the code and the number's own comment are the authority). That
+// is the whole reason this can be a flat canvas rather than a shader — and the
+// reason the seam is at the side rather than down the spine, which would have
+// cut every squad number in half.
+//
+// A kit may also start from a generated pattern (tools/gen-kits.py: FLUX
+// draws a black-on-white swatch, Pillow paints it in the preset's own two
+// colours). The canvas lays that image under the trim, the number and the
+// shade exactly as it lays the procedural pattern, so a generated kit and a
+// drawn one are the same object to everything downstream.
 //
 // The number IS baked in, because it has to be: it belongs on one player's
 // back and nowhere else. A kit canvas is 256x256, which is 256 KB in memory
@@ -18,6 +25,50 @@
 // "sarı-kırmızı çubuklu" is not. So the table names the colours it draws.
 
 import * as THREE from 'three';
+
+// Generated pattern swatches, found the way the boards and the clips are:
+// import.meta.glob under ./kits/, try/catch for node, empty map = no image
+// kits and every preset falls back to its procedural pattern.
+const KIT_IMAGE_URLS = (() => {
+  try {
+    const found = import.meta.glob('./kits/*.webp', {
+      eager: true, query: '?url', import: 'default',
+    });
+    const map = Object.create(null);
+    for (const [path, url] of Object.entries(found)) {
+      map[path.slice(path.lastIndexOf('/') + 1, -'.webp'.length)] = url;
+    }
+    return map;
+  } catch {
+    return {};
+  }
+})();
+const kitImages = new Map();       // key -> HTMLImageElement, decoded
+
+/** A decoded kit image by key, or null if it is not (yet) loaded. */
+export function kitImage(key) {
+  return kitImages.get(key) || null;
+}
+
+/**
+ * Fetch and decode one kit image.
+ *
+ * @param {string} key a file stem under view/kits/
+ * @returns {Promise<boolean>} true once it can be drawn; false when there is
+ *   no such file, no DOM, or the decode fails — every one of which means "keep
+ *   the procedural pattern", not "throw"
+ */
+export function loadKitImage(key) {
+  if (kitImages.has(key)) return Promise.resolve(true);
+  const url = KIT_IMAGE_URLS[key];
+  if (!url || typeof Image === 'undefined') return Promise.resolve(false);
+  const img = new Image();
+  img.src = url;
+  const done = typeof img.decode === 'function'
+    ? img.decode()
+    : new Promise((ok, fail) => { img.onload = ok; img.onerror = fail; });
+  return done.then(() => { kitImages.set(key, img); return true; }).catch(() => false);
+}
 
 export const PATTERNS = Object.freeze(['plain', 'stripes', 'hoops', 'halves', 'sash']);
 
@@ -37,6 +88,16 @@ export const KIT_PRESETS = Object.freeze({
   'mavi-beyaz': { base: '#1d4ed8', accent: '#ffffff', trim: '#ffffff', pattern: 'sash' },
   'yesil-beyaz': { base: '#0f7b3c', accent: '#ffffff', trim: '#ffffff', pattern: 'stripes' },
   'turuncu-lacivert': { base: '#e35205', accent: '#12224d', trim: '#12224d', pattern: 'hoops' },
+  // Generated patterns (tools/gen-kits.py). `pattern` is what shows until the
+  // image lands, and what a headless build draws.
+  'sari-kirmizi-desen': {
+    base: '#a4032c', accent: '#f7b512', trim: '#f7b512', pattern: 'stripes',
+    image: 'sari-kirmizi-desen',
+  },
+  'siyah-beyaz-desen': {
+    base: '#101014', accent: '#f2f2f2', trim: '#f2f2f2', pattern: 'sash',
+    image: 'siyah-beyaz-desen',
+  },
 });
 
 const W = 256;
@@ -95,7 +156,13 @@ export function makeKitTexture(spec) {
   g.fillStyle = base;
   g.fillRect(0, 0, W, H);
   g.fillStyle = accent;
-  if (pattern === 'stripes') {
+  // A generated swatch, if this kit has one and it has arrived: it replaces
+  // the procedural pattern and nothing else. The trim, the number and the
+  // shade below are laid over it exactly as over stripes.
+  const img = typeof spec.image === 'string' ? kitImage(spec.image) : (spec.image || null);
+  if (img && typeof g.drawImage === 'function' && (img.naturalWidth || img.width)) {
+    g.drawImage(img, 0, 0, W, H);
+  } else if (pattern === 'stripes') {
     const w = W / (STRIPE_COUNT * 2);
     for (let i = 0; i < STRIPE_COUNT * 2; i += 2) g.fillRect(i * w, 0, w, H);
   } else if (pattern === 'hoops') {

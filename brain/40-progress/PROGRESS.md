@@ -36,6 +36,18 @@ DOKUNULMAZ — sadece envantere yazılır):
 - Determinizm yok (float fizik, Math.random bot gürültüsü)
 
 ## Oturum notları
+- 2026-09-04 (3): Faz C (forma desenleri) BİTTİ — dört fazın hepsi kapandı.
+  `tools/gen-kits.py`: FLUX siyah-beyaz swatch (512→256) çizer, Pillow
+  eşikleyip preset'in KENDİ base/accent hex'lerine boyar → `view/kits/<key>.webp`;
+  palet oyunun paleti kalır. `kitTexture.js`: `spec.image` varsa taban
+  dolgusunun üstüne `drawImage`, yoksa `pattern`; `kitImage()/loadKitImage()`
+  glob+cache. `playerView.#wantKitImage()` görsel gelince `setKit({})` ile
+  tek yeniden çizim (kimlik kontrolüyle eski yükleme düşer). İki preset:
+  `sari-kirmizi-desen` (şevron), `siyah-beyaz-desen` (zigzag); `/forma liste`
+  otomatik. Tarayıcıda ölçüldü: iki görsel yüklendi, iki doku uuid değişti,
+  numara sırtta; yakın ve yayın mesafesinden okunuyor. Bulgu: kurucu içinde
+  `#wantKitImage` `this.kitSpec` atanmadan çağrılmamalı (kimlik kontrolü).
+  Kalan: `test:anim` FPS'i sessiz makinede yeniden ölçmek; v2 listesi ADR-0010.
 - 2026-09-04 (2): Faz D (menü müziği) BİTTİ. `tools/make-music.mjs`
   ACE-Step'i video-lab'dan çalıştırıyor (`work/music.wav`'ı koruyup cache
   hash'inden okuyor), ffmpeg ile gövde+baş `acrossfade` döngüsü ve
